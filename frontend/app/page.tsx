@@ -220,6 +220,9 @@ export default function HomePage() {
                   e.currentTarget.nextElementSibling?.classList.remove('hidden');
                 }}
               />
+              <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full bg-slate-100 text-[11px] font-semibold text-slate-500 tracking-wide uppercase">
+                LeadFinderAgent
+              </span>
               <div className="hidden items-center text-lg font-bold tracking-tight text-slate-900">
                 Lead<span className="text-blue-600">Finder</span>
               </div>

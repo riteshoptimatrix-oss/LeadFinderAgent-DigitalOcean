@@ -1,0 +1,132 @@
+2026-08-04 10:07:44,161 - app.services.search_engine.validator - INFO - [validator:__init__:27] [VALIDATOR] Loading semantic model 'all-MiniLM-L6-v2'...
+Warning: You are sending unauthenticated requests to the HF Hub. Please set a HF_TOKEN to enable higher rate limits and faster downloads.
+Loading weights:   0%|          | 0/103 [00:00<?, ?it/s]Loading weights: 100%|██████████| 103/103 [00:00<00:00, 9294.81it/s]
+2026-08-04 10:07:49,333 - app.services.search_engine.validator - INFO - [validator:__init__:32] [VALIDATOR] Semantic model loaded successfully.
+INFO:     Started server process [162940]
+INFO:     Waiting for application startup.
+2026-08-04 10:07:51,453 - lead_finder_agent - INFO - [main:lifespan:177] Starting up Lead Finder Agent backend...
+2026-08-04 10:07:51,453 - lead_finder_agent - INFO - [database:connect_to_mongo:227] Connecting to MongoDB...
+2026-08-04 10:07:51,468 - lead_finder_agent - INFO - [database:connect_to_mongo:296] MongoDB URL: mongodb://***:***@localhost/lead_finder_agent?
+2026-08-04 10:07:51,468 - lead_finder_agent - INFO - [database:connect_to_mongo:297] Connection Type: Standard
+2026-08-04 10:07:51,468 - lead_finder_agent - INFO - [database:connect_to_mongo:298] Connection Status: SUCCESS
+2026-08-04 10:07:51,468 - lead_finder_agent - INFO - [database:connect_to_mongo:299] Selected Database: lead_finder_agent
+2026-08-04 10:07:51,468 - lead_finder_agent - INFO - [database:connect_to_mongo:300] Database Name: lead_finder_agent
+2026-08-04 10:07:51,468 - lead_finder_agent - INFO - [database:connect_to_mongo:301] Atlas Cluster Name: Local/Other
+2026-08-04 10:07:51,469 - lead_finder_agent - INFO - [database:connect_to_mongo:346] Creating MongoDB Indexes...
+2026-08-04 10:07:51,481 - lead_finder_agent - INFO - [database:connect_to_mongo:411] Connected to MongoDB and all indexes ensured.
+2026-08-04 10:07:51,481 - lead_finder_agent - INFO - [database:connect_to_mongo:419] MongoDB health monitor started.
+2026-08-04 10:07:51,482 - lead_finder_agent - INFO - [init_db:init_admin_user:29] Admin user info@optiinfo.com already exists in admins collection.
+2026-08-04 10:07:51,483 - lead_finder_agent - INFO - [init_db:init_indexes:97] Initializing Database Indexes...
+2026-08-04 10:07:51,488 - lead_finder_agent - INFO - [init_db:init_indexes:115] AI Analysis indexes created
+2026-08-04 10:07:51,490 - lead_finder_agent - INFO - [init_db:init_indexes:121] Website Audits indexes created
+2026-08-04 10:07:51,495 - lead_finder_agent - INFO - [init_db:init_indexes:141] WA Templates indexes created
+2026-08-04 10:07:51,497 - lead_finder_agent - INFO - [init_db:init_indexes:147] WA Campaigns indexes created
+2026-08-04 10:07:51,498 - lead_finder_agent - INFO - [init_db:init_indexes:152] WA Campaign History indexes created
+2026-08-04 10:07:51,500 - lead_finder_agent - INFO - [init_db:init_indexes:158] WA Message Logs indexes created
+2026-08-04 10:07:51,513 - lead_finder_agent - INFO - [init_db:init_indexes:200] Intelligence Dashboard indexes created
+2026-08-04 10:07:51,522 - lead_finder_agent - INFO - [init_db:init_indexes:239] Queue, Worker & TTL indexes created
+2026-08-04 10:07:51,522 - lead_finder_agent - INFO - [init_db:init_indexes:242] Indexes successfully created.
+2026-08-04 10:07:51,523 - lead_finder_agent - INFO - [init_db:init_email_ai_defaults:69] Email AI defaults: 1 SMTP profile(s) already present. No seeding required.
+================================================================================
+MONGODB STARTUP CONNECTION DETAILS
+================================================================================
+Mongo URI: mongodb://localhost:27017/lead_finder_agent
+Connected Database: lead_finder_agent
+Collections: email_ai_queue, email_ai_smtp, crm_activities, performance_analysis_results, activity_logs, seo_analysis_results, job_logs, wa_templates, crawl_sessions, website_audits, security_analysis_results, wa_ai_campaigns, campaigns, business_intelligence_results, dashboard_monthly_aggregates, ai_analysis, ui_ux_analysis_results, wa_campaigns, crawl_pages, dashboard_weekly_aggregates, lead_intelligence_queues, lead_intelligence_jobs, technology_detections, email_queue, worker_nodes, admins, ai_analysis_jobs, wa_message_logs, whatsapp_queue, score_configs, search_jobs, dashboard_daily_aggregates, search_queue, email_ai_campaigns, searches, audit_logs, wa_ai_templates, ai_analysis_queues, campaign_queue, users, leads, crm_tasks, wa_campaign_history, sessions, reports, advanced_analysis_queue, email_ai_templates, contact_discoveries
+Startup completed
+================================================================================
+2026-08-04 10:07:51,529 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'campaign_queue' (type=factory)
+2026-08-04 10:07:51,529 - lead_finder_agent - INFO - [email_worker:start:56] Email Automation Worker started
+2026-08-04 10:07:51,529 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'email' (type=singleton)
+2026-08-04 10:07:51,529 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'wa_queue' (type=factory)
+2026-08-04 10:07:51,529 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'wa_ai_desktop_queue' (type=factory)
+2026-08-04 10:07:51,529 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'email_ai_queue' (type=factory)
+2026-08-04 10:07:51,529 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'ai_queue' (type=factory)
+2026-08-04 10:07:51,529 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'advanced_analysis' (type=factory)
+2026-08-04 10:07:51,530 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'auto_report' (type=factory)
+2026-08-04 10:07:51,530 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'crm_automation' (type=factory)
+2026-08-04 10:07:51,530 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'enrichment_queue' (type=factory)
+2026-08-04 10:07:51,530 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'ai_analysis' (type=singleton)
+2026-08-04 10:07:51,530 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'lead_intelligence' (type=singleton)
+2026-08-04 10:07:51,533 - lead_finder_agent - INFO - [supervisor:register:60] SUPERVISOR: Registered worker 'bulk_ai_analysis' (type=singleton)
+2026-08-04 10:07:51,533 - lead_finder_agent - INFO - [queue_worker:start:22] Campaign Queue Worker started.
+2026-08-04 10:07:51,533 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'campaign_queue' started successfully
+2026-08-04 10:07:51,533 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'email' started successfully
+2026-08-04 10:07:51,533 - lead_finder_agent - INFO - [enhanced_wa_worker:start:63] [EnhancedWAQueueWorker] Worker started
+2026-08-04 10:07:51,533 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'wa_queue' started successfully
+2026-08-04 10:07:51,534 - lead_finder_agent - INFO - [desktop_worker:start:36] [WADesktopQueueWorker] Started
+2026-08-04 10:07:51,534 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'wa_ai_desktop_queue' started successfully
+2026-08-04 10:07:51,534 - lead_finder_agent - INFO - [smtp_worker:start:42] EmailAIQueueWorker started with Campaign, SMTP, Retry, and Recovery sub-workers.
+2026-08-04 10:07:51,534 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'email_ai_queue' started successfully
+2026-08-04 10:07:51,534 - lead_finder_agent - INFO - [ai_worker:start:19] AI Queue Worker started.
+2026-08-04 10:07:51,534 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'ai_queue' started successfully
+2026-08-04 10:07:51,534 - app.services.advanced_analysis_worker - INFO - [advanced_analysis_worker:start:63] Starting Crawler Worker loop
+2026-08-04 10:07:51,534 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'advanced_analysis' started successfully
+2026-08-04 10:07:51,534 - app.services.reports.auto_report_worker - INFO - [auto_report_worker:start:56] AutoReportWorker started
+2026-08-04 10:07:51,534 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'auto_report' started successfully
+2026-08-04 10:07:51,535 - app.services.crm_automation_worker - INFO - [crm_automation_worker:start:21] CRMAutomationWorker started
+2026-08-04 10:07:51,535 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'crm_automation' started successfully
+2026-08-04 10:07:51,535 - lead_finder_agent - INFO - [worker:start:40] EnrichmentQueueWorker started with concurrency 5
+2026-08-04 10:07:51,535 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'enrichment_queue' started successfully
+2026-08-04 10:07:51,535 - lead_finder_agent - INFO - [ai_analysis_worker:start:201] WORKER_STARTED: AI Analysis Worker started
+2026-08-04 10:07:51,535 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'ai_analysis' started successfully
+2026-08-04 10:07:51,535 - lead_finder_agent - INFO - [lead_intelligence_worker:start:22] Lead Intelligence Worker started
+2026-08-04 10:07:51,535 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'lead_intelligence' started successfully
+2026-08-04 10:07:51,558 - lead_finder_agent - INFO - [lead_intelligence_worker:startup_cleanup:39] LEAD_INTEL_STARTUP_CLEANUP: Starting referential integrity verification...
+2026-08-04 10:07:51,560 - lead_finder_agent - INFO - [bulk_ai_analysis_worker:start:98] BULK_WORKER_STARTED: Bulk AI Analysis Worker started
+2026-08-04 10:07:51,562 - lead_finder_agent - INFO - [supervisor:_start_worker:118] SUPERVISOR: Worker 'bulk_ai_analysis' started successfully
+2026-08-04 10:07:51,562 - lead_finder_agent - INFO - [supervisor:start_all:74] SUPERVISOR: Started supervision of 13 workers (interval=15s)
+2026-08-04 10:07:51,562 - lead_finder_agent - INFO - [timeout_watcher:start:59] TIMEOUT_WATCHER: Started — monitoring active jobs for timeouts
+2026-08-04 10:07:51,562 - lead_finder_agent - INFO - [timeout_watcher:start:155] STUCK_WORKER_DETECTOR: Started
+2026-08-04 10:07:51,562 - lead_finder_agent - INFO - [main:lifespan:266] TIMEOUT_WATCHER: Job timeout monitoring active (2h max, 1h for CREATED stuck)
+2026-08-04 10:07:51,566 - lead_finder_agent - INFO - [main:lifespan:349] APScheduler started.
+2026-08-04 10:07:51,570 - lead_finder_agent - INFO - [main:lifespan:361] --- Registered API Routes ---
+2026-08-04 10:07:51,571 - lead_finder_agent - INFO - [main:print_routes:369] GET /api/v1/openapi.json
+2026-08-04 10:07:51,571 - lead_finder_agent - INFO - [main:print_routes:369] GET /docs
+2026-08-04 10:07:51,571 - lead_finder_agent - INFO - [main:print_routes:369] GET /docs/oauth2-redirect
+2026-08-04 10:07:51,571 - lead_finder_agent - INFO - [main:print_routes:369] GET /redoc
+2026-08-04 10:07:51,571 - lead_finder_agent - INFO - [main:print_routes:369] GET /
+2026-08-04 10:07:51,571 - lead_finder_agent - INFO - [main:print_routes:369] GET /favicon.ico
+2026-08-04 10:07:51,571 - lead_finder_agent - INFO - [main:print_routes:369] GET /robots.txt
+2026-08-04 10:07:51,572 - lead_finder_agent - INFO - [main:print_routes:369] GET /sitemap.xml
+2026-08-04 10:07:51,572 - lead_finder_agent - INFO - [main:print_routes:369] GET /search
+2026-08-04 10:07:51,572 - lead_finder_agent - INFO - [main:print_routes:369] POST /search
+2026-08-04 10:07:51,572 - lead_finder_agent - INFO - [main:print_routes:369] GET /api/search
+2026-08-04 10:07:51,572 - lead_finder_agent - INFO - [main:print_routes:369] POST /api/search
+2026-08-04 10:07:51,572 - lead_finder_agent - INFO - [main:lifespan:371] -----------------------------
+INFO:     Application startup complete.
+ERROR:    [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+INFO:     Waiting for application shutdown.
+2026-08-04 10:07:51,584 - lead_finder_agent - INFO - [main:lifespan:376] Shutting down backend...
+2026-08-04 10:07:51,588 - lead_finder_agent - INFO - [timeout_watcher:stop:69] TIMEOUT_WATCHER: Stopped
+2026-08-04 10:07:51,590 - lead_finder_agent - INFO - [queue_worker:stop:27] Campaign Queue Worker stopping...
+2026-08-04 10:07:51,590 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'campaign_queue' stopped
+2026-08-04 10:07:51,592 - lead_finder_agent - INFO - [email_worker:stop:66] Email Automation Worker stopped
+2026-08-04 10:07:51,592 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'email' stopped
+2026-08-04 10:07:51,592 - lead_finder_agent - INFO - [enhanced_wa_worker:stop:69] [EnhancedWAQueueWorker] Worker stopping...
+2026-08-04 10:07:51,592 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'wa_queue' stopped
+2026-08-04 10:07:51,592 - lead_finder_agent - INFO - [desktop_worker:stop:41] [WADesktopQueueWorker] Stopping
+2026-08-04 10:07:51,592 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'wa_ai_desktop_queue' stopped
+2026-08-04 10:07:51,592 - lead_finder_agent - INFO - [smtp_worker:stop:49] EmailAIQueueWorker stopped.
+2026-08-04 10:07:51,593 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'email_ai_queue' stopped
+2026-08-04 10:07:51,595 - lead_finder_agent - INFO - [ai_worker:stop:29] AI Queue Worker stopped.
+2026-08-04 10:07:51,595 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'ai_queue' stopped
+2026-08-04 10:07:51,595 - app.services.advanced_analysis_worker - INFO - [advanced_analysis_worker:stop:69] Stopping Crawler Worker loop
+2026-08-04 10:07:51,595 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'advanced_analysis' stopped
+2026-08-04 10:07:51,595 - app.services.advanced_analysis_worker - INFO - [advanced_analysis_worker:_worker_loop:126] Worker loop cancelled
+2026-08-04 10:07:51,596 - app.services.reports.auto_report_worker - INFO - [auto_report_worker:stop:70] AutoReportWorker stopped
+2026-08-04 10:07:51,596 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'auto_report' stopped
+2026-08-04 10:07:51,596 - app.services.crm_automation_worker - INFO - [crm_automation_worker:stop:33] CRMAutomationWorker stopped
+2026-08-04 10:07:51,596 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'crm_automation' stopped
+2026-08-04 10:07:51,596 - lead_finder_agent - INFO - [worker:stop:50] EnrichmentQueueWorker stopped
+2026-08-04 10:07:51,596 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'enrichment_queue' stopped
+2026-08-04 10:07:51,596 - lead_finder_agent - INFO - [ai_analysis_worker:stop:211] AI Analysis Worker stopped
+2026-08-04 10:07:51,596 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'ai_analysis' stopped
+2026-08-04 10:07:51,597 - lead_finder_agent - INFO - [lead_intelligence_worker:stop:32] Lead Intelligence Worker stopped
+2026-08-04 10:07:51,597 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'lead_intelligence' stopped
+2026-08-04 10:07:51,597 - lead_finder_agent - INFO - [bulk_ai_analysis_worker:stop:108] BULK_WORKER_STOPPED: Bulk AI Analysis Worker stopped
+2026-08-04 10:07:51,597 - lead_finder_agent - INFO - [supervisor:_stop_worker:137] SUPERVISOR: Worker 'bulk_ai_analysis' stopped
+2026-08-04 10:07:51,597 - lead_finder_agent - INFO - [supervisor:stop_all:95] SUPERVISOR: All 13 workers stopped
+2026-08-04 10:07:51,597 - lead_finder_agent - INFO - [database:close_mongo_connection:423] Closing MongoDB connection...
+2026-08-04 10:07:51,600 - lead_finder_agent - INFO - [database:close_mongo_connection:433] MongoDB connection closed.
+INFO:     Application shutdown complete.

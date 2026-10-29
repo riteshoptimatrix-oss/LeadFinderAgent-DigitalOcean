@@ -1,0 +1,649 @@
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
+from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone, timedelta
+from bson import ObjectId
+import pandas as pd
+import tempfile
+import os
+import asyncio
+import smtplib
+from app.db.database import get_db
+from app.api.dependencies import get_current_user
+from app.core.websocket import manager
+from app.core.logger import logger
+from app.models.email_ai import (
+    EmailAISmtpCreate, EmailAISmtpUpdate,
+    EmailAITemplateCreate, EmailAITemplateUpdate,
+    EmailAICampaignCreate
+)
+
+router = APIRouter()
+
+def serialize_doc(doc: dict) -> dict:
+    if not doc:
+        return doc
+    if "_id" in doc:
+        doc["_id"] = str(doc["_id"])
+    return doc
+
+# ==========================================
+# SMTP Profiles
+# ==========================================
+@router.get("/smtp", response_model=List[Dict[Any, Any]])
+async def get_smtp_profiles(db=Depends(get_db)):
+    profiles = await db["email_ai_smtp"].find({"is_active": {"$ne": False}}).to_list(100)
+    return [serialize_doc(p) for p in profiles]
+
+@router.post("/smtp", response_model=Dict[Any, Any])
+async def create_smtp_profile(profile: EmailAISmtpCreate, db=Depends(get_db)):
+    new_profile = profile.model_dump()
+    new_profile["created_at"] = datetime.now(timezone.utc)
+    new_profile["updated_at"] = datetime.now(timezone.utc)
+    
+    if new_profile.get("is_default"):
+        await db["email_ai_smtp"].update_many({}, {"$set": {"is_default": False}})
+        
+    result = await db["email_ai_smtp"].insert_one(new_profile)
+    created = await db["email_ai_smtp"].find_one({"_id": result.inserted_id})
+    return serialize_doc(created)
+
+@router.delete("/smtp/{id}")
+async def delete_smtp_profile(id: str, db=Depends(get_db)):
+    await db["email_ai_smtp"].update_one(
+        {"_id": ObjectId(id)},
+        {"$set": {"is_active": False}}
+    )
+    return {"message": "Deleted"}
+
+@router.get("/smtp/{id}/test")
+async def test_smtp_profile(
+    id: str,
+    send_test: bool = Query(False, description="Also send a real test email to the SMTP username"),
+    db=Depends(get_db)
+):
+    """Attempt a real SMTP connection + authentication against a stored profile.
+
+    Returns a clear pass/fail result so the frontend can show a professional
+    error instead of a blank screen when the SMTP configuration is invalid.
+    When ``send_test=true`` a real test message is sent to the profile's own
+    address to validate the full connect -> auth -> send -> disconnect cycle.
+    """
+    try:
+        profile = await db["email_ai_smtp"].find_one({"_id": ObjectId(id), "is_active": {"$ne": False}})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid SMTP profile id.")
+    if not profile:
+        raise HTTPException(status_code=404, detail="SMTP profile not found.")
+
+    host = profile.get("host")
+    port = int(profile.get("port", 587))
+    username = profile.get("username")
+    password = profile.get("password")
+    encryption = profile.get("encryption", "TLS")
+
+    if not host or not username or not password:
+        raise HTTPException(status_code=400, detail="SMTP configuration is invalid: host, username and password are required.")
+
+    server = None
+    try:
+        if encryption == "SSL":
+            server = smtplib.SMTP_SSL(host, port, timeout=15)
+        else:
+            server = smtplib.SMTP(host, port, timeout=15)
+            server.ehlo()
+            if encryption == "TLS":
+                server.starttls()
+                server.ehlo()
+        server.login(username, password)
+        logger.info(f"[EmailAI] SMTP test OK: host={host}, port={port}, user={username}")
+
+        result = {"status": "success", "host": host, "port": port, "message": "Connection successful"}
+
+        if send_test:
+            from email.mime.text import MIMEText
+            msg = MIMEText("This is a test email from the Lead Finder Agent Email AI to verify your SMTP configuration is working correctly.")
+            msg["Subject"] = "Lead Finder Agent - SMTP Test"
+            msg["From"] = username
+            msg["To"] = username
+            server.send_message(msg)
+            result["message"] = "Connection successful and test email sent"
+            result["test_email_sent"] = True
+            logger.info(f"[EmailAI] SMTP test email sent to {username}")
+
+        return result
+    except smtplib.SMTPAuthenticationError as e:
+        logger.warning(f"[EmailAI] SMTP test auth failed: host={host}, port={port}, user={username}: {e}")
+        raise HTTPException(status_code=400, detail=f"SMTP authentication failed. Check username/password. Reason: {e}")
+    except smtplib.SMTPServerDisconnected as e:
+        logger.warning(f"[EmailAI] SMTP test disconnected: host={host}, port={port}: {e}")
+        raise HTTPException(status_code=400, detail=f"SMTP connection dropped. Check host, port and encryption (TLS/SSL). Reason: {e}")
+    except Exception as e:
+        logger.warning(f"[EmailAI] SMTP test failed: host={host}, port={port}: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=400, detail=f"SMTP connection failed. Reason: {e}")
+    finally:
+        if server:
+            try:
+                server.quit()
+            except Exception:
+                pass
+
+# ==========================================
+# Templates
+# ==========================================
+@router.get("/templates", response_model=List[Dict[Any, Any]])
+async def get_templates(db=Depends(get_db)):
+    templates = await db["email_ai_templates"].find({"is_active": {"$ne": False}}).to_list(100)
+    return [serialize_doc(t) for t in templates]
+
+@router.post("/templates", response_model=Dict[Any, Any])
+async def create_template(template: EmailAITemplateCreate, db=Depends(get_db)):
+    new_template = template.model_dump()
+    new_template["created_at"] = datetime.now(timezone.utc)
+    new_template["updated_at"] = datetime.now(timezone.utc)
+    
+    result = await db["email_ai_templates"].insert_one(new_template)
+    created = await db["email_ai_templates"].find_one({"_id": result.inserted_id})
+    return serialize_doc(created)
+
+@router.delete("/templates/{id}")
+async def delete_template(id: str, db=Depends(get_db)):
+    await db["email_ai_templates"].update_one(
+        {"_id": ObjectId(id)},
+        {"$set": {"is_active": False}}
+    )
+    return {"message": "Deleted"}
+
+
+@router.put("/templates/{id}", response_model=Dict[Any, Any])
+async def update_template(id: str, template: EmailAITemplateUpdate, db=Depends(get_db)):
+    update_data = {k: v for k, v in template.model_dump(exclude_unset=True).items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+        
+    update_data["updated_at"] = datetime.now(timezone.utc)
+    
+    result = await db["email_ai_templates"].update_one(
+        {"_id": ObjectId(id)},
+        {
+            "$set": update_data,
+            "$inc": {"version": 1}
+        }
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+        
+    updated = await db["email_ai_templates"].find_one({"_id": ObjectId(id)})
+    return serialize_doc(updated)
+
+@router.put("/templates/{id}/favorite", response_model=Dict[Any, Any])
+async def favorite_template(id: str, is_favorite: bool = Query(...), db=Depends(get_db)):
+    result = await db["email_ai_templates"].update_one(
+        {"_id": ObjectId(id)},
+        {"$set": {"is_favorite": is_favorite, "updated_at": datetime.now(timezone.utc)}}
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found")
+    updated = await db["email_ai_templates"].find_one({"_id": ObjectId(id)})
+    return serialize_doc(updated)
+
+@router.post("/templates/{id}/duplicate", response_model=Dict[Any, Any])
+async def duplicate_template(id: str, db=Depends(get_db)):
+    template = await db["email_ai_templates"].find_one({"_id": ObjectId(id)})
+    if not template:
+        raise HTTPException(status_code=404, detail="Template not found")
+        
+    template.pop("_id", None)
+    template["name"] = f"{template.get('name', 'Template')} (Copy)"
+    template["created_at"] = datetime.now(timezone.utc)
+    template["updated_at"] = datetime.now(timezone.utc)
+    template["version"] = 1
+    template["usage_count"] = 0
+    
+    result = await db["email_ai_templates"].insert_one(template)
+    created = await db["email_ai_templates"].find_one({"_id": result.inserted_id})
+    return serialize_doc(created)
+
+# ==========================================
+# Campaigns
+# ==========================================
+@router.get("/campaigns", response_model=List[Dict[Any, Any]])
+async def get_campaigns(
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    db=Depends(get_db)
+):
+    query = {}
+    if status:
+        query["status"] = status
+    if search:
+        query["name"] = {"$regex": search, "$options": "i"}
+        
+    campaigns = await db["email_ai_campaigns"].find(query).sort("created_at", -1).to_list(100)
+    return [serialize_doc(c) for c in campaigns]
+
+@router.post("/campaigns", response_model=Dict[Any, Any])
+async def create_campaign(campaign: EmailAICampaignCreate, db=Depends(get_db)):
+    start = datetime.now(timezone.utc)
+    logger.info(
+        f"[EmailAI] create_campaign: name={campaign.info.name}, "
+        f"leads={len(campaign.target_leads)}, template={campaign.template_id}, smtp={campaign.smtp_id}"
+    )
+
+    # ── Validation before persisting anything ─────────────────────────────
+    try:
+        template = await db["email_ai_templates"].find_one(
+            {"_id": ObjectId(campaign.template_id), "is_active": {"$ne": False}}
+        )
+        if not template:
+            raise HTTPException(status_code=400, detail="Selected template does not exist or is inactive.")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid template_id.")
+
+    try:
+        smtp_profile = await db["email_ai_smtp"].find_one(
+            {"_id": ObjectId(campaign.smtp_id), "is_active": {"$ne": False}}
+        )
+        if not smtp_profile:
+            raise HTTPException(status_code=400, detail="Selected SMTP profile does not exist or is inactive.")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid smtp_id.")
+
+    if not campaign.target_leads:
+        raise HTTPException(status_code=400, detail="At least one lead must be selected.")
+
+    # Validate lead ids are valid ObjectIds (avoid queueing garbage references)
+    invalid_ids = [lid for lid in campaign.target_leads if not ObjectId.is_valid(lid)]
+    if invalid_ids:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid lead id(s) in target_leads: {invalid_ids[:5]}"
+        )
+
+    new_campaign = campaign.model_dump()
+    new_campaign["created_at"] = datetime.now(timezone.utc)
+    new_campaign["updated_at"] = datetime.now(timezone.utc)
+    new_campaign["status"] = "QUEUED"
+    new_campaign["leads_processed"] = []
+    new_campaign["logs"] = []
+
+    try:
+        result = await db["email_ai_campaigns"].insert_one(new_campaign)
+    except Exception as e:
+        logger.error(f"[EmailAI] create_campaign failed to persist campaign: {e}")
+        raise HTTPException(status_code=500, detail="Failed to persist campaign. Please try again.")
+
+    created = await db["email_ai_campaigns"].find_one({"_id": result.inserted_id})
+
+    # Queue is prepared. In this phase, we do not auto-start or run background workers.
+    # The status remains QUEUED.
+
+    duration = (datetime.now(timezone.utc) - start).total_seconds()
+    logger.info(
+        f"[EmailAI] create_campaign SUCCESS: campaign_id={result.inserted_id}, "
+        f"status=QUEUED, leads={len(campaign.target_leads)}, duration_ms={round(duration * 1000, 2)}"
+    )
+    return serialize_doc(created)
+
+@router.post("/campaigns/{campaign_id}/{action}")
+async def control_campaign(campaign_id: str, action: str, db=Depends(get_db)):
+    if action not in ["pause", "resume", "cancel"]:
+        raise HTTPException(status_code=400, detail="Invalid action")
+        
+    status_map = {
+        "pause": "PAUSED",
+        "resume": "RUNNING",
+        "cancel": "CANCELLED"
+    }
+    
+    result = await db["email_ai_campaigns"].update_one(
+        {"_id": ObjectId(campaign_id)},
+        {"$set": {"status": status_map[action], "updated_at": datetime.now(timezone.utc)}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Cancelling also finalizes any outstanding Pending/Waiting jobs so the
+    # campaign does not remain open indefinitely.
+    if action == "cancel":
+        cancel_result = await db["email_ai_queue"].update_many(
+            {"campaign_id": campaign_id, "status": {"$in": ["Pending", "Waiting"]}},
+            {
+                "$set": {"status": "Cancelled", "updated_at": datetime.now(timezone.utc)},
+                "$push": {"logs": "Status changed to Cancelled: campaign cancelled"}
+            }
+        )
+        logger.info(f"[EmailAI] control_campaign cancel: finalized {cancel_result.modified_count} pending job(s) for campaign {campaign_id}")
+
+    return {"message": f"Campaign {action}ed successfully"}
+
+@router.get("/campaigns/{campaign_id}/live-status")
+async def get_campaign_live_status(campaign_id: str, db=Depends(get_db)):
+    campaign = await db["email_ai_campaigns"].find_one({"_id": ObjectId(campaign_id)})
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    # Aggregate from email_ai_queue
+    pipeline = [
+        {"$match": {"campaign_id": campaign_id}},
+        {"$group": {"_id": "$status", "count": {"$sum": 1}}}
+    ]
+    status_counts = await db["email_ai_queue"].aggregate(pipeline).to_list(None)
+    
+    stats = {
+        "Pending": 0,
+        "Waiting": 0,
+        "Preparing": 0,
+        "Connecting": 0,
+        "Sending": 0,
+        "Delivered": 0,
+        "Failed": 0,
+        "Skipped": 0,
+        "Cancelled": 0
+    }
+    
+    for sc in status_counts:
+        status_name = sc["_id"]
+        if status_name in stats:
+            stats[status_name] = sc["count"]
+            
+    # Fetch latest active logs
+    latest_jobs = await db["email_ai_queue"].find(
+        {"campaign_id": campaign_id, "status": {"$ne": "Pending"}}
+    ).sort("updated_at", -1).limit(20).to_list(20)
+    
+    recent_logs = []
+    for job in latest_jobs:
+        if job.get("logs"):
+            recent_logs.append({
+                "lead_id": str(job["lead_id"]),
+                "status": job["status"],
+                "last_message": job["logs"][-1],
+                "updated_at": job["updated_at"].isoformat() if job.get("updated_at") else None
+            })
+    
+    return {
+        "status": campaign.get("status", "UNKNOWN"),
+        "total": len(campaign.get("target_leads", [])),
+        "stats": stats,
+        "sent": stats["Delivered"],
+        "failed": stats["Failed"],
+        "logs": recent_logs
+    }
+
+# ==========================================
+# WebSocket
+# ==========================================
+@router.websocket("/ws/{campaign_id}")
+async def websocket_endpoint(websocket: WebSocket, campaign_id: str):
+    await manager.connect(websocket, campaign_id)
+    try:
+        while True:
+            await asyncio.wait_for(websocket.receive_text(), timeout=15.0)
+    except asyncio.TimeoutError:
+        try:
+            await websocket.send_json({"type": "HEARTBEAT", "campaign_id": campaign_id})
+        except Exception:
+            pass
+    except WebSocketDisconnect:
+        manager.disconnect(websocket, campaign_id)
+    except Exception as e:
+        manager.disconnect(websocket, campaign_id)
+
+# ==========================================
+# Analytics & Exports
+# ==========================================
+@router.get("/analytics")
+async def get_analytics(db=Depends(get_db)):
+    campaigns = await db["email_ai_campaigns"].find().to_list(None)
+    
+    total_campaigns = len(campaigns)
+    total_sent = 0
+    total_failed = 0
+    total_duration = 0.0
+    valid_durations_count = 0
+    
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_of_week = today - timedelta(days=today.weekday())
+    start_of_month = today.replace(day=1)
+    
+    sent_today = sent_week = sent_month = 0
+    
+    # Chart data structure
+    daily_trends = {}
+    
+    for c in campaigns:
+        for log in c.get("logs", []):
+            if log["status"] == "sent":
+                total_sent += 1
+                log_date = log.get("processed_at")
+                if log_date:
+                    if isinstance(log_date, str):
+                        log_date = datetime.fromisoformat(log_date.replace('Z', '+00:00'))
+                    
+                    if log_date >= today: sent_today += 1
+                    if log_date >= start_of_week: sent_week += 1
+                    if log_date >= start_of_month: sent_month += 1
+                    
+                    day_str = log_date.strftime("%Y-%m-%d")
+                    if day_str not in daily_trends:
+                        daily_trends[day_str] = {"date": day_str, "sent": 0, "failed": 0}
+                    daily_trends[day_str]["sent"] += 1
+            elif log["status"] == "failed":
+                total_failed += 1
+                log_date = log.get("processed_at")
+                if log_date:
+                    if isinstance(log_date, str):
+                        log_date = datetime.fromisoformat(log_date.replace('Z', '+00:00'))
+                    day_str = log_date.strftime("%Y-%m-%d")
+                    if day_str not in daily_trends:
+                        daily_trends[day_str] = {"date": day_str, "sent": 0, "failed": 0}
+                    daily_trends[day_str]["failed"] += 1
+                
+            if log.get("duration", 0) > 0:
+                total_duration += log["duration"]
+                valid_durations_count += 1
+                
+    total = total_sent + total_failed
+    success_rate = (total_sent / total * 100) if total > 0 else 0
+    
+    trends_list = sorted(list(daily_trends.values()), key=lambda x: x["date"])[-14:] # last 14 days
+    
+    return {
+        "success_rate": success_rate,
+        "avg_send_time": (total_duration / valid_durations_count) if valid_durations_count > 0 else 0,
+        "total_campaigns": total_campaigns,
+        "messages_sent_today": sent_today,
+        "messages_sent_week": sent_week,
+        "messages_sent_month": sent_month,
+        "total_sent": total_sent,
+        "total_failed": total_failed,
+        "daily_trends": trends_list
+    }
+
+@router.get("/analytics/smtp")
+async def get_smtp_analytics(db=Depends(get_db)):
+    smtps = await db["email_ai_smtp"].find().to_list(100)
+    campaigns = await db["email_ai_campaigns"].find().to_list(None)
+    
+    stats = {}
+    for smtp in smtps:
+        stats[str(smtp["_id"])] = {"name": smtp["name"], "sent": 0, "failed": 0}
+        
+    for c in campaigns:
+        smtp_id = str(c.get("smtp_id"))
+        if smtp_id in stats:
+            for log in c.get("logs", []):
+                if log["status"] == "sent": stats[smtp_id]["sent"] += 1
+                elif log["status"] == "failed": stats[smtp_id]["failed"] += 1
+                
+    return list(stats.values())
+
+@router.get("/analytics/templates")
+async def get_template_analytics(db=Depends(get_db)):
+    templates = await db["email_ai_templates"].find().to_list(100)
+    campaigns = await db["email_ai_campaigns"].find().to_list(None)
+    
+    stats = {}
+    for t in templates:
+        stats[str(t["_id"])] = {"name": t["name"], "sent": 0, "failed": 0}
+        
+    for c in campaigns:
+        t_id = str(c.get("template_id"))
+        if t_id in stats:
+            for log in c.get("logs", []):
+                if log["status"] == "sent": stats[t_id]["sent"] += 1
+                elif log["status"] == "failed": stats[t_id]["failed"] += 1
+                
+    return list(stats.values())
+
+@router.get("/analytics/errors")
+async def get_errors_center(db=Depends(get_db)):
+    campaigns = await db["email_ai_campaigns"].find().to_list(None)
+    error_counts = {}
+    
+    for c in campaigns:
+        for log in c.get("logs", []):
+            if log["status"] == "failed":
+                err_msg = log.get("error", "Unknown Error")
+                # Categorize
+                category = "Unknown"
+                if "timeout" in err_msg.lower(): category = "Connection Timeout"
+                elif "auth" in err_msg.lower(): category = "Authentication"
+                elif "format" in err_msg.lower(): category = "Validation"
+                
+                if category not in error_counts: error_counts[category] = 0
+                error_counts[category] += 1
+                
+    return [{"category": k, "count": v} for k, v in error_counts.items()]
+
+@router.get("/logs")
+async def get_global_logs(db=Depends(get_db)):
+    campaigns = await db["email_ai_campaigns"].find().sort("created_at", -1).limit(20).to_list(20)
+    
+    logs_flat = []
+    for c in campaigns:
+        for log in c.get("logs", []):
+            logs_flat.append({
+                "campaign_name": c.get("name"),
+                "lead_id": log.get("lead_id"),
+                "status": log.get("status"),
+                "error": log.get("error"),
+                "processed_at": log.get("processed_at"),
+                "duration": log.get("duration")
+            })
+            
+    logs_flat.sort(key=lambda x: x["processed_at"], reverse=True)
+    return logs_flat[:100]
+
+@router.get("/campaigns/{campaign_id}/export")
+async def export_campaign(campaign_id: str, format: str = Query("csv"), db=Depends(get_db)):
+    campaign = await db["email_ai_campaigns"].find_one({"_id": ObjectId(campaign_id)})
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+        
+    data = []
+    for log in campaign.get("logs", []):
+        lead = await db["leads"].find_one({"_id": ObjectId(log["lead_id"])})
+        data.append({
+            "Lead ID": log["lead_id"],
+            "Business Name": lead.get("business_name") if lead else "Unknown",
+            "Email": lead.get("email") if lead else "Unknown",
+            "Status": log["status"].upper(),
+            "Duration (s)": log.get("duration", 0),
+            "Processed At": log.get("processed_at", "")
+        })
+        
+    df = pd.DataFrame(data)
+    fd, path = tempfile.mkstemp(suffix=f".{format}")
+    os.close(fd)
+    
+    if format == "csv":
+        df.to_csv(path, index=False)
+        media_type = "text/csv"
+    else:
+        path = path.replace(".excel", ".xlsx")
+        df.to_excel(path, index=False)
+        media_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        
+    return FileResponse(path, media_type=media_type, filename=f"EmailCampaign_{campaign_id}.{format.replace('excel', 'xlsx')}")
+
+
+@router.get("/leads/select-all")
+async def get_all_leads_for_email_ai(
+    search: Optional[str] = None,
+    city: Optional[str] = None,
+    category: Optional[str] = None,
+    has_website: Optional[bool] = None,
+    has_phone: Optional[bool] = None,
+    has_email: Optional[bool] = None,
+    min_rating: Optional[float] = None,
+    status: Optional[str] = None,
+    current_user=Depends(get_current_user),
+    db=Depends(get_db)
+):
+    scope = {} if current_user.role == "ADMIN" else {"user_id": current_user.id}
+    query = dict(scope)
+    
+    has_business_name = [
+        {"business_name": {"$nin": [None, ""]}},
+        {"company_name": {"$nin": [None, ""]}},
+        {"name": {"$nin": [None, ""]}}
+    ]
+    
+    has_email_fields = [
+        {"email": {"$nin": [None, ""]}},
+        {"emails.0": {"$exists": True}},
+        {"contact_discovery.primary_email": {"$nin": [None, ""]}},
+        {"contact_discovery.all_emails.0": {"$exists": True}}
+    ]
+    
+    validity_cond = {
+        "$and": [
+            {"$or": has_business_name},
+            {"$or": has_email_fields}
+        ]
+    }
+    
+    and_conds = [validity_cond]
+    
+    if search:
+        and_conds.append({
+            "$or": [
+                {"business_name": {"$regex": search, "$options": "i"}},
+                {"company_name": {"$regex": search, "$options": "i"}},
+                {"name": {"$regex": search, "$options": "i"}},
+                {"email": {"$regex": search, "$options": "i"}}
+            ]
+        })
+        
+    if city:
+        and_conds.append({"city": {"$regex": city, "$options": "i"}})
+    if category:
+        and_conds.append({"category": {"$regex": category, "$options": "i"}})
+    if has_website is True:
+        and_conds.append({"website": {"$nin": [None, ""]}})
+    if has_website is False:
+        and_conds.append({"website": {"$in": [None, ""]}})
+    if has_phone is True:
+        and_conds.append({"phone": {"$nin": [None, ""]}})
+    if has_phone is False:
+        and_conds.append({"phone": {"$in": [None, ""]}})
+    if min_rating is not None:
+        and_conds.append({"google_rating": {"$gte": min_rating}})
+    if status and status != "ALL":
+        and_conds.append({"status": status})
+        
+    query["$and"] = and_conds
+    query["blacklisted"] = {"$ne": True}
+    
+    leads_cursor = db["leads"].find(query, {"_id": 1})
+    ids = [str(lead["_id"]) async for lead in leads_cursor]
+    
+    return {"ids": ids, "total": len(ids)}

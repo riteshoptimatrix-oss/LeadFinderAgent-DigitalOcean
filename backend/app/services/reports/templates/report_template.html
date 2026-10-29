@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>{{ report_type }}</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; background: #f3f4f6; color: #1f2937; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; padding: 50px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); border-radius: 12px; }
+        .header { text-align: center; border-bottom: 4px solid #3B82F6; padding-bottom: 30px; margin-bottom: 40px; }
+        h1 { color: #1E40AF; margin: 0 0 10px 0; font-size: 2.5em; }
+        h2 { color: #2563eb; margin-top: 30px; border-bottom: 1px solid #e5e7eb; padding-bottom: 10px; }
+        h3 { color: #4b5563; }
+        .section { margin: 40px 0; }
+        .score-card { background: #eff6ff; padding: 25px; border-radius: 10px; margin: 20px 0; text-align: center; border: 1px solid #bfdbfe; }
+        .score { font-size: 56px; color: #10b981; font-weight: bold; line-height: 1; }
+        table { width: 100%; border-collapse: collapse; margin: 25px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+        th { background: #3B82F6; color: white; padding: 15px; text-align: left; font-weight: 600; }
+        td { padding: 15px; border-bottom: 1px solid #e5e7eb; }
+        tr:nth-child(even) { background: #f9fafb; }
+        .issue, .finding, .recommendation, .opportunity { margin: 15px 0; padding: 15px; border-radius: 6px; }
+        .issue { background: #fef2f2; border-left: 4px solid #ef4444; }
+        .finding { background: #fffbeb; border-left: 4px solid #f59e0b; }
+        .recommendation { background: #ecfdf5; border-left: 4px solid #10b981; }
+        .opportunity { background: #f0fdf4; border-left: 4px solid #22c55e; }
+        .tech-item, .contact-item { display: inline-block; background: #e5e7eb; padding: 5px 10px; border-radius: 15px; margin: 5px; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{{ report_type }}</h1>
+            <p><strong>Business:</strong> {{ lead.name }}</p>
+            <p><strong>Website:</strong> {{ lead.website }}</p>
+            <p><strong>Generated:</strong> {{ generated_date }}</p>
+        </div>
+        <div class="content">
+            {{ content | safe }}
+        </div>
+    </div>
+</body>
+</html>

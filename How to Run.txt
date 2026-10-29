@@ -1,0 +1,31 @@
+1) in /backend open the terminal and run the command
+.venv\Scripts\activate
+.\.venv\Scripts\activate
+
+2) in /backend open the terminal and install the libraries
+pip install -r requirements.txt
+
+3) Run the /backend 
+.venv\Scripts\activate
+cls
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+.venv\Scripts\activate
+cls
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+uvicorn app.main:app --reload
+
+4) in /frontend open the terminal and run the command
+npm install
+npm run dev
+
+
+for the perfectly running :- 
+python3 -m venv myvenv
+myvenv\Scripts\activate
+pip install -r requirements.txt
+python3 -m pip install playwright
+python3 -m playwright install chromium
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --lifespan off

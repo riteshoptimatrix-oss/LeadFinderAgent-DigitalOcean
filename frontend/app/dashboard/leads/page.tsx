@@ -377,20 +377,72 @@ export default function LeadsPage() {
     setBulkQueueId(queueId);
   };
 
-  const handleExport = async (format: string) => {
+  const [exportLoading, setExportLoading] = useState<'csv' | 'excel' | null>(null);
+
+  const handleExport = async (format: 'csv' | 'excel') => {
+    if (exportLoading) return;
+    setExportLoading(format);
     try {
-      const res = await api.get(`/leads/export?format=${format}`, { responseType: 'blob' });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const params = new URLSearchParams({ format });
+
+      if (selectedIds.size > 0) {
+        params.append('lead_ids', Array.from(selectedIds).join(','));
+      } else {
+        if (activeSession?.job_id) params.append('job_id', activeSession.job_id);
+        if (searchQuery) params.append('keyword', searchQuery);
+        if (cityFilter) params.append('city', cityFilter);
+        if (categoryFilter) params.append('category', categoryFilter);
+        if (websiteFilter === 'HAS_WEBSITE') params.append('has_website', 'true');
+        if (websiteFilter === 'NO_WEBSITE') params.append('has_website', 'false');
+        if (phoneFilter === 'HAS_PHONE') params.append('has_phone', 'true');
+        if (phoneFilter === 'NO_PHONE') params.append('has_phone', 'false');
+        if (emailFilter === 'HAS_EMAIL') params.append('has_email', 'true');
+        if (emailFilter === 'NO_EMAIL') params.append('has_email', 'false');
+        if (ratingFilter !== 'ALL') params.append('min_rating', ratingFilter);
+        if (statusFilter !== 'ALL') params.append('status', statusFilter);
+      }
+
+      const res = await api.get(`/leads/export?${params.toString()}`, {
+        responseType: 'blob',
+        timeout: 60000,
+      });
+
+      const blobType = format === 'excel'
+        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+        : 'text/csv;charset=utf-8;';
+      const blob = new Blob([res.data], { type: blobType });
+      const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
       const date = new Date().toISOString().split('T')[0];
-      link.setAttribute('download', `leads_export_${date}.${format === 'excel' ? 'xlsx' : 'csv'}`);
+      const countLabel = selectedIds.size > 0 ? `_${selectedIds.size}_selected` : '';
+      link.setAttribute('download', `leads_export${countLabel}_${date}.${format === 'excel' ? 'xlsx' : 'csv'}`);
       document.body.appendChild(link);
       link.click();
-      link.parentNode?.removeChild(link);
-      toast.success(`Leads exported to ${format.toUpperCase()} successfully`);
-    } catch (error) {
-      toast.error('Failed to export leads');
+      setTimeout(() => {
+        if (link.parentNode) link.parentNode.removeChild(link);
+        window.URL.revokeObjectURL(url);
+      }, 200);
+
+      const exportedCount = selectedIds.size > 0 ? `${selectedIds.size} selected leads` : 'Leads';
+      toast.success(`${exportedCount} exported to ${format.toUpperCase()} successfully`);
+    } catch (error: any) {
+      console.error('Export error:', error);
+      let errMsg = 'Failed to export leads';
+      if (error?.response?.data instanceof Blob) {
+        try {
+          const text = await error.response.data.text();
+          const json = JSON.parse(text);
+          if (json.detail) errMsg = json.detail;
+        } catch {}
+      } else if (error?.response?.data?.detail) {
+        errMsg = error.response.data.detail;
+      } else if (error?.message) {
+        errMsg = error.message;
+      }
+      toast.error(errMsg);
+    } finally {
+      setExportLoading(null);
     }
   };
 
@@ -635,15 +687,35 @@ export default function LeadsPage() {
           </button>
           <button
             onClick={() => handleExport('csv')}
-            className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-2xs flex items-center gap-2 cursor-pointer"
+            disabled={exportLoading !== null}
+            className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-2xs flex items-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <Download className="w-4 h-4 text-gray-400" /> Export CSV
+            {exportLoading === 'csv' ? (
+              <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+            ) : (
+              <Download className="w-4 h-4 text-gray-400" />
+            )}
+            {exportLoading === 'csv'
+              ? 'Exporting CSV...'
+              : selectedIds.size > 0
+              ? `Export CSV (${selectedIds.size})`
+              : 'Export CSV'}
           </button>
           <button
             onClick={() => handleExport('excel')}
-            className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-2xs flex items-center gap-2 cursor-pointer"
+            disabled={exportLoading !== null}
+            className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-2xs flex items-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
           >
-            <Download className="w-4 h-4 text-gray-400" /> Export Excel
+            {exportLoading === 'excel' ? (
+              <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+            ) : (
+              <Download className="w-4 h-4 text-gray-400" />
+            )}
+            {exportLoading === 'excel'
+              ? 'Exporting Excel...'
+              : selectedIds.size > 0
+              ? `Export Excel (${selectedIds.size})`
+              : 'Export Excel'}
           </button>
         </div>
       </div>

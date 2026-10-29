@@ -186,107 +186,296 @@ async def get_leads(
     )
     return PaginatedLeadResponse(data=leads, total=total, warnings=warnings)
 
-@router.get("/export")
-async def export_leads(
-    format: str = "excel",
-    current_user: UserInDB = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db)
+class ExportLeadsRequest(BaseModel):
+    format: str = "excel"
+    lead_ids: Optional[List[str]] = None
+    search: Optional[str] = None
+    keyword: Optional[str] = None
+    job_id: Optional[str] = None
+    city: Optional[str] = None
+    category: Optional[str] = None
+    has_website: Optional[bool] = None
+    has_phone: Optional[bool] = None
+    has_email: Optional[bool] = None
+    min_rating: Optional[float] = None
+    status: Optional[str] = None
+
+async def _execute_lead_export(
+    format: str,
+    lead_ids_list: Optional[List[str]],
+    search_term: Optional[str],
+    job_id: Optional[str],
+    city: Optional[str],
+    category: Optional[str],
+    has_website: Optional[bool],
+    has_phone: Optional[bool],
+    has_email: Optional[bool],
+    min_rating: Optional[float],
+    status: Optional[str],
+    current_user: UserInDB,
+    db: AsyncIOMotorDatabase
 ):
-    query = {}
+    query = build_lead_filters(
+        search_term=search_term,
+        job_id=job_id,
+        city=city,
+        category=category,
+        has_website=has_website,
+        has_phone=has_phone,
+        has_email=has_email,
+        min_rating=min_rating,
+        status=status,
+    )
+
+    if lead_ids_list:
+        valid_ids = [ObjectId(lid.strip()) for lid in lead_ids_list if ObjectId.is_valid(lid.strip())]
+        if valid_ids:
+            query["_id"] = {"$in": valid_ids}
+
     if current_user.role != "ADMIN":
         query["user_id"] = current_user.id
-    cursor = db["leads"].find(query)
+
+    cursor = db["leads"].find(query).sort("created_at", -1)
     leads = await cursor.to_list(length=None)
-    
+
     # Fetch job keywords to populate Category column with module name
     job_ids = list(set(
-        lead.get("job_id") or lead.get("search_job_id") or lead.get("source_job_id")
+        str(lead.get("job_id") or lead.get("search_job_id") or lead.get("source_job_id"))
         for lead in leads if (lead.get("job_id") or lead.get("search_job_id") or lead.get("source_job_id"))
     ))
     jobs = await db["search_jobs"].find({"_id": {"$in": [ObjectId(jid) for jid in job_ids if ObjectId.is_valid(jid)]}}).to_list(length=None)
     job_keywords = {str(job["_id"]): job.get("keyword", "") for job in jobs}
-    
+
     headers = [
         "Lead Name",
-        "Lead Category (Searched Keyword)",
-        "Phone Number",
+        "Category",
+        "Searched Keyword",
+        "Primary Phone",
+        "All Phones",
+        "Primary Email",
+        "All Emails",
+        "WhatsApp Number",
         "Website",
-        "Country",
-        "State",
         "Address",
+        "City",
+        "State",
+        "Country",
+        "Google Rating",
+        "Review Count",
+        "Google Maps URL",
+        "Status",
+        "Created At",
     ]
 
-    def _get_phone(lead: dict) -> str:
-        for key in ("phone", "primary_phone", "whatsapp_number"):
-            value = lead.get(key)
-            if value:
-                return str(value).strip()
-        for key in ("phones", "all_phones", "contact_discovery"):
-            value = lead.get(key)
-            if isinstance(value, list):
-                for p in value:
-                    if p:
-                        return str(p).strip()
-            elif isinstance(value, dict):
-                for p in (value.get("primary_phone"), value.get("secondary_phones") or []):
-                    if isinstance(p, list):
-                        for item in p:
-                            if item:
-                                return str(item).strip()
-                    elif p:
-                        return str(p).strip()
-        return ""
+    def _clean(val: any) -> str:
+        if val is None or val == "None" or val == "null":
+            return ""
+        if isinstance(val, (int, float)):
+            return str(val)
+        return str(val).strip()
 
     def _build_row(lead: dict) -> list:
-        job_id = str(lead.get("job_id") or lead.get("search_job_id") or lead.get("source_job_id") or "")
+        job_id_val = str(lead.get("job_id") or lead.get("search_job_id") or lead.get("source_job_id") or "")
         module_name = (
-            job_keywords.get(job_id)
-            or lead.get("search_keyword")
-            or lead.get("category")
+            job_keywords.get(job_id_val)
+            or _clean(lead.get("search_keyword"))
+            or _clean(lead.get("category"))
             or ""
         )
-        country = lead.get("country") or (lead.get("website_information") or {}).get("country") or ""
+        try:
+            resp, _ = build_lead_response(lead)
+            name = _clean(resp.name or resp.business_name or lead.get("name") or lead.get("company_name"))
+            category_val = _clean(resp.category or lead.get("category"))
+            primary_phone = _clean(resp.primary_phone or resp.phone or lead.get("phone"))
+            all_phones_list = resp.all_phones or resp.phones or []
+            if not all_phones_list and lead.get("phone"):
+                all_phones_list = [lead.get("phone")]
+            all_phones = ", ".join([_clean(p) for p in all_phones_list if _clean(p)])
+
+            primary_email = _clean(resp.primary_email or resp.email or lead.get("email"))
+            all_emails_list = getattr(resp, "all_emails", None) or lead.get("emails") or []
+            if not all_emails_list and primary_email:
+                all_emails_list = [primary_email]
+            all_emails = ", ".join([_clean(e) for e in all_emails_list if _clean(e)])
+
+            whatsapp = _clean(resp.whatsapp_number or lead.get("whatsapp_number"))
+            website = _clean(resp.website or lead.get("website"))
+            address = _clean(resp.address or lead.get("address"))
+            city_val = _clean(resp.city or lead.get("city"))
+            state_val = _clean(resp.state or lead.get("state"))
+            country_val = _clean(resp.country or lead.get("country") or (lead.get("website_information") or {}).get("country"))
+            rating_val = _clean(resp.google_rating or lead.get("google_rating") or lead.get("rating"))
+            reviews_val = _clean(resp.review_count or lead.get("review_count") or lead.get("reviews_count"))
+            maps_url = _clean(resp.google_maps_url or lead.get("google_maps_url") or lead.get("source_url"))
+            status_val = _clean(resp.status or lead.get("status") or "NEW")
+            created_at_val = _clean(lead.get("created_at"))
+        except Exception:
+            name = _clean(lead.get("name") or lead.get("company_name") or lead.get("business_name"))
+            category_val = _clean(lead.get("category"))
+            primary_phone = _clean(lead.get("phone") or lead.get("primary_phone"))
+            all_phones = _clean(lead.get("phones") or primary_phone)
+            primary_email = _clean(lead.get("email") or lead.get("primary_email"))
+            all_emails = primary_email
+            whatsapp = _clean(lead.get("whatsapp_number") or lead.get("whatsapp"))
+            website = _clean(lead.get("website"))
+            address = _clean(lead.get("address"))
+            city_val = _clean(lead.get("city"))
+            state_val = _clean(lead.get("state"))
+            country_val = _clean(lead.get("country"))
+            rating_val = _clean(lead.get("rating") or lead.get("google_rating"))
+            reviews_val = _clean(lead.get("reviews_count") or lead.get("review_count"))
+            maps_url = _clean(lead.get("google_maps_url"))
+            status_val = _clean(lead.get("status") or "NEW")
+            created_at_val = _clean(lead.get("created_at"))
+
         return [
-            lead.get("name") or lead.get("business_name") or "",
+            name,
+            category_val,
             module_name,
-            _get_phone(lead),
-            lead.get("website") or "",
-            country,
-            lead.get("state") or "",
-            lead.get("address") or "",
+            primary_phone,
+            all_phones,
+            primary_email,
+            all_emails,
+            whatsapp,
+            website,
+            address,
+            city_val,
+            state_val,
+            country_val,
+            rating_val,
+            reviews_val,
+            maps_url,
+            status_val,
+            created_at_val,
         ]
-    
+
+    rows = [_build_row(lead) for lead in leads]
+    date_str = datetime.utcnow().strftime("%Y-%m-%d")
+
     if format.lower() == "csv":
         import csv
         stream = io.StringIO()
         writer = csv.writer(stream)
         writer.writerow(headers)
-        
-        for lead in leads:
-            writer.writerow(_build_row(lead))
-            
-        content = stream.getvalue()
+        for r in rows:
+            writer.writerow(r)
+        content = stream.getvalue().encode("utf-8-sig")
         response_headers = {
-            "Content-Disposition": "attachment; filename=leads.csv"
+            "Content-Disposition": f'attachment; filename="leads_export_{date_str}.csv"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
         }
         return Response(content=content, media_type="text/csv", headers=response_headers)
-        
-    else:  # excel / xlsx / xls
+
+    else:  # excel
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
         wb = openpyxl.Workbook()
         ws = wb.active
+        ws.title = "Leads"
         ws.append(headers)
-        
-        for lead in leads:
-            ws.append(_build_row(lead))
-            
+
+        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        header_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
+        thin_border = Border(
+            left=Side(style='thin', color='E2E8F0'),
+            right=Side(style='thin', color='E2E8F0'),
+            top=Side(style='thin', color='E2E8F0'),
+            bottom=Side(style='thin', color='E2E8F0')
+        )
+
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+        for r in rows:
+            ws.append(r)
+
+        for row in ws.iter_rows(min_row=2, max_row=len(rows)+1, min_col=1, max_col=len(headers)):
+            for cell in row:
+                cell.border = thin_border
+                cell.alignment = Alignment(vertical="center")
+
+        for col in ws.columns:
+            max_len = 0
+            col_letter = col[0].column_letter
+            for cell in col:
+                val_str = str(cell.value or "")
+                if len(val_str) > max_len:
+                    max_len = len(val_str)
+            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 50)
+
         stream = io.BytesIO()
         wb.save(stream)
         stream.seek(0)
-        
+
         response_headers = {
-            "Content-Disposition": "attachment; filename=leads.xlsx"
+            "Content-Disposition": f'attachment; filename="leads_export_{date_str}.xlsx"',
+            "Access-Control-Expose-Headers": "Content-Disposition",
         }
-        return Response(content=stream.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=response_headers)
+        return Response(
+            content=stream.getvalue(),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=response_headers
+        )
+
+@router.get("/export")
+@router.get("/export/", include_in_schema=False)
+async def export_leads(
+    format: str = "excel",
+    lead_ids: Optional[str] = None,
+    search: Optional[str] = None,
+    keyword: Optional[str] = None,
+    job_id: Optional[str] = None,
+    city: Optional[str] = None,
+    category: Optional[str] = None,
+    has_website: Optional[bool] = None,
+    has_phone: Optional[bool] = None,
+    has_email: Optional[bool] = None,
+    min_rating: Optional[float] = None,
+    status: Optional[str] = None,
+    current_user: UserInDB = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    ids_list = [i.strip() for i in lead_ids.split(",") if i.strip()] if lead_ids else None
+    return await _execute_lead_export(
+        format=format,
+        lead_ids_list=ids_list,
+        search_term=keyword or search,
+        job_id=job_id,
+        city=city,
+        category=category,
+        has_website=has_website,
+        has_phone=has_phone,
+        has_email=has_email,
+        min_rating=min_rating,
+        status=status,
+        current_user=current_user,
+        db=db,
+    )
+
+@router.post("/export")
+@router.post("/export/", include_in_schema=False)
+async def export_leads_post(
+    data: ExportLeadsRequest,
+    current_user: UserInDB = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    return await _execute_lead_export(
+        format=data.format,
+        lead_ids_list=data.lead_ids,
+        search_term=data.keyword or data.search,
+        job_id=data.job_id,
+        city=data.city,
+        category=data.category,
+        has_website=data.has_website,
+        has_phone=data.has_phone,
+        has_email=data.has_email,
+        min_rating=data.min_rating,
+        status=data.status,
+        current_user=current_user,
+        db=db,
+    )
 
 @router.post("/bulk-delete")
 async def bulk_delete(

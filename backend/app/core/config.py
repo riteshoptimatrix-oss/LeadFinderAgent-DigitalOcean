@@ -51,7 +51,16 @@ class Settings(BaseSettings):
     def cors_origins_list(self) -> List[str]:
         """Parse comma-separated CORS origins into a list."""
         origins = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
-        for local_origin in ["http://localhost:3000", "http://127.0.0.1:3000"]:
+        for local_origin in [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:3001",
+            "http://127.0.0.1:3001",
+            "http://localhost:3002",
+            "http://127.0.0.1:3002",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]:
             if local_origin not in origins:
                 origins.append(local_origin)
         return origins

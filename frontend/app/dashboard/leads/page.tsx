@@ -377,11 +377,19 @@ export default function LeadsPage() {
     setBulkQueueId(queueId);
   };
 
-  const [exportLoading, setExportLoading] = useState<'csv' | 'excel' | null>(null);
+  const [isExportingCsv, setIsExportingCsv] = useState(false);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const isExporting = isExportingCsv || isExportingExcel;
 
   const handleExport = async (format: 'csv' | 'excel') => {
-    if (exportLoading) return;
-    setExportLoading(format);
+    if (isExporting) return; // Prevent duplicate clicks while an export is already in progress
+
+    if (format === 'csv') {
+      setIsExportingCsv(true);
+    } else {
+      setIsExportingExcel(true);
+    }
+
     try {
       const params = new URLSearchParams({ format });
 
@@ -442,7 +450,11 @@ export default function LeadsPage() {
       }
       toast.error(errMsg);
     } finally {
-      setExportLoading(null);
+      if (format === 'csv') {
+        setIsExportingCsv(false);
+      } else {
+        setIsExportingExcel(false);
+      }
     }
   };
 
@@ -687,35 +699,53 @@ export default function LeadsPage() {
           </button>
           <button
             onClick={() => handleExport('csv')}
-            disabled={exportLoading !== null}
-            className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-2xs flex items-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={isExporting}
+            className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-2xs flex items-center gap-2 cursor-pointer ${
+              isExportingCsv
+                ? 'bg-blue-50 border border-blue-200 text-blue-700 cursor-wait'
+                : isExporting
+                ? 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed opacity-60'
+                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300'
+            }`}
+            title={isExporting ? 'Export in progress...' : 'Export leads to CSV file'}
           >
-            {exportLoading === 'csv' ? (
-              <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+            {isExportingCsv ? (
+              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
             ) : (
               <Download className="w-4 h-4 text-gray-400" />
             )}
-            {exportLoading === 'csv'
-              ? 'Exporting CSV...'
-              : selectedIds.size > 0
-              ? `Export CSV (${selectedIds.size})`
-              : 'Export CSV'}
+            <span>
+              {isExportingCsv
+                ? 'Exporting CSV...'
+                : selectedIds.size > 0
+                ? `Export CSV (${selectedIds.size})`
+                : 'Export CSV'}
+            </span>
           </button>
           <button
             onClick={() => handleExport('excel')}
-            disabled={exportLoading !== null}
-            className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-2xs flex items-center gap-2 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+            disabled={isExporting}
+            className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-2xs flex items-center gap-2 cursor-pointer ${
+              isExportingExcel
+                ? 'bg-emerald-50 border border-emerald-200 text-emerald-700 cursor-wait'
+                : isExporting
+                ? 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed opacity-60'
+                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300'
+            }`}
+            title={isExporting ? 'Export in progress...' : 'Export leads to Excel spreadsheet'}
           >
-            {exportLoading === 'excel' ? (
-              <Loader2 className="w-4 h-4 animate-spin text-gray-500" />
+            {isExportingExcel ? (
+              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
             ) : (
               <Download className="w-4 h-4 text-gray-400" />
             )}
-            {exportLoading === 'excel'
-              ? 'Exporting Excel...'
-              : selectedIds.size > 0
-              ? `Export Excel (${selectedIds.size})`
-              : 'Export Excel'}
+            <span>
+              {isExportingExcel
+                ? 'Exporting Excel...'
+                : selectedIds.size > 0
+                ? `Export Excel (${selectedIds.size})`
+                : 'Export Excel'}
+            </span>
           </button>
         </div>
       </div>

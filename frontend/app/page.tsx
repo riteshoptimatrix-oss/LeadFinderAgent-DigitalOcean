@@ -213,18 +213,15 @@ export default function HomePage() {
             <div className="flex items-center gap-2.5">
               <img
                 src="/logo.png"
-                alt="OptiMatrix"
+                alt="LeadFinder"
                 className="h-10 w-auto object-contain drop-shadow-sm"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                   e.currentTarget.nextElementSibling?.classList.remove('hidden');
                 }}
               />
-              <div className="hidden sm:flex items-center text-lg font-bold tracking-tight text-slate-900">
-                Opti<span className="text-[#c1121f]">Matrix</span>
-                <span className="ml-2 px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500 tracking-wide uppercase">
-                  LeadFinderAgent
-                </span>
+              <div className="hidden items-center text-lg font-bold tracking-tight text-slate-900">
+                Lead<span className="text-blue-600">Finder</span>
               </div>
             </div>
 

@@ -3,11 +3,15 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { Loader2, Save, MessageSquare, Bot, Hash, Zap, FileText, PenTool } from 'lucide-react';
+import { Loader2, Save, MessageSquare, Bot, Hash, Zap, FileText, PenTool, HeadphonesIcon, PhoneCall } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuthStore } from '@/src/features/auth/store';
 
 export default function WhatsAppSettings({ setHasUnsavedChanges }: { setHasUnsavedChanges: (val: boolean) => void }) {
   const queryClient = useQueryClient();
+  const user = useAuthStore((state) => state.user);
+  const isAdmin = user?.role === 'admin' || user?.role === 'ADMIN';
+
   const [settings, setSettings] = useState({
     auto_reply: true,
     campaign_limit: 250,
@@ -94,6 +98,41 @@ export default function WhatsAppSettings({ setHasUnsavedChanges }: { setHasUnsav
     );
   }
 
+  // ── Non-admin users see a simple support message ──
+  if (!isAdmin) {
+    return (
+      <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">WhatsApp Automation</h2>
+          <p className="text-sm text-gray-500 mt-1">Configure WhatsApp Business API, auto-replies, and message templates.</p>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="flex flex-col items-center justify-center gap-5 px-8 py-16 text-center">
+            <div className="h-16 w-16 rounded-2xl bg-green-50 border border-green-100 flex items-center justify-center shadow-sm">
+              <MessageSquare className="h-8 w-8 text-green-500" />
+            </div>
+            <div className="max-w-sm">
+              <h3 className="text-base font-bold text-gray-900 mb-2">WhatsApp Integration</h3>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                WhatsApp Business API configuration is managed by your account administrator.
+                Please contact support for assistance with WhatsApp setup.
+              </p>
+            </div>
+            <a
+              href="mailto:support@leadfinder.ai"
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-green-600 hover:bg-green-700 text-white text-sm font-semibold shadow-sm transition-colors"
+            >
+              <HeadphonesIcon className="h-4 w-4" />
+              Contact Support
+            </a>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Admin view: full configuration form ──
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>

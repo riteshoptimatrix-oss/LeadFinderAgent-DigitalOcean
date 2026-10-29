@@ -1,0 +1,1600 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lead Finder Agent – Project Documentation</title>
+  <style>
+    /* ─── RESET & BASE ─── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:      #2563EB;
+      --blue-dark: #1D4ED8;
+      --blue-light:#EFF6FF;
+      --blue-mid:  #BFDBFE;
+      --slate:     #1E293B;
+      --slate-md:  #475569;
+      --slate-lt:  #94A3B8;
+      --slate-bg:  #F8FAFC;
+      --white:     #FFFFFF;
+      --border:    #E2E8F0;
+      --green:     #16A34A;
+      --green-bg:  #F0FDF4;
+      --amber:     #D97706;
+      --amber-bg:  #FFFBEB;
+      --red:       #DC2626;
+      --red-bg:    #FEF2F2;
+      --purple:    #7C3AED;
+      --purple-bg: #F5F3FF;
+      --teal:      #0D9488;
+      --teal-bg:   #F0FDFA;
+      --page-w:    210mm;
+      --page-pad:  14mm;
+      --radius:    6px;
+      --shadow:    0 1px 3px rgba(0,0,0,.07), 0 1px 2px rgba(0,0,0,.05);
+    }
+
+    html { font-size: 10.5pt; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #CBD5E1;
+      color: var(--slate);
+      line-height: 1.55;
+    }
+
+    /* ─── PAGE SHELL ─── */
+    .page {
+      width: var(--page-w);
+      min-height: 297mm;
+      background: var(--white);
+      margin: 12mm auto;
+      padding: var(--page-pad);
+      box-shadow: 0 4px 24px rgba(0,0,0,.12);
+      page-break-after: always;
+      position: relative;
+    }
+    .page:last-child { page-break-after: auto; }
+
+    /* ─── COVER PAGE ─── */
+    .cover {
+      display: flex;
+      flex-direction: column;
+      min-height: 269mm;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .cover-header {
+      background: linear-gradient(135deg, #1E3A8A 0%, #2563EB 50%, #0EA5E9 100%);
+      padding: 22mm var(--page-pad) 14mm;
+      color: white;
+      position: relative;
+    }
+    .cover-header::after {
+      content: '';
+      position: absolute;
+      bottom: -1px; left: 0; right: 0;
+      height: 28px;
+      background: white;
+      clip-path: ellipse(55% 100% at 50% 100%);
+    }
+
+    .cover-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(255,255,255,.18);
+      border: 1px solid rgba(255,255,255,.3);
+      border-radius: 20px;
+      padding: 4px 12px;
+      font-size: 8pt;
+      font-weight: 600;
+      letter-spacing: .5px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      color: #BFDBFE;
+    }
+    .cover-badge::before { content: '●'; font-size: 6pt; color: #34D399; }
+
+    .cover-title {
+      font-size: 26pt;
+      font-weight: 800;
+      line-height: 1.15;
+      margin-bottom: 6px;
+      letter-spacing: -.5px;
+    }
+    .cover-title span { color: #93C5FD; }
+    .cover-subtitle {
+      font-size: 11pt;
+      color: #BFDBFE;
+      font-weight: 400;
+      margin-bottom: 20px;
+      max-width: 140mm;
+    }
+
+    .cover-pills {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .cover-pill {
+      background: rgba(255,255,255,.15);
+      border: 1px solid rgba(255,255,255,.25);
+      border-radius: 14px;
+      padding: 3px 10px;
+      font-size: 7.5pt;
+      color: #E0F2FE;
+      font-weight: 500;
+    }
+
+    .cover-body {
+      padding: 14mm var(--page-pad) 0;
+      flex: 1;
+    }
+
+    .cover-stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin-bottom: 14px;
+    }
+    .stat-card {
+      background: var(--blue-light);
+      border: 1px solid var(--blue-mid);
+      border-radius: var(--radius);
+      padding: 10px 10px 8px;
+      text-align: center;
+    }
+    .stat-num {
+      font-size: 17pt;
+      font-weight: 800;
+      color: var(--blue-dark);
+      line-height: 1;
+      margin-bottom: 3px;
+    }
+    .stat-label {
+      font-size: 7pt;
+      color: var(--slate-md);
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+    }
+
+    .cover-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .cover-info-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+    }
+    .cover-info-card h4 {
+      font-size: 8pt;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+      color: var(--blue);
+      font-weight: 700;
+      margin-bottom: 7px;
+      display: flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .cover-info-card h4::before {
+      content: '';
+      display: inline-block;
+      width: 3px;
+      height: 10px;
+      background: var(--blue);
+      border-radius: 2px;
+    }
+    .cover-info-list { list-style: none; }
+    .cover-info-list li {
+      font-size: 8.5pt;
+      color: var(--slate-md);
+      padding: 2.5px 0;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .cover-info-list li:last-child { border-bottom: none; }
+    .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+    .dot-blue { background: var(--blue); }
+    .dot-green { background: var(--green); }
+    .dot-purple { background: var(--purple); }
+    .dot-amber { background: var(--amber); }
+    .dot-teal { background: var(--teal); }
+
+    .cover-footer {
+      border-top: 1px solid var(--border);
+      padding: 9px var(--page-pad);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 0 calc(-1 * var(--page-pad));
+      background: var(--slate-bg);
+    }
+    .cover-footer-left { font-size: 8pt; color: var(--slate-lt); }
+    .cover-footer-right { font-size: 8pt; color: var(--blue); font-weight: 600; }
+
+    /* ─── SECTION HEADERS ─── */
+    .section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid var(--blue-light);
+    }
+    .section-icon {
+      width: 30px;
+      height: 30px;
+      border-radius: 7px;
+      background: linear-gradient(135deg, var(--blue), #0EA5E9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 13pt;
+      flex-shrink: 0;
+      box-shadow: 0 2px 6px rgba(37,99,235,.3);
+    }
+    .section-title {
+      font-size: 14pt;
+      font-weight: 800;
+      color: var(--slate);
+      letter-spacing: -.2px;
+    }
+    .section-num {
+      font-size: 7.5pt;
+      color: var(--blue);
+      font-weight: 700;
+      background: var(--blue-light);
+      border: 1px solid var(--blue-mid);
+      border-radius: 10px;
+      padding: 2px 7px;
+      margin-left: auto;
+    }
+
+    /* ─── CONTENT BLOCKS ─── */
+    .content-block { margin-bottom: 12px; }
+
+    /* ─── TABLES ─── */
+    .doc-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 8.5pt;
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: var(--shadow);
+      margin-bottom: 10px;
+    }
+    .doc-table thead tr {
+      background: linear-gradient(90deg, var(--blue) 0%, #0EA5E9 100%);
+      color: white;
+    }
+    .doc-table thead th {
+      padding: 8px 10px;
+      text-align: left;
+      font-size: 7.5pt;
+      font-weight: 700;
+      letter-spacing: .3px;
+      text-transform: uppercase;
+    }
+    .doc-table tbody tr { background: white; }
+    .doc-table tbody tr:nth-child(even) { background: var(--slate-bg); }
+    .doc-table tbody td {
+      padding: 7px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+      color: var(--slate-md);
+    }
+    .doc-table tbody td:first-child {
+      font-weight: 600;
+      color: var(--slate);
+    }
+    .doc-table code {
+      background: #F1F5F9;
+      border: 1px solid #CBD5E1;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-size: 7.5pt;
+      color: var(--blue-dark);
+    }
+
+    /* ─── CODE BLOCKS ─── */
+    .code-wrap {
+      background: #0F172A;
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 10px;
+      box-shadow: var(--shadow);
+    }
+    .code-bar {
+      background: #1E293B;
+      padding: 5px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .code-bar-lang {
+      font-size: 7pt;
+      font-weight: 700;
+      color: #94A3B8;
+      text-transform: uppercase;
+      letter-spacing: .5px;
+    }
+    .code-dots { display: flex; gap: 4px; }
+    .code-dots span {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+    }
+    .code-dots .d1 { background: #EF4444; }
+    .code-dots .d2 { background: #F59E0B; }
+    .code-dots .d3 { background: #22C55E; }
+
+    .code-body {
+      padding: 10px 12px;
+      font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+      font-size: 7.5pt;
+      line-height: 1.7;
+      color: #E2E8F0;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .code-body .cm { color: #64748B; } /* comment */
+    .code-body .kw { color: #818CF8; } /* keyword */
+    .code-body .st { color: #34D399; } /* string */
+    .code-body .nu { color: #FB923C; } /* number */
+    .code-body .fn { color: #60A5FA; } /* function */
+    .code-body .va { color: #F1F5F9; } /* variable */
+    .code-body .op { color: #94A3B8; } /* operator */
+
+    /* ─── INFO CARDS ─── */
+    .card-grid { display: grid; gap: 8px; margin-bottom: 10px; }
+    .card-grid-2 { grid-template-columns: 1fr 1fr; }
+    .card-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+    .info-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      background: white;
+      box-shadow: var(--shadow);
+    }
+    .info-card-title {
+      font-size: 8pt;
+      font-weight: 700;
+      color: var(--slate);
+      margin-bottom: 7px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .info-card-title .tag {
+      font-size: 6.5pt;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-weight: 600;
+      margin-left: auto;
+    }
+    .tag-blue { background: var(--blue-light); color: var(--blue); }
+    .tag-green { background: var(--green-bg); color: var(--green); }
+    .tag-purple { background: var(--purple-bg); color: var(--purple); }
+    .tag-amber { background: var(--amber-bg); color: var(--amber); }
+    .tag-teal { background: var(--teal-bg); color: var(--teal); }
+    .tag-red { background: var(--red-bg); color: var(--red); }
+
+    .info-list { list-style: none; }
+    .info-list li {
+      font-size: 8pt;
+      color: var(--slate-md);
+      padding: 2.5px 0;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      gap: 6px;
+    }
+    .info-list li:last-child { border-bottom: none; }
+    .info-list li::before {
+      content: '›';
+      color: var(--blue);
+      font-weight: 700;
+      margin-top: 1px;
+      flex-shrink: 0;
+    }
+
+    /* ─── PIPELINE DIAGRAM ─── */
+    .pipeline {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 10px;
+      overflow: hidden;
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .pipeline-step {
+      flex: 1;
+      padding: 9px 6px;
+      text-align: center;
+      position: relative;
+      font-size: 7pt;
+      font-weight: 700;
+      color: white;
+    }
+    .pipeline-step::after {
+      content: '';
+      position: absolute;
+      right: -8px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 0;
+      height: 0;
+      border-top: 18px solid transparent;
+      border-bottom: 18px solid transparent;
+      z-index: 2;
+    }
+    .pipeline-step span {
+      font-size: 6pt;
+      display: block;
+      opacity: .8;
+      font-weight: 500;
+      margin-top: 2px;
+    }
+    .ps1 { background: #1D4ED8; }
+    .ps1::after { border-left: 8px solid #1D4ED8; }
+    .ps2 { background: #2563EB; }
+    .ps2::after { border-left: 8px solid #2563EB; }
+    .ps3 { background: #3B82F6; }
+    .ps3::after { border-left: 8px solid #3B82F6; }
+    .ps4 { background: #0D9488; }
+    .ps4::after { border-left: 8px solid #0D9488; }
+    .ps5 { background: #059669; }
+    .ps5::after { border-left: 8px solid #059669; }
+    .ps6 { background: #16A34A; }
+    .ps6::after { border-left: 8px solid #16A34A; }
+    .ps7 { background: #7C3AED; border-radius: 0 var(--radius) var(--radius) 0; }
+    .ps7::after { display: none; }
+
+    /* ─── BADGES / TAGS ─── */
+    .badge {
+      display: inline-block;
+      padding: 2px 7px;
+      border-radius: 12px;
+      font-size: 7pt;
+      font-weight: 600;
+    }
+    .badge-blue { background: var(--blue-light); color: var(--blue); border: 1px solid var(--blue-mid); }
+    .badge-green { background: var(--green-bg); color: var(--green); }
+    .badge-amber { background: var(--amber-bg); color: var(--amber); }
+    .badge-red { background: var(--red-bg); color: var(--red); }
+    .badge-purple { background: var(--purple-bg); color: var(--purple); }
+    .badge-teal { background: var(--teal-bg); color: var(--teal); }
+
+    /* ─── HIGHLIGHT BOX ─── */
+    .highlight {
+      border-left: 3px solid var(--blue);
+      background: var(--blue-light);
+      border-radius: 0 var(--radius) var(--radius) 0;
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      font-size: 8.5pt;
+      color: var(--slate-md);
+    }
+    .highlight strong { color: var(--blue-dark); }
+
+    .highlight-green {
+      border-left-color: var(--green);
+      background: var(--green-bg);
+    }
+    .highlight-green strong { color: var(--green); }
+    .highlight-amber {
+      border-left-color: var(--amber);
+      background: var(--amber-bg);
+    }
+    .highlight-amber strong { color: var(--amber); }
+    .highlight-purple {
+      border-left-color: var(--purple);
+      background: var(--purple-bg);
+    }
+    .highlight-purple strong { color: var(--purple); }
+
+    /* ─── ENV BLOCK ─── */
+    .env-block {
+      background: #0F172A;
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-family: 'Cascadia Code','Consolas', monospace;
+      font-size: 7.5pt;
+      line-height: 1.9;
+      color: #94A3B8;
+      margin-bottom: 10px;
+      box-shadow: var(--shadow);
+    }
+    .env-block .ev-key { color: #60A5FA; }
+    .env-block .ev-val { color: #34D399; }
+    .env-block .ev-cmt { color: #475569; }
+    .env-block .ev-sec { color: #F1F5F9; font-weight: 700; margin-top: 4px; display: block; font-size: 7pt; letter-spacing: .4px; text-transform: uppercase; }
+
+    /* ─── PAGE HEADER (inner pages) ─── */
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 14px;
+    }
+    .page-header-left {
+      font-size: 7.5pt;
+      color: var(--slate-lt);
+      font-weight: 500;
+    }
+    .page-header-right {
+      font-size: 7.5pt;
+      color: var(--blue);
+      font-weight: 700;
+    }
+
+    /* ─── PAGE FOOTER (inner pages) ─── */
+    .page-footer {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      padding: 7px var(--page-pad);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--slate-bg);
+      border-top: 1px solid var(--border);
+      border-radius: 0 0 4px 4px;
+    }
+    .page-footer span { font-size: 7pt; color: var(--slate-lt); }
+    .page-footer strong { font-size: 7pt; color: var(--blue); font-weight: 700; }
+
+    /* ─── ROUTE TABLE ─── */
+    .route-row {
+      display: flex;
+      align-items: center;
+      padding: 6px 10px;
+      border-bottom: 1px solid var(--border);
+      gap: 10px;
+      font-size: 8pt;
+    }
+    .route-row:last-child { border-bottom: none; }
+    .route-row:nth-child(even) { background: var(--slate-bg); }
+    .route-path {
+      font-family: 'Cascadia Code','Consolas', monospace;
+      font-size: 7.5pt;
+      color: var(--blue-dark);
+      background: var(--blue-light);
+      border: 1px solid var(--blue-mid);
+      border-radius: 4px;
+      padding: 2px 7px;
+      width: 70mm;
+      flex-shrink: 0;
+    }
+    .route-desc { color: var(--slate-md); flex: 1; }
+
+    /* ─── WORKER CARD ─── */
+    .worker-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 7px;
+      margin-bottom: 10px;
+    }
+    .worker-card {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 8px 10px;
+      background: white;
+      box-shadow: var(--shadow);
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .worker-icon {
+      width: 26px;
+      height: 26px;
+      border-radius: 6px;
+      background: var(--blue-light);
+      border: 1px solid var(--blue-mid);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11pt;
+      flex-shrink: 0;
+    }
+    .worker-name { font-size: 8pt; font-weight: 700; color: var(--slate); }
+    .worker-desc { font-size: 7.5pt; color: var(--slate-md); margin-top: 1px; }
+
+    /* ─── SCHEDULER TABLE ─── */
+    .sched-row {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 8pt;
+    }
+    .sched-row:last-child { border-bottom: none; }
+    .sched-row:nth-child(even) { background: var(--slate-bg); }
+    .sched-cell {
+      padding: 6px 10px;
+      flex: 1;
+      color: var(--slate-md);
+      border-right: 1px solid var(--border);
+    }
+    .sched-cell:first-child { font-weight: 600; color: var(--slate); flex: 1.2; }
+    .sched-cell:last-child { border-right: none; }
+    .sched-head { background: var(--blue); color: white; font-weight: 700; font-size: 7.5pt; text-transform: uppercase; letter-spacing: .3px; }
+    .sched-head .sched-cell { color: white; }
+
+    /* ─── SECTION DIVIDER ─── */
+    .divider {
+      height: 1px;
+      background: linear-gradient(90deg, var(--blue) 0%, transparent 100%);
+      margin: 12px 0;
+      opacity: .3;
+    }
+
+    /* ─── STRENGTH/WEAKNESS ─── */
+    .sw-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+    .sw-card {
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      box-shadow: var(--shadow);
+    }
+    .sw-card-green { background: var(--green-bg); border: 1px solid #86EFAC; }
+    .sw-card-amber { background: var(--amber-bg); border: 1px solid #FCD34D; }
+    .sw-card h4 { font-size: 8pt; font-weight: 700; margin-bottom: 7px; }
+    .sw-card-green h4 { color: var(--green); }
+    .sw-card-amber h4 { color: var(--amber); }
+    .sw-card ul { list-style: none; }
+    .sw-card ul li {
+      font-size: 7.5pt;
+      padding: 2.5px 0;
+      color: var(--slate-md);
+      border-bottom: 1px dashed rgba(0,0,0,.08);
+      display: flex;
+      gap: 6px;
+      align-items: flex-start;
+    }
+    .sw-card ul li:last-child { border-bottom: none; }
+    .sw-card-green li::before { content: '✓'; color: var(--green); font-weight: 700; }
+    .sw-card-amber li::before { content: '△'; color: var(--amber); font-weight: 700; }
+
+    /* ─── COMMAND BLOCK ─── */
+    .cmd-section { margin-bottom: 8px; }
+    .cmd-section-title {
+      font-size: 8pt;
+      font-weight: 700;
+      color: var(--slate);
+      margin-bottom: 5px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .cmd-section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ─── DB SCHEMA ─── */
+    .schema-box {
+      background: #0F172A;
+      border-radius: var(--radius);
+      padding: 10px 12px;
+      font-family: 'Cascadia Code','Consolas', monospace;
+      font-size: 7pt;
+      line-height: 1.8;
+      color: #94A3B8;
+      box-shadow: var(--shadow);
+      margin-bottom: 10px;
+    }
+    .schema-box .sk { color: #F472B6; }
+    .schema-box .sv { color: #34D399; }
+    .schema-box .st2 { color: #60A5FA; }
+    .schema-box .sc { color: #64748B; }
+    .schema-box .ss { color: #FBBF24; }
+
+    /* ─── PRINT STYLES ─── */
+    @media print {
+      body { background: white !important; }
+      .page {
+        width: 210mm;
+        min-height: 297mm;
+        margin: 0;
+        padding: var(--page-pad);
+        box-shadow: none;
+        page-break-after: always;
+      }
+      .page:last-child { page-break-after: auto; }
+      * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+    }
+
+    @page {
+      size: A4;
+      margin: 0;
+    }
+
+    /* small inline code */
+    code {
+      background: #F1F5F9;
+      border: 1px solid #CBD5E1;
+      border-radius: 3px;
+      padding: 1px 5px;
+      font-family: 'Cascadia Code','Consolas', monospace;
+      font-size: 7.5pt;
+      color: var(--blue-dark);
+    }
+
+    p { font-size: 8.5pt; color: var(--slate-md); margin-bottom: 6px; line-height: 1.6; }
+
+    h3.sub {
+      font-size: 9.5pt;
+      font-weight: 700;
+      color: var(--slate);
+      margin: 10px 0 7px;
+      display: flex;
+      align-items: center;
+      gap: 7px;
+    }
+    h3.sub::before {
+      content: '';
+      display: inline-block;
+      width: 3px;
+      height: 12px;
+      background: var(--blue);
+      border-radius: 2px;
+    }
+
+    .pb { padding-bottom: 20mm; }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════════════
+     PAGE 1 — COVER
+══════════════════════════════════════════════ -->
+<div class="page cover">
+
+  <div class="cover-header">
+    <div class="cover-badge">Project Documentation · v1.0</div>
+    <div class="cover-title">Lead Finder <span>Agent</span></div>
+    <div class="cover-subtitle">Full-Stack Lead Generation &amp; Business Intelligence Platform — Complete Technical Reference</div>
+    <div class="cover-pills">
+      <span class="cover-pill">Next.js 16</span>
+      <span class="cover-pill">FastAPI</span>
+      <span class="cover-pill">MongoDB</span>
+      <span class="cover-pill">TypeScript 5</span>
+      <span class="cover-pill">Python 3.12+</span>
+      <span class="cover-pill">Playwright</span>
+      <span class="cover-pill">OpenAI</span>
+      <span class="cover-pill">Tailwind CSS 4</span>
+      <span class="cover-pill">Docker Ready</span>
+    </div>
+  </div>
+
+  <div class="cover-body">
+
+    <div class="cover-stats">
+      <div class="stat-card">
+        <div class="stat-num">25+</div>
+        <div class="stat-label">API Routes</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">45+</div>
+        <div class="stat-label">Pydantic Models</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">100+</div>
+        <div class="stat-label">Service Modules</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-num">30+</div>
+        <div class="stat-label">Test Files</div>
+      </div>
+    </div>
+
+    <div class="cover-grid">
+      <div class="cover-info-card">
+        <h4>Core Purpose</h4>
+        <ul class="cover-info-list">
+          <li><span class="dot dot-blue"></span>Automate lead generation from Google Maps</li>
+          <li><span class="dot dot-green"></span>AI-powered website analysis &amp; scoring</li>
+          <li><span class="dot dot-purple"></span>Multi-channel campaign management</li>
+          <li><span class="dot dot-amber"></span>CRM pipeline with activity tracking</li>
+          <li><span class="dot dot-teal"></span>Export reports in PDF, DOCX, XLSX, CSV</li>
+        </ul>
+      </div>
+      <div class="cover-info-card">
+        <h4>Key Technologies</h4>
+        <ul class="cover-info-list">
+          <li><span class="dot dot-blue"></span>Frontend — Next.js 16 + Tailwind CSS 4</li>
+          <li><span class="dot dot-blue"></span>Backend — FastAPI + Python 3.12</li>
+          <li><span class="dot dot-green"></span>Database — MongoDB (Motor async)</li>
+          <li><span class="dot dot-purple"></span>Scraping — Playwright + Chromium</li>
+          <li><span class="dot dot-amber"></span>AI — OpenAI GPT + custom pipeline</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="cover-grid">
+      <div class="cover-info-card">
+        <h4>Document Contents</h4>
+        <ul class="cover-info-list">
+          <li><span class="dot dot-blue"></span>§1 — Project Overview &amp; Tech Stack</li>
+          <li><span class="dot dot-blue"></span>§2 — Architecture &amp; Folder Structure</li>
+          <li><span class="dot dot-blue"></span>§3 — Database Schema &amp; Collections</li>
+          <li><span class="dot dot-blue"></span>§4 — AI Pipeline &amp; Background Workers</li>
+          <li><span class="dot dot-blue"></span>§5 — Auth, Security &amp; Frontend Arch</li>
+          <li><span class="dot dot-blue"></span>§6 — Deployment Guide (DigitalOcean)</li>
+          <li><span class="dot dot-blue"></span>§7 — Performance, Security &amp; Maintenance</li>
+        </ul>
+      </div>
+      <div class="cover-info-card">
+        <h4>Deployment Stack</h4>
+        <ul class="cover-info-list">
+          <li><span class="dot dot-teal"></span>DigitalOcean Droplet (Ubuntu 22.04)</li>
+          <li><span class="dot dot-teal"></span>NGINX Reverse Proxy + SSL/TLS</li>
+          <li><span class="dot dot-teal"></span>Let's Encrypt (Certbot)</li>
+          <li><span class="dot dot-teal"></span>Systemd Service Management</li>
+          <li><span class="dot dot-teal"></span>MongoDB Atlas (Cloud DB)</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="cover-footer">
+    <span class="cover-footer-left">Lead Finder Agent · Confidential Technical Documentation</span>
+    <span class="cover-footer-right">Page 1 of 7</span>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════
+     PAGE 2 — OVERVIEW + TECH STACK
+══════════════════════════════════════════════ -->
+<div class="page pb">
+
+  <div class="page-header">
+    <span class="page-header-left">Lead Finder Agent · Technical Documentation</span>
+    <span class="page-header-right">§1 Project Overview &amp; Stack</span>
+  </div>
+
+  <!-- Section 1 -->
+  <div class="section-header">
+    <div class="section-icon">🎯</div>
+    <div class="section-title">Project Overview</div>
+    <div class="section-num">Section 01</div>
+  </div>
+
+  <div class="highlight">
+    <strong>Purpose:</strong> Lead Finder Agent automates the entire lead generation lifecycle — scraping business directories, crawling websites for contact information, running AI-powered business intelligence analysis, and managing outreach through email &amp; WhatsApp campaigns with a built-in CRM pipeline.
+  </div>
+
+  <div class="card-grid card-grid-3">
+    <div class="info-card">
+      <div class="info-card-title">🔍 Discovery<span class="tag tag-blue">Scraping</span></div>
+      <ul class="info-list">
+        <li>Google Maps category search</li>
+        <li>Geo-targeted scraping</li>
+        <li>Smart deduplication</li>
+        <li>Rating &amp; review filters</li>
+        <li>Directory crawling</li>
+      </ul>
+    </div>
+    <div class="info-card">
+      <div class="info-card-title">🤖 AI Analysis<span class="tag tag-purple">OpenAI</span></div>
+      <ul class="info-list">
+        <li>Multi-stage analysis pipeline</li>
+        <li>Lead scoring &amp; prioritization</li>
+        <li>SEO &amp; performance audit</li>
+        <li>Tech stack detection</li>
+        <li>Sales talking points</li>
+      </ul>
+    </div>
+    <div class="info-card">
+      <div class="info-card-title">📊 CRM &amp; Reports<span class="tag tag-green">Exports</span></div>
+      <ul class="info-list">
+        <li>Pipeline stage management</li>
+        <li>Activity tracking</li>
+        <li>PDF / DOCX / XLSX export</li>
+        <li>Automated daily reports</li>
+        <li>Email &amp; WhatsApp campaigns</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Section 2 — Tech Stack -->
+  <div class="section-header">
+    <div class="section-icon">⚙️</div>
+    <div class="section-title">Technology Stack</div>
+    <div class="section-num">Section 02</div>
+  </div>
+
+  <h3 class="sub">Frontend Stack</h3>
+  <table class="doc-table">
+    <thead>
+      <tr>
+        <th>Component</th>
+        <th>Technology</th>
+        <th>Version</th>
+        <th>Purpose</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Framework</td><td>Next.js (App Router)</td><td><span class="badge badge-blue">16</span></td><td>SSR / SSG / client-side routing</td></tr>
+      <tr><td>Language</td><td>TypeScript</td><td><span class="badge badge-blue">5</span></td><td>Type-safe development</td></tr>
+      <tr><td>Styling</td><td>Tailwind CSS</td><td><span class="badge badge-teal">4</span></td><td>Utility-first CSS framework</td></tr>
+      <tr><td>Icons</td><td>Lucide React</td><td>latest</td><td>Consistent SVG icon set</td></tr>
+      <tr><td>State</td><td>Zustand + persist</td><td>latest</td><td>Global auth &amp; UI state</td></tr>
+      <tr><td>Data Fetching</td><td>TanStack React Query</td><td><span class="badge badge-blue">v5</span></td><td>Server state, caching, refetch</td></tr>
+      <tr><td>UI Primitives</td><td>Radix UI</td><td>latest</td><td>Accessible headless components</td></tr>
+      <tr><td>Forms</td><td>React Hook Form + Zod</td><td>latest</td><td>Validation &amp; form management</td></tr>
+      <tr><td>Animations</td><td>Framer Motion</td><td>latest</td><td>Smooth UI transitions</td></tr>
+      <tr><td>Notifications</td><td>Sonner</td><td>latest</td><td>Toast notifications</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub">Backend Stack</h3>
+  <table class="doc-table">
+    <thead>
+      <tr>
+        <th>Component</th>
+        <th>Technology</th>
+        <th>Version</th>
+        <th>Purpose</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>Framework</td><td>FastAPI</td><td>latest</td><td>Async REST API with auto-docs</td></tr>
+      <tr><td>Language</td><td>Python</td><td><span class="badge badge-blue">3.12+</span></td><td>Core backend runtime</td></tr>
+      <tr><td>Database</td><td>MongoDB + Motor</td><td>async</td><td>Document store with async driver</td></tr>
+      <tr><td>Validation</td><td>Pydantic</td><td><span class="badge badge-blue">v2</span></td><td>Data models &amp; serialization</td></tr>
+      <tr><td>Scraping</td><td>Playwright</td><td>latest</td><td>Headless Chromium automation</td></tr>
+      <tr><td>Background Jobs</td><td>APScheduler</td><td>latest</td><td>Cron-style scheduled tasks</td></tr>
+      <tr><td>Security</td><td>PyJWT + Passlib</td><td>latest</td><td>JWT auth + bcrypt hashing</td></tr>
+      <tr><td>Encryption</td><td>cryptography (Fernet)</td><td>latest</td><td>API key encryption at rest</td></tr>
+      <tr><td>Reports</td><td>ReportLab / WeasyPrint</td><td>latest</td><td>PDF &amp; DOCX generation</td></tr>
+      <tr><td>AI</td><td>OpenAI + provider factory</td><td>latest</td><td>GPT-powered analysis</td></tr>
+    </tbody>
+  </table>
+
+  <div class="page-footer">
+    <span>Lead Finder Agent · Confidential</span>
+    <strong>Page 2 of 7</strong>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════
+     PAGE 3 — PROJECT STRUCTURE
+══════════════════════════════════════════════ -->
+<div class="page pb">
+
+  <div class="page-header">
+    <span class="page-header-left">Lead Finder Agent · Technical Documentation</span>
+    <span class="page-header-right">§3 Project Structure</span>
+  </div>
+
+  <div class="section-header">
+    <div class="section-icon">📁</div>
+    <div class="section-title">Project Structure</div>
+    <div class="section-num">Section 03</div>
+  </div>
+
+  <div class="card-grid card-grid-2">
+
+    <div>
+      <h3 class="sub">Backend — <code>backend/</code></h3>
+      <div class="code-wrap">
+        <div class="code-bar">
+          <span class="code-bar-lang">Directory Tree</span>
+          <div class="code-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div>
+        </div>
+        <div class="code-body"><span class="cm">backend/
+└── app/</span>
+    <span class="fn">├── api/</span>
+    │   <span class="fn">├── routes/</span>       <span class="cm"># 25+ modules</span>
+    │   │   <span class="st">├── auth.py</span>
+    │   │   <span class="st">├── leads.py</span>
+    │   │   <span class="st">├── campaigns.py</span>
+    │   │   <span class="st">├── ai.py</span>
+    │   │   <span class="st">├── whatsapp.py</span>
+    │   │   <span class="st">├── crm.py</span>
+    │   │   <span class="st">└── reports.py</span>
+    │   <span class="fn">└── dependencies.py</span>
+    <span class="fn">├── core/</span>
+    │   <span class="st">├── config.py</span>
+    │   <span class="st">├── security.py</span>
+    │   <span class="st">├── middleware.py</span>
+    │   <span class="st">└── state_machine/</span>
+    <span class="fn">├── db/</span>
+    │   <span class="st">├── database.py</span>
+    │   <span class="st">└── init_db.py</span>
+    <span class="fn">├── models/</span>       <span class="cm"># 45 schemas</span>
+    <span class="fn">├── repositories/</span>
+    <span class="fn">├── services/</span>     <span class="cm"># 100+ modules</span>
+    │   <span class="st">├── ai/</span>
+    │   <span class="st">├── campaigns/</span>
+    │   <span class="st">├── whatsapp/</span>
+    │   <span class="st">├── reports/</span>
+    │   <span class="st">└── search_engine/</span>
+    <span class="fn">├── main.py</span>
+    <span class="fn">└── websockets.py</span>
+<span class="fn">├── tests/</span>        <span class="cm"># 30+ test files</span>
+<span class="fn">└── scripts/</span>      <span class="cm"># 20+ utility scripts</span></div>
+      </div>
+    </div>
+
+    <div>
+      <h3 class="sub">Frontend — <code>frontend/</code></h3>
+      <div class="code-wrap">
+        <div class="code-bar">
+          <span class="code-bar-lang">Directory Tree</span>
+          <div class="code-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div>
+        </div>
+        <div class="code-body"><span class="cm">frontend/
+└── app/</span>
+    <span class="fn">├── (dashboard)/</span>  <span class="cm"># Auth routes</span>
+    │   <span class="st">├── dashboard/</span>
+    │   <span class="st">├── leads/</span>
+    │   <span class="st">├── search/</span>
+    │   <span class="st">├── campaigns/</span>
+    │   <span class="st">├── crm/</span>
+    │   <span class="st">├── intelligence/</span>
+    │   <span class="st">├── settings/</span>
+    │   <span class="st">└── admin/</span>
+    <span class="fn">├── login/</span>
+    <span class="fn">├── layout.tsx</span>
+    <span class="fn">└── page.tsx</span>
+<span class="fn">└── src/</span>
+    <span class="fn">├── components/</span>
+    │   <span class="st">├── leads/</span>
+    │   <span class="st">└── settings/</span>
+    <span class="fn">├── features/</span>
+    │   <span class="st">└── auth/store.ts</span>
+    <span class="fn">├── lib/</span>
+    │   <span class="st">├── axios.ts</span>
+    │   <span class="st">├── queryClient.ts</span>
+    │   <span class="st">└── cn.ts</span>
+    <span class="fn">└── types/</span>
+        <span class="st">└── index.ts</span></div>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">Frontend Routes</h3>
+  <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:10px;">
+    <div class="route-row" style="background:var(--blue);color:white;">
+      <span class="route-path" style="background:rgba(255,255,255,.15);border-color:rgba(255,255,255,.2);color:white;font-weight:700;">Route Path</span>
+      <span class="route-desc" style="color:white;font-weight:700;">Purpose</span>
+    </div>
+    <div class="route-row"><span class="route-path">/dashboard</span><span class="route-desc">Main dashboard — real-time stats &amp; KPI overview</span></div>
+    <div class="route-row"><span class="route-path">/dashboard/search</span><span class="route-desc">Google Maps search interface with geo &amp; category filters</span></div>
+    <div class="route-row"><span class="route-path">/dashboard/leads</span><span class="route-desc">Lead management grid — sort, filter, tag, favourite</span></div>
+    <div class="route-row"><span class="route-path">/dashboard/campaigns</span><span class="route-desc">Email &amp; WhatsApp campaign builder &amp; scheduler</span></div>
+    <div class="route-row"><span class="route-path">/dashboard/crm</span><span class="route-desc">CRM Kanban pipeline — New → Qualified → Closed</span></div>
+    <div class="route-row"><span class="route-path">/dashboard/intelligence</span><span class="route-desc">Business intelligence reports &amp; aggregated data</span></div>
+    <div class="route-row"><span class="route-path">/dashboard/admin</span><span class="route-desc">Admin panel — user management &amp; system settings</span></div>
+    <div class="route-row"><span class="route-path">/login</span><span class="route-desc">Authentication page with remember me + token refresh</span></div>
+  </div>
+
+  <div class="page-footer">
+    <span>Lead Finder Agent · Confidential</span>
+    <strong>Page 3 of 7</strong>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════
+     PAGE 4 — DATABASE + AI PIPELINE
+══════════════════════════════════════════════ -->
+<div class="page pb">
+
+  <div class="page-header">
+    <span class="page-header-left">Lead Finder Agent · Technical Documentation</span>
+    <span class="page-header-right">§4 Database &amp; AI Pipeline</span>
+  </div>
+
+  <div class="section-header">
+    <div class="section-icon">🗄️</div>
+    <div class="section-title">Database Architecture</div>
+    <div class="section-num">Section 04</div>
+  </div>
+
+  <h3 class="sub">MongoDB Collections</h3>
+  <table class="doc-table" style="margin-bottom:10px;">
+    <thead><tr><th>Collection</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>leads</td><td>Primary lead documents with nested AI analysis metadata</td></tr>
+      <tr><td>users</td><td>User accounts, password hashes, roles, and JWT sessions</td></tr>
+      <tr><td>campaigns</td><td>Email and WhatsApp campaign configurations</td></tr>
+      <tr><td>templates</td><td>Reusable email / WhatsApp message templates</td></tr>
+      <tr><td>search_sessions</td><td>Saved search configurations for quick re-run</td></tr>
+      <tr><td>ai_analysis_jobs</td><td>AI analysis job queue with status tracking</td></tr>
+      <tr><td>ai_analysis_queues</td><td>Queue management for AI workers</td></tr>
+      <tr><td>advanced_analysis_queue</td><td>Deep-dive complex analysis job queue</td></tr>
+      <tr><td>worker_nodes</td><td>Background worker health and status tracking</td></tr>
+      <tr><td>job_logs</td><td>Unified job execution logging</td></tr>
+      <tr><td>crm_activities</td><td>CRM activity log — calls, emails, meetings</td></tr>
+      <tr><td>intelligence_daily</td><td>Daily aggregate intelligence snapshots</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub">Lead Document Schema</h3>
+  <div class="schema-box"><span class="sk">LeadDocument</span> <span class="st2">=</span> {
+  <span class="sc"># ── Basic Business Info</span>
+  <span class="ss">"name"</span>:          <span class="sv">str</span>,
+  <span class="ss">"phone"</span>:         <span class="sv">str</span>,
+  <span class="ss">"email"</span>:         <span class="sv">str</span>,
+  <span class="ss">"website"</span>:       <span class="sv">str</span>,
+  <span class="ss">"address"</span>:       <span class="sv">str</span>,
+  <span class="ss">"city/state"</span>:    <span class="sv">str</span>,
+  <span class="ss">"category"</span>:      <span class="sv">str</span>,
+  <span class="ss">"google_rating"</span>: <span class="sv">float</span>,
+
+  <span class="sc"># ── AI Analysis (nested)</span>
+  <span class="ss">"ai_analysis"</span>: {
+    <span class="ss">"analysis_status"</span>:  <span class="sv">WAITING|QUEUED|RUNNING|COMPLETED|FAILED</span>,
+    <span class="ss">"overall_score"</span>:    <span class="sv">int</span>,
+    <span class="ss">"seo_score"</span>:        <span class="sv">int</span>,
+    <span class="ss">"performance_score"</span>:<span class="sv">int</span>,
+    <span class="ss">"recommendations"</span>:  <span class="sv">List[str]</span>,
+    <span class="ss">"emails"</span>:           <span class="sv">List[str]</span>,
+    <span class="ss">"technology_detected"</span>:<span class="sv">List[str]</span>,
+  },
+  <span class="sc"># ── Enriched Data, CRM Fields, Metadata</span>
+  <span class="ss">"pipeline_stage"</span>: <span class="sv">str</span>,   <span class="ss">"priority"</span>: <span class="sv">str</span>,
+  <span class="ss">"owner_id"</span>:       <span class="sv">str</span>,   <span class="ss">"user_id"</span>:  <span class="sv">str</span>,
+  <span class="ss">"tags"</span>:           <span class="sv">List[str]</span>,   <span class="ss">"is_favorite"</span>: <span class="sv">bool</span>,
+  <span class="ss">"created_at"</span>:     <span class="sv">datetime</span>
+}</div>
+
+  <div class="divider"></div>
+
+  <!-- AI Pipeline -->
+  <div class="section-header">
+    <div class="section-icon">🧠</div>
+    <div class="section-title">AI Analysis Pipeline</div>
+    <div class="section-num">Section 05</div>
+  </div>
+
+  <h3 class="sub">Workflow State Machine</h3>
+  <div class="pipeline">
+    <div class="pipeline-step ps1">PENDING<span>Queued</span></div>
+    <div class="pipeline-step ps2">RUNNING<span>Started</span></div>
+    <div class="pipeline-step ps3">COLLECTING<span>Crawl</span></div>
+    <div class="pipeline-step ps4">ANALYZING<span>AI Review</span></div>
+    <div class="pipeline-step ps5">SCORING<span>Calculate</span></div>
+    <div class="pipeline-step ps6">SAVING<span>MongoDB</span></div>
+    <div class="pipeline-step ps7">✓ SUCCESS<span>Complete</span></div>
+  </div>
+
+  <div class="card-grid card-grid-2" style="margin-top:8px;">
+    <div class="info-card">
+      <div class="info-card-title">📥 Stage 1 — Collection<span class="tag tag-blue">Playwright</span></div>
+      <ul class="info-list">
+        <li>Crawl all website pages</li>
+        <li>Discover &amp; follow internal links</li>
+        <li>Extract raw HTML content</li>
+        <li>Capture contact emails &amp; phones</li>
+        <li>Detect social media profiles</li>
+      </ul>
+    </div>
+    <div class="info-card">
+      <div class="info-card-title">🔬 Stage 2 — Analysis<span class="tag tag-purple">OpenAI</span></div>
+      <ul class="info-list">
+        <li>Full SEO metrics audit</li>
+        <li>Page performance assessment</li>
+        <li>UI/UX design quality audit</li>
+        <li>Technology stack detection</li>
+        <li>Opportunity gap identification</li>
+      </ul>
+    </div>
+    <div class="info-card">
+      <div class="info-card-title">📊 Stage 3 — Scoring<span class="tag tag-amber">Weights</span></div>
+      <ul class="info-list">
+        <li>Overall business score (0–100)</li>
+        <li>SEO score calculation</li>
+        <li>Performance score weighting</li>
+        <li>Priority classification</li>
+        <li>Sales talking points generation</li>
+      </ul>
+    </div>
+    <div class="info-card">
+      <div class="info-card-title">💾 Stage 4 — Saving<span class="tag tag-green">MongoDB</span></div>
+      <ul class="info-list">
+        <li>Persist results to MongoDB</li>
+        <li>Update lead document in-place</li>
+        <li>Trigger enrichment queue</li>
+        <li>Emit WebSocket progress event</li>
+        <li>Mark job as SUCCESS / FAILED</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Lead Finder Agent · Confidential</span>
+    <strong>Page 4 of 7</strong>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════
+     PAGE 5 — WORKERS + AUTH + FRONTEND
+══════════════════════════════════════════════ -->
+<div class="page pb">
+
+  <div class="page-header">
+    <span class="page-header-left">Lead Finder Agent · Technical Documentation</span>
+    <span class="page-header-right">§5 Workers · Auth · Frontend</span>
+  </div>
+
+  <div class="section-header">
+    <div class="section-icon">⚡</div>
+    <div class="section-title">Background Workers &amp; Scheduler</div>
+    <div class="section-num">Section 06</div>
+  </div>
+
+  <h3 class="sub">Startup Workers (auto-launched with backend)</h3>
+  <div class="worker-grid">
+    <div class="worker-card"><div class="worker-icon">📧</div><div><div class="worker-name">CampaignQueueWorker</div><div class="worker-desc">Email &amp; WhatsApp campaign queue processor</div></div></div>
+    <div class="worker-card"><div class="worker-icon">✉️</div><div><div class="worker-name">email_worker_instance</div><div class="worker-desc">Email dispatch queue handler</div></div></div>
+    <div class="worker-card"><div class="worker-icon">💬</div><div><div class="worker-name">EnhancedWAQueueWorker</div><div class="worker-desc">WhatsApp message dispatch queue</div></div></div>
+    <div class="worker-card"><div class="worker-icon">🖥️</div><div><div class="worker-name">WADesktopQueueWorker</div><div class="worker-desc">WhatsApp AI desktop automation</div></div></div>
+    <div class="worker-card"><div class="worker-icon">🤖</div><div><div class="worker-name">EmailAIQueueWorker</div><div class="worker-desc">AI-powered email analysis processor</div></div></div>
+    <div class="worker-card"><div class="worker-icon">🧠</div><div><div class="worker-name">AIQueueWorker</div><div class="worker-desc">Main AI analysis queue processor</div></div></div>
+    <div class="worker-card"><div class="worker-icon">🔬</div><div><div class="worker-name">AdvancedAnalysisWorker</div><div class="worker-desc">Complex deep-dive analysis jobs</div></div></div>
+    <div class="worker-card"><div class="worker-icon">📄</div><div><div class="worker-name">AutoReportWorker</div><div class="worker-desc">Automated daily report generation</div></div></div>
+    <div class="worker-card"><div class="worker-icon">🔄</div><div><div class="worker-name">CRMAutomationWorker</div><div class="worker-desc">CRM workflow automation engine</div></div></div>
+    <div class="worker-card"><div class="worker-icon">💎</div><div><div class="worker-name">EnrichmentQueueWorker</div><div class="worker-desc">Lead data enrichment queue</div></div></div>
+  </div>
+
+  <h3 class="sub">APScheduler Jobs</h3>
+  <div style="border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);margin-bottom:12px;">
+    <div class="sched-row sched-head"><div class="sched-cell">Job</div><div class="sched-cell">Frequency</div><div class="sched-cell">Purpose</div></div>
+    <div class="sched-row"><div class="sched-cell">emit_heartbeat</div><div class="sched-cell"><span class="badge badge-blue">Every 30s</span></div><div class="sched-cell">Worker health monitoring &amp; WebSocket ping</div></div>
+    <div class="sched-row"><div class="sched-cell">daily_aggregate</div><div class="sched-cell"><span class="badge badge-green">Daily (midnight)</span></div><div class="sched-cell">Aggregate daily intelligence snapshots</div></div>
+    <div class="sched-row"><div class="sched-cell">daily_cleanup</div><div class="sched-cell"><span class="badge badge-amber">Daily (1 AM)</span></div><div class="sched-cell">Data cleanup, log archival, old job purge</div></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-header">
+    <div class="section-icon">🔐</div>
+    <div class="section-title">Authentication &amp; Security</div>
+    <div class="section-num">Section 07</div>
+  </div>
+
+  <div class="card-grid card-grid-2">
+    <div class="info-card">
+      <div class="info-card-title">🔑 Auth Flow<span class="tag tag-blue">JWT</span></div>
+      <ul class="info-list">
+        <li>Login with email + password</li>
+        <li>JWT access token (15 min expiry)</li>
+        <li>Refresh token (7 day expiry)</li>
+        <li>localStorage / sessionStorage via "remember me"</li>
+        <li>Auto token refresh on 401 errors</li>
+        <li>Role-based access: Admin / User</li>
+      </ul>
+    </div>
+    <div class="info-card">
+      <div class="info-card-title">🛡️ Security Features<span class="tag tag-red">Hardened</span></div>
+      <ul class="info-list">
+        <li>bcrypt password hashing (Passlib)</li>
+        <li>Fernet encryption for API keys at rest</li>
+        <li>CORS — environment-controlled origins</li>
+        <li>Rate limiting via slowapi</li>
+        <li>Security headers middleware</li>
+        <li>Request size limit — 10MB max</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 class="sub">Frontend State Architecture</h3>
+  <div class="card-grid card-grid-3">
+    <div class="info-card">
+      <div class="info-card-title">🗂️ Zustand Store</div>
+      <ul class="info-list">
+        <li>useAuthStore with persist</li>
+        <li>localStorage (remember me)</li>
+        <li>sessionStorage (session only)</li>
+      </ul>
+    </div>
+    <div class="info-card">
+      <div class="info-card-title">🔄 React Query</div>
+      <ul class="info-list">
+        <li>Server state management</li>
+        <li>Auto-caching &amp; background refetch</li>
+        <li>Stale-while-revalidate</li>
+      </ul>
+    </div>
+    <div class="info-card">
+      <div class="info-card-title">🌐 Axios Client</div>
+      <ul class="info-list">
+        <li>Request interceptors</li>
+        <li>401 auto token refresh</li>
+        <li>Base URL from env vars</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Lead Finder Agent · Confidential</span>
+    <strong>Page 5 of 7</strong>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════
+     PAGE 6 — DEPLOYMENT GUIDE
+══════════════════════════════════════════════ -->
+<div class="page pb">
+
+  <div class="page-header">
+    <span class="page-header-left">Lead Finder Agent · Technical Documentation</span>
+    <span class="page-header-right">§6 DigitalOcean Deployment</span>
+  </div>
+
+  <div class="section-header">
+    <div class="section-icon">🚀</div>
+    <div class="section-title">DigitalOcean Droplet Deployment</div>
+    <div class="section-num">Section 08</div>
+  </div>
+
+  <h3 class="sub">Step 1 — Provision Droplet</h3>
+  <table class="doc-table" style="margin-bottom:8px;">
+    <thead><tr><th>Setting</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Image</td><td>Ubuntu 22.04 LTS</td></tr>
+      <tr><td>Plan</td><td>$24/mo — 4 GB RAM, 4 vCPUs (minimum)</td></tr>
+      <tr><td>Authentication</td><td>SSH key (recommended)</td></tr>
+      <tr><td>Hostname</td><td><code>lead-finder-server</code></td></tr>
+      <tr><td>Datacenter</td><td>Choose region closest to your users</td></tr>
+    </tbody>
+  </table>
+
+  <h3 class="sub">Step 2 — Initial Server Setup</h3>
+  <div class="code-wrap">
+    <div class="code-bar"><span class="code-bar-lang">bash</span><div class="code-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div></div>
+    <div class="code-body"><span class="cm"># System update</span>
+<span class="fn">apt</span> update && apt upgrade -y
+
+<span class="cm"># Create non-root user</span>
+<span class="fn">adduser</span> yourusername
+<span class="fn">usermod</span> -aG sudo yourusername
+
+<span class="cm"># Configure UFW firewall</span>
+<span class="fn">ufw</span> allow OpenSSH && ufw allow 22/tcp
+<span class="fn">ufw</span> allow 80/tcp && ufw allow 443/tcp && ufw enable</div>
+  </div>
+
+  <h3 class="sub">Step 3 — Install Backend Dependencies</h3>
+  <div class="code-wrap">
+    <div class="code-bar"><span class="code-bar-lang">bash</span><div class="code-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div></div>
+    <div class="code-body"><span class="cm"># Python 3.12</span>
+<span class="fn">sudo apt install</span> -y python3.12 python3.12-venv python3.12-dev build-essential
+
+<span class="cm"># MongoDB 7.0</span>
+<span class="fn">curl</span> -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | \
+  sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
+<span class="fn">sudo apt install</span> -y mongodb-org
+<span class="fn">sudo systemctl</span> enable mongod && sudo systemctl start mongod
+
+<span class="cm"># Node.js 20.x</span>
+<span class="fn">curl</span> -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+<span class="fn">sudo apt install</span> -y nodejs
+
+<span class="cm"># NGINX</span>
+<span class="fn">sudo apt install</span> -y nginx && sudo systemctl enable nginx</div>
+  </div>
+
+  <h3 class="sub">Step 4 — Backend Setup</h3>
+  <div class="code-wrap">
+    <div class="code-bar"><span class="code-bar-lang">bash</span><div class="code-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div></div>
+    <div class="code-body"><span class="fn">cd</span> ~/lead-finder-project/backend
+<span class="fn">python3.12 -m venv</span> .venv && source .venv/bin/activate
+<span class="fn">pip install</span> --upgrade pip && pip install -r requirements.txt
+<span class="fn">pip install</span> playwright && python -m playwright install chromium
+
+<span class="cm"># Generate secure keys</span>
+<span class="fn">python</span> -c <span class="st">"import secrets; print(secrets.token_urlsafe(32))"</span>
+<span class="fn">python</span> -c <span class="st">"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"</span></div>
+  </div>
+
+  <h3 class="sub">Step 5 — Environment Variables (.env)</h3>
+  <div class="env-block"><span class="ev-sec"># Application</span>
+<span class="ev-key">PROJECT_NAME</span>=<span class="ev-val">"Lead Finder Agent API"</span>
+<span class="ev-key">API_V1_STR</span>=<span class="ev-val">"/api/v1"</span>
+<span class="ev-sec"># Database</span>
+<span class="ev-key">MONGODB_URL</span>=<span class="ev-val">mongodb://localhost:27017/lead_finder_agent</span>
+<span class="ev-key">DATABASE_NAME</span>=<span class="ev-val">lead_finder_agent</span>
+<span class="ev-sec"># Security</span>
+<span class="ev-key">SECRET_KEY</span>=<span class="ev-val">your_generated_32char_secret_key_here</span>
+<span class="ev-key">ALGORITHM</span>=<span class="ev-val">HS256</span>
+<span class="ev-key">ACCESS_TOKEN_EXPIRE_MINUTES</span>=<span class="ev-val">30</span>
+<span class="ev-key">REFRESH_TOKEN_EXPIRE_MINUTES</span>=<span class="ev-val">10080</span>
+<span class="ev-sec"># Admin</span>
+<span class="ev-key">ADMIN_EMAIL</span>=<span class="ev-val">admin@yourdomain.com</span>
+<span class="ev-key">ADMIN_PASSWORD</span>=<span class="ev-val">SecureAdminPassword123!</span>
+<span class="ev-sec"># SMTP</span>
+<span class="ev-key">SMTP_SERVER</span>=<span class="ev-val">smtp.gmail.com</span>   <span class="ev-cmt">  # port 587</span>
+<span class="ev-key">SMTP_USERNAME</span>=<span class="ev-val">youremail@gmail.com</span></div>
+
+  <div class="page-footer">
+    <span>Lead Finder Agent · Confidential</span>
+    <strong>Page 6 of 7</strong>
+  </div>
+</div>
+
+
+<!-- ══════════════════════════════════════════════
+     PAGE 7 — SYSTEMD + NGINX + MAINTENANCE
+══════════════════════════════════════════════ -->
+<div class="page pb">
+
+  <div class="page-header">
+    <span class="page-header-left">Lead Finder Agent · Technical Documentation</span>
+    <span class="page-header-right">§7 Services · NGINX · Maintenance</span>
+  </div>
+
+  <div class="section-header">
+    <div class="section-icon">🔧</div>
+    <div class="section-title">Systemd Services &amp; NGINX</div>
+    <div class="section-num">Section 09</div>
+  </div>
+
+  <div class="card-grid card-grid-2">
+    <div>
+      <h3 class="sub">Backend Systemd Service</h3>
+      <div class="code-wrap">
+        <div class="code-bar"><span class="code-bar-lang">ini — /etc/systemd/system/lead-finder-backend.service</span><div class="code-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div></div>
+        <div class="code-body"><span class="kw">[Unit]</span>
+<span class="va">Description</span>=Lead Finder Backend API
+<span class="va">After</span>=network.target mongod.service
+
+<span class="kw">[Service]</span>
+<span class="va">Type</span>=simple
+<span class="va">User</span>=yourusername
+<span class="va">WorkingDirectory</span>=/home/user/backend
+<span class="va">ExecStart</span>=.venv/bin/uvicorn app.main:app \
+  --host 0.0.0.0 --port 8000 \
+  --workers 4 --timeout-keep-alive 120
+<span class="va">Restart</span>=always
+<span class="va">RestartSec</span>=10
+
+<span class="kw">[Install]</span>
+<span class="va">WantedBy</span>=multi-user.target</div>
+      </div>
+    </div>
+    <div>
+      <h3 class="sub">Frontend Systemd Service</h3>
+      <div class="code-wrap">
+        <div class="code-bar"><span class="code-bar-lang">ini — /etc/systemd/system/lead-finder-frontend.service</span><div class="code-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div></div>
+        <div class="code-body"><span class="kw">[Unit]</span>
+<span class="va">Description</span>=Lead Finder Frontend
+<span class="va">After</span>=network.target
+
+<span class="kw">[Service]</span>
+<span class="va">Type</span>=simple
+<span class="va">User</span>=yourusername
+<span class="va">WorkingDirectory</span>=/home/user/frontend
+<span class="va">ExecStart</span>=/usr/bin/node \
+  --max-old-space-size=4096 \
+  node_modules/.bin/next start -p 3000
+<span class="va">Restart</span>=always
+<span class="va">Environment</span>=<span class="st">"NODE_ENV=production"</span>
+<span class="va">Environment</span>=<span class="st">"NEXT_PUBLIC_API_URL=https://api.yourdomain.com/api/v1"</span>
+
+<span class="kw">[Install]</span>
+<span class="va">WantedBy</span>=multi-user.target</div>
+      </div>
+    </div>
+  </div>
+
+  <h3 class="sub">NGINX Reverse Proxy Config</h3>
+  <div class="code-wrap">
+    <div class="code-bar"><span class="code-bar-lang">nginx — /etc/nginx/sites-available/lead-finder</span><div class="code-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div></div>
+    <div class="code-body"><span class="kw">upstream</span> <span class="fn">frontend</span> { <span class="va">server</span> 127.0.0.1:3000; }
+<span class="kw">upstream</span> <span class="fn">backend</span>  { <span class="va">server</span> 127.0.0.1:8000; }
+
+<span class="kw">server</span> {
+  <span class="va">listen</span> 80;
+  <span class="va">server_name</span> yourdomain.com www.yourdomain.com;
+  <span class="va">return</span> 301 https://$server_name$request_uri;
+}
+
+<span class="kw">server</span> {
+  <span class="va">listen</span> 443 ssl http2;
+  <span class="va">server_name</span> yourdomain.com www.yourdomain.com;
+  <span class="va">ssl_certificate</span>      /etc/letsencrypt/live/yourdomain.com/fullchain.pem;
+  <span class="va">ssl_certificate_key</span>  /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+
+  <span class="va">location</span> / { <span class="va">proxy_pass</span> http://frontend; }
+  <span class="va">location</span> /api/v1/ {
+    <span class="va">proxy_pass</span> http://backend/api/v1/;
+    <span class="va">proxy_read_timeout</span> 86400; <span class="cm"># WebSocket support</span>
+  }
+}</div>
+  </div>
+
+  <h3 class="sub">SSL Certificate</h3>
+  <div class="code-wrap">
+    <div class="code-bar"><span class="code-bar-lang">bash</span><div class="code-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div></div>
+    <div class="code-body"><span class="fn">sudo apt install</span> -y certbot python3-certbot-nginx
+<span class="fn">sudo certbot</span> --nginx -d yourdomain.com -d www.yourdomain.com
+<span class="fn">sudo certbot</span> renew --dry-run   <span class="cm"># test auto-renewal</span></div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-header">
+    <div class="section-icon">📈</div>
+    <div class="section-title">Strengths &amp; Areas for Improvement</div>
+    <div class="section-num">Section 10</div>
+  </div>
+
+  <div class="sw-grid">
+    <div class="sw-card sw-card-green">
+      <h4>✅ Key Strengths</h4>
+      <ul>
+        <li>Scalable background worker architecture with task queues</li>
+        <li>Comprehensive multi-stage AI analysis pipeline</li>
+        <li>Production-ready circuit breakers &amp; connection pooling</li>
+        <li>Modular clean separation — API / Services / Models</li>
+        <li>Real-time WebSocket progress tracking</li>
+        <li>Full reporting suite — PDF, Excel, CSV, DOCX</li>
+        <li>Integrated CRM with activity tracking</li>
+        <li>Security-first — JWT, encryption, rate limiting</li>
+      </ul>
+    </div>
+    <div class="sw-card sw-card-amber">
+      <h4>△ Areas for Improvement</h4>
+      <ul>
+        <li>API documentation could be more comprehensive</li>
+        <li>No visible frontend tests (Jest / Cypress)</li>
+        <li>No CI/CD pipeline (GitHub Actions / GitLab CI)</li>
+        <li>APM monitoring (Datadog / Sentry) not yet integrated</li>
+        <li>Redis caching for sessions &amp; frequent queries</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 class="sub">Service Management Quick Reference</h3>
+  <div class="code-wrap">
+    <div class="code-bar"><span class="code-bar-lang">bash — daily operations</span><div class="code-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></div></div>
+    <div class="code-body"><span class="cm"># Service control</span>
+<span class="fn">sudo systemctl</span> {start|stop|restart|status} lead-finder-backend
+<span class="fn">sudo systemctl</span> {start|stop|restart|status} lead-finder-frontend
+
+<span class="cm"># View logs</span>
+<span class="fn">sudo journalctl</span> -u lead-finder-backend -f
+<span class="fn">sudo journalctl</span> -u lead-finder-frontend -f
+<span class="fn">sudo tail</span> -f /var/log/nginx/error.log
+
+<span class="cm"># Health check</span>
+<span class="fn">curl</span> http://localhost:8000/api/v1/health
+<span class="fn">curl</span> https://yourdomain.com/api/v1/health</div>
+  </div>
+
+  <div class="page-footer">
+    <span>Lead Finder Agent · Confidential Technical Documentation</span>
+    <strong>Page 7 of 7</strong>
+  </div>
+</div>
+
+</body>
+</html>

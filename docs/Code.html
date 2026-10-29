@@ -1,0 +1,855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lead Finder Agent - Project Analysis & Deployment Guide</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-color: #f1f5f9;
+            --page-bg: #ffffff;
+            --text-main: #334155;
+            --text-heading: #0f172a;
+            --text-muted: #64748b;
+            --border-color: #e2e8f0;
+            --primary: #2563eb;
+            --code-bg: #f8fafc;
+        }
+
+        /* Screen Styles (A4 Preview Mode) */
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .a4-container {
+            background-color: var(--page-bg);
+            width: 210mm;
+            min-height: 297mm;
+            padding: 20mm;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.05);
+            border-radius: 8px;
+            box-sizing: border-box;
+            margin-bottom: 40px;
+        }
+
+        /* Typography */
+        h1, h2, h3, h4 {
+            color: var(--text-heading);
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            font-weight: 600;
+        }
+        
+        h1 {
+            font-size: 28px;
+            border-bottom: 2px solid var(--border-color);
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+        
+        h2 {
+            font-size: 22px;
+            color: var(--primary);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 5px;
+            page-break-after: avoid;
+        }
+        
+        h3 {
+            font-size: 18px;
+            page-break-after: avoid;
+        }
+
+        p {
+            margin: 0 0 1em 0;
+        }
+
+        /* Code & Preformatted Text */
+        code {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: var(--code-bg);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            color: #d926a9;
+            border: 1px solid var(--border-color);
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            line-height: 1.5;
+            page-break-inside: avoid;
+        }
+
+        pre code {
+            background: transparent;
+            padding: 0;
+            border: none;
+            color: inherit;
+        }
+
+        /* Tables */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 1.5em 0;
+            font-size: 0.95em;
+            page-break-inside: avoid;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        th {
+            background-color: #f8fafc;
+            color: var(--text-heading);
+            font-weight: 600;
+        }
+
+        /* Lists */
+        ul, ol {
+            padding-left: 24px;
+            margin-bottom: 1em;
+        }
+
+        li {
+            margin-bottom: 0.5em;
+        }
+
+        .section-break {
+            margin: 40px 0;
+            border: 0;
+            border-top: 2px dashed var(--border-color);
+        }
+
+        .no-break {
+            page-break-inside: avoid;
+        }
+
+        /* Print Specific Styles */
+        @media print {
+            @page {
+                size: A4;
+                margin: 20mm;
+            }
+            
+            body {
+                background: none;
+                padding: 0;
+                display: block;
+            }
+
+            .a4-container {
+                width: 100%;
+                min-height: auto;
+                padding: 0;
+                margin: 0;
+                box-shadow: none;
+                border-radius: 0;
+            }
+
+            pre, table, .no-break, h2, h3 {
+                page-break-inside: avoid;
+            }
+
+            h2 {
+                page-break-after: avoid;
+            }
+        }
+    </style>
+</head>
+<body>
+
+<div class="a4-container">
+    <h1>Lead Finder Agent - Project Analysis</h1>
+
+    <h2>1. Project Overview</h2>
+    <p><strong>Lead Finder Agent</strong> is a full-stack lead generation and business intelligence platform that automatically discovers, analyzes, and enriches business leads from Google Maps and business directories.</p>
+    <p><strong>Purpose:</strong> Automate the lead generation process by scraping business directories, analyzing websites for contact information, and providing AI-powered insights about business potential and outreach strategies.</p>
+
+    <h2>2. Technology Stack</h2>
+    
+    <div class="no-break">
+        <h3>Frontend (frontend/)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Component</th>
+                    <th>Technology</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Framework</td><td>Next.js 16 (App Router)</td></tr>
+                <tr><td>Language</td><td>TypeScript 5</td></tr>
+                <tr><td>Styling</td><td>Tailwind CSS 4</td></tr>
+                <tr><td>Icons</td><td>Lucide React</td></tr>
+                <tr><td>State Management</td><td>Zustand (with localStorage/sessionStorage persistence)</td></tr>
+                <tr><td>Data Fetching</td><td>TanStack React Query v5</td></tr>
+                <tr><td>UI Components</td><td>Radix UI primitives, custom components</td></tr>
+                <tr><td>Forms</td><td>React Hook Form with Zod validation</td></tr>
+                <tr><td>Animations</td><td>Framer Motion</td></tr>
+                <tr><td>Notifications</td><td>Sonner</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="no-break">
+        <h3>Backend (backend/)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Component</th>
+                    <th>Technology</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Framework</td><td>FastAPI</td></tr>
+                <tr><td>Language</td><td>Python 3.12+</td></tr>
+                <tr><td>Database</td><td>MongoDB (Motor - async driver)</td></tr>
+                <tr><td>Data Validation</td><td>Pydantic v2</td></tr>
+                <tr><td>Web Scraping</td><td>Playwright</td></tr>
+                <tr><td>Background Jobs</td><td>APScheduler</td></tr>
+                <tr><td>Security</td><td>PyJWT, Passlib (bcrypt), cryptography (Fernet)</td></tr>
+                <tr><td>Email/WhatsApp</td><td>Custom SMTP and WhatsApp API integration</td></tr>
+                <tr><td>AI/ML</td><td>OpenAI integration (custom provider architecture)</td></tr>
+                <tr><td>Reports</td><td>ReportLab, WeasyPrint, Jinja2, Pandas</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h2>3. Project Structure</h2>
+    
+    <h3>Backend (backend/)</h3>
+<pre><code>backend/
+├── app/
+│   ├── api/
+│   │   ├── routes/          # 25+ API route modules
+│   │   │   ├── auth.py, leads.py, campaigns.py
+│   │   │   ├── ai.py, whatsapp.py, email.py
+│   │   │   ├── crm.py, intelligence.py, reports.py
+│   │   │   └── ... (25+ total)
+│   │   ├── dependencies.py  # Auth, permissions, middleware
+│   ├── core/
+│   │   ├── config.py        # Settings & environment variables
+│   │   ├── security.py      # JWT, password hashing
+│   │   ├── exceptions.py    # Custom exception classes
+│   │   ├── logger.py        # Structured logging
+│   │   ├── middleware.py    # Security headers, rate limiting
+│   │   └── state_machine/   # AI analysis workflow states
+│   ├── db/
+│   │   ├── database.py      # MongoDB connection + health monitor
+│   │   └── init_db.py       # Admin user & index creation
+│   ├── models/              # 45 Pydantic schemas
+│   │   ├── lead.py          # Lead document model
+│   │   ├── ai_analysis.py   # AI analysis workflow
+│   │   ├── ai.py, campaign.py, audit.py
+│   │   └── ... (45+ total)
+│   ├── repositories/        # Data access layer
+│   ├── services/            # 100+ business logic modules
+│   │   ├── ai/              # AI analysis providers
+│   │   ├── campaigns/       # Email & WhatsApp campaigns
+│   │   ├── whatsapp/        # WhatsApp automation
+│   │   ├── reports/         # Report generation
+│   │   ├── search_engine/   # Google Maps scraper
+│   │   └── ... (100+ total)
+│   ├── main.py              # FastAPI app entrypoint
+│   └── websockets.py        # Real-time WebSocket handling
+├── tests/                   # Pytest test suite (30+ files)
+├── scripts/                 # 20+ utility scripts
+├── .venv/                   # Python virtual environment
+└── requirements.txt         # Python dependencies</code></pre>
+
+    <h3>Frontend (frontend/)</h3>
+<pre><code>frontend/
+├── app/
+│   ├── (dashboard)/         # Authenticated routes
+│   │   ├── dashboard/       # Main dashboard page
+│   │   ├── leads/           # Lead management
+│   │   ├── search/          # Google Maps search interface
+│   │   ├── campaigns/       # Email & WhatsApp campaigns
+│   │   ├── crm/             # CRM pipeline board
+│   │   ├── intelligence/    # Business intelligence
+│   │   ├── settings/        # User settings
+│   │   └── admin/           # Admin panel
+│   ├── login/               # Authentication page
+│   ├── layout.tsx           # Root layout
+│   └── page.tsx             # Home page (redirects)
+├── src/
+│   ├── components/          # Reusable React components
+│   ├── features/
+│   │   └── auth/            # Auth state management
+│   ├── lib/                 # Utilities (axios, queryClient)
+│   └── types/               # TypeScript interfaces
+├── public/                  # Static assets
+└── package.json             # NPM dependencies</code></pre>
+
+    <h2>4. Key Features</h2>
+    
+    <div class="no-break">
+        <h3>Lead Discovery & Scraping</h3>
+        <ul>
+            <li>Google Maps search with category & geo-targeting</li>
+            <li>Regional directory scraping</li>
+            <li>Advanced search filters (rating, reviews, category)</li>
+            <li>Smart pagination and deduplication</li>
+        </ul>
+    </div>
+
+    <div class="no-break">
+        <h3>Website Analysis</h3>
+        <ul>
+            <li>Playwright-based web crawling</li>
+            <li>Contact information extraction (emails, phones, WhatsApp)</li>
+            <li>Social media profile detection</li>
+            <li>Technology stack identification (CMS, frameworks)</li>
+            <li>SEO metrics analysis</li>
+        </ul>
+    </div>
+
+    <div class="no-break">
+        <h3>AI-Powered Intelligence</h3>
+        <ul>
+            <li><strong>AI Analysis Pipeline:</strong> Multi-stage analysis (collecting → analyzing → scoring → saving)</li>
+            <li><strong>Contact Discovery:</strong> Automated email/phone extraction from websites</li>
+            <li><strong>Business Intelligence:</strong> Lead scoring, opportunity assessment</li>
+            <li><strong>Technology Detection:</strong> CMS, hosting, analytics identification</li>
+            <li><strong>Sales Intelligence:</strong> Priority classification, talking points</li>
+        </ul>
+    </div>
+
+    <div class="no-break">
+        <h3>Campaign Management</h3>
+        <ul>
+            <li>Email campaigns with templates</li>
+            <li>WhatsApp campaigns with templates</li>
+            <li>Campaign scheduling and tracking</li>
+            <li>Analytics & reporting</li>
+        </ul>
+    </div>
+
+    <div class="no-break">
+        <h3>CRM Integration</h3>
+        <ul>
+            <li>Pipeline management (Stages: New Lead → Qualified → Closed)</li>
+            <li>Lead assignment to team members</li>
+            <li>Activity tracking (calls, emails, meetings)</li>
+            <li>Priority and status management</li>
+        </ul>
+    </div>
+
+    <div class="no-break">
+        <h3>Data Export</h3>
+        <ul>
+            <li>CSV/Excel export</li>
+            <li>Report generation (PDF, DOCX, XLSX, HTML)</li>
+            <li>Custom report templates</li>
+            <li>Automated daily reports</li>
+        </ul>
+    </div>
+
+    <h2>5. Database Architecture</h2>
+    
+    <div class="no-break">
+        <h3>MongoDB Collections</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Collection</th>
+                    <th>Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>leads</code></td><td>Primary lead documents with AI analysis metadata</td></tr>
+                <tr><td><code>users</code></td><td>User accounts and authentication</td></tr>
+                <tr><td><code>campaigns</code></td><td>Email and WhatsApp campaign configurations</td></tr>
+                <tr><td><code>templates</code></td><td>Email/WhatsApp message templates</td></tr>
+                <tr><td><code>search_sessions</code></td><td>Saved search configurations</td></tr>
+                <tr><td><code>ai_analysis_jobs</code></td><td>AI analysis job queue</td></tr>
+                <tr><td><code>ai_analysis_queues</code></td><td>AI analysis queue management</td></tr>
+                <tr><td><code>advanced_analysis_queue</code></td><td>Advanced analysis job queue</td></tr>
+                <tr><td><code>worker_nodes</code></td><td>Background worker status tracking</td></tr>
+                <tr><td><code>job_logs</code></td><td>Unified job logging</td></tr>
+                <tr><td><code>backup_data</code></td><td>Exported data backups</td></tr>
+                <tr><td><code>tags</code></td><td>Lead tagging system</td></tr>
+                <tr><td><code>crm_activities</code></td><td>CRM activity log</td></tr>
+                <tr><td><code>intelligence_daily</code></td><td>Daily aggregate intelligence data</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3>Lead Document Schema (Python)</h3>
+<pre><code>LeadDocument = {
+  # Basic Business Info
+  "name": str,
+  "phone": str,
+  "email": str,
+  "website": str,
+  "address": str,
+  "city/state/country": str,
+  "category": str,
+  "google_rating": float,
+
+  # AI Analysis (nested)
+  "ai_analysis": {
+    "analysis_status": "WAITING|QUEUED|RUNNING|COMPLETED|FAILED",
+    "overall_score": int,
+    "seo_score": int,
+    "performance_score": int,
+    "recommendations": List[str],
+    "emails": List[str],
+    "phones": List[str],
+    "technology_detected": List[str],
+    # ... many more fields
+  },
+
+  # Enriched Data (nested)
+  "contact_discovery": { ... },
+  "technology_detection": { ... },
+  "seo": { ... },
+  "business": { ... },
+
+  # CRM Fields
+  "pipeline_stage": str,
+  "priority": str,
+  "owner_id": str,
+
+  # Metadata
+  "user_id": str,
+  "created_at": datetime,
+  "tags": List[str],
+  "is_favorite": bool
+}</code></pre>
+
+    <h2>6. Background Workers & Scheduler</h2>
+    
+    <div class="no-break">
+        <h3>Workers (started on backend startup)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Worker</th>
+                    <th>Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>CampaignQueueWorker</code></td><td>Email & WhatsApp campaign processing</td></tr>
+                <tr><td><code>email_worker_instance</code></td><td>Email dispatch queue</td></tr>
+                <tr><td><code>EnhancedWAQueueWorker</code></td><td>WhatsApp message dispatch</td></tr>
+                <tr><td><code>WADesktopQueueWorker</code></td><td>WhatsApp AI desktop automation</td></tr>
+                <tr><td><code>EmailAIQueueWorker</code></td><td>AI-powered email analysis</td></tr>
+                <tr><td><code>AIQueueWorker</code></td><td>AI analysis queue processing</td></tr>
+                <tr><td><code>AdvancedAnalysisWorker</code></td><td>Complex deep-dive analysis</td></tr>
+                <tr><td><code>AutoReportWorker</code></td><td>Automated report generation</td></tr>
+                <tr><td><code>CRMAutomationWorker</code></td><td>CRM workflow automation</td></tr>
+                <tr><td><code>EnrichmentQueueWorker</code></td><td>Lead enrichment processing</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="no-break">
+        <h3>APScheduler Jobs</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Job</th>
+                    <th>Frequency</th>
+                    <th>Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>emit_heartbeat</code></td><td>Every 30s</td><td>Worker health monitoring</td></tr>
+                <tr><td><code>daily_aggregate</code></td><td>Daily (midnight)</td><td>Daily aggregate snapshots</td></tr>
+                <tr><td><code>daily_cleanup</code></td><td>Daily (1 AM)</td><td>Data cleanup & archival</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h2>7. Authentication & Security</h2>
+    <div class="no-break">
+        <h3>Authentication Flow</h3>
+        <ul>
+            <li>User logs in with email/password</li>
+            <li>JWT access token (15 min expiry) + refresh token (7 day expiry) issued</li>
+            <li>Tokens stored in localStorage/sessionStorage (based on "remember me" option)</li>
+            <li>Automatic token refresh on 401 errors</li>
+            <li>Role-based access control (Admin, User)</li>
+        </ul>
+    </div>
+    
+    <div class="no-break">
+        <h3>Security Features</h3>
+        <ul>
+            <li>JWT authentication</li>
+            <li>Password hashing (bcrypt)</li>
+            <li>Fernet encryption for sensitive API keys</li>
+            <li>CORS configuration (environment-controlled origins)</li>
+            <li>Rate limiting (slowapi)</li>
+            <li>Security headers middleware</li>
+            <li>Request size limits (10MB max)</li>
+        </ul>
+    </div>
+
+    <h2>8. AI Analysis Pipeline</h2>
+    <h3>Workflow State Machine</h3>
+<pre><code>PENDING → RUNNING → COLLECTING → ANALYZING → SCORING → SAVING → SUCCESS
+                                              ↘ FAILED (on error)</code></pre>
+    
+    <ul>
+        <li><strong>Collection Stage:</strong> Crawl website, discover pages, extract contacts</li>
+        <li><strong>Analysis Stage:</strong> SEO analysis, performance metrics, design audit</li>
+        <li><strong>Scoring Stage:</strong> Calculate business intelligence scores</li>
+        <li><strong>Saving Stage:</strong> Persist results to MongoDB</li>
+    </ul>
+
+    <h3>AI Providers</h3>
+    <ul>
+        <li><strong>OpenAI Provider:</strong> Primary AI provider (GPT models)</li>
+        <li><strong>Provider Factory:</strong> Dynamic provider selection based on configuration</li>
+    </ul>
+
+    <h2>9. Frontend Architecture</h2>
+    
+    <div class="no-break">
+        <h3>State Management</h3>
+        <ul>
+            <li><strong>Zustand Store:</strong> <code>useAuthStore</code> with persist middleware</li>
+            <li><strong>Storage Strategy:</strong> localStorage (remember me) vs sessionStorage</li>
+            <li><strong>React Query:</strong> Server state management with auto-caching</li>
+        </ul>
+    </div>
+
+    <div class="no-break">
+        <h3>Key Routes</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Route</th>
+                    <th>Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>/dashboard</code></td><td>Main dashboard with stats</td></tr>
+                <tr><td><code>/dashboard/search</code></td><td>Google Maps search interface</td></tr>
+                <tr><td><code>/dashboard/leads</code></td><td>Lead management grid</td></tr>
+                <tr><td><code>/dashboard/campaigns</code></td><td>Campaign management</td></tr>
+                <tr><td><code>/dashboard/crm</code></td><td>CRM pipeline board</td></tr>
+                <tr><td><code>/dashboard/intelligence</code></td><td>Business intelligence</td></tr>
+                <tr><td><code>/dashboard/admin</code></td><td>Admin panel</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h2>10. Deployment & Configuration</h2>
+    
+    <h3>Environment Variables</h3>
+    <h4>Backend (.env)</h4>
+<pre><code>MONGODB_URL=mongodb://localhost:27017/lead_finder_agent
+SECRET_KEY=your-secure-secret-key
+ENCRYPTION_KEY=your-fernet-key
+ADMIN_EMAIL=your-admin-email
+ADMIN_PASSWORD=your-admin-password</code></pre>
+
+    <h4>Frontend (.env)</h4>
+<pre><code>NEXT_PUBLIC_API_URL=http://127.0.0.1:8000/api/v1</code></pre>
+
+    <div class="no-break">
+        <h3>Deployment Options</h3>
+        <ul>
+            <li><strong>Development:</strong> <code>npm run dev</code> + <code>uvicorn app.main:app --reload</code></li>
+            <li><strong>Static Export:</strong> Next.js static export for Netlify/Vercel</li>
+            <li><strong>Production:</strong> Build + serve with PM2 or similar</li>
+        </ul>
+    </div>
+
+    <h2>11. Testing & Quality Assurance</h2>
+    <div class="no-break">
+        <h3>Test Suite (backend/tests/)</h3>
+        <p>30+ test files covering: AI analysis logic, API endpoints, Authentication, Lead models, Search engine, Extraction pipeline, CRM functionality, Production validation.</p>
+        
+        <h3>Test Framework</h3>
+        <ul>
+            <li>Pytest with asyncio support</li>
+            <li>Async database fixtures</li>
+            <li>Production validation scripts</li>
+        </ul>
+    </div>
+
+    <h2>12. Key Strengths</h2>
+    <ul>
+        <li><strong>Scalable Architecture:</strong> Background workers, task queues, health monitoring</li>
+        <li><strong>Comprehensive AI Pipeline:</strong> Multi-stage analysis with fallback mechanisms</li>
+        <li><strong>Production-Ready:</strong> Circuit breakers, connection pooling, graceful shutdown</li>
+        <li><strong>Modular Design:</strong> Clean separation of concerns between API, services, models</li>
+        <li><strong>Real-time Updates:</strong> WebSocket integration for live progress tracking</li>
+        <li><strong>Reporting Suite:</strong> Multiple export formats (PDF, Excel, CSV, DOCX)</li>
+        <li><strong>CRM Integration:</strong> Full pipeline management with activity tracking</li>
+        <li><strong>Security-First:</strong> JWT, encryption, rate limiting, input validation</li>
+    </ul>
+
+    <h2>13. Areas for Improvement</h2>
+    <ul>
+        <li><strong>Documentation:</strong> Could benefit from more comprehensive API documentation</li>
+        <li><strong>Frontend Tests:</strong> No visible frontend testing setup (Jest/Cypress)</li>
+        <li><strong>CI/CD:</strong> No visible CI/CD configuration (GitHub Actions, GitLab CI)</li>
+        <li><strong>Monitoring:</strong> Could add APM (Datadog, Sentry) for production monitoring</li>
+        <li><strong>Caching:</strong> Could add Redis for session caching and frequently accessed data</li>
+    </ul>
+
+    <h2>14. Running the Project</h2>
+    <h3>Back-End Commands</h3>
+<pre><code>python3 -m venv .venv
+source .venv/bin/activate  # (or .venv\Scripts\activate on Windows)
+pip install -r requirements.txt
+python3 -m pip install playwright
+python3 -m playwright install chromium
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000</code></pre>
+
+    <h3>Front-End Commands</h3>
+<pre><code>npm install 
+npm run build 
+npm run dev</code></pre>
+
+    <h2>15. Summary</h2>
+    <p>Lead Finder Agent is a sophisticated lead generation platform with:</p>
+    <ul>
+        <li><strong>Dual-stack architecture:</strong> Next.js frontend + FastAPI backend</li>
+        <li><strong>MongoDB persistence:</strong> Rich document model with nested enrichment</li>
+        <li><strong>AI-powered insights:</strong> Multi-stage analysis with OpenAI integration</li>
+        <li><strong>Automation engine:</strong> Background workers for campaigns and enrichment</li>
+        <li><strong>Comprehensive feature set:</strong> From scraping to CRM to reporting</li>
+    </ul>
+    <p>This is a production-grade system with solid engineering practices, good code organization, and comprehensive business logic. The architecture supports scaling through background workers, task queues, and database optimization.</p>
+
+    <hr class="section-break" />
+
+    <h1 style="text-align: center; margin-top: 40px;">DigitalOcean Droplet Deployment Guide</h1>
+
+    <h2>1. Provision the Droplet</h2>
+    <div class="no-break">
+        <table>
+            <thead>
+                <tr>
+                    <th>Setting</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Image</td><td>Ubuntu 22.04 LTS</td></tr>
+                <tr><td>Plan</td><td>$24/mo (4GB RAM, 4 vCPUs) or higher</td></tr>
+                <tr><td>Authentication</td><td>SSH key (recommended) or password</td></tr>
+                <tr><td>Hostname</td><td>lead-finder-server</td></tr>
+                <tr><td>Datacenter Region</td><td>Choose closest to your users</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+    <h3>Create Droplet via CLI (optional)</h3>
+<pre><code>doctl compute droplet create lead-finder-server \
+  --image ubuntu-22-04-x64 \
+  --size s-2vcpu-2gb \
+  --region nyc3 \
+  --enable-monitoring \
+  --ssh-keys ~/.ssh/id_rsa.pub</code></pre>
+
+    <h2>2. Initial Server Setup</h2>
+    
+    <h3>Connect to your droplet & Update</h3>
+<pre><code>ssh root@YOUR_DROPLET_IP
+apt update && apt upgrade -y</code></pre>
+
+    <h3>Create Non-Root User & Firewall</h3>
+<pre><code>adduser yourusername
+usermod -aG sudo yourusername
+ufw allow OpenSSH
+ufw allow 22/tcp
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw enable</code></pre>
+
+    <h2>3. Install Backend Dependencies</h2>
+    <h3>Switch user and install packages</h3>
+<pre><code>su - yourusername
+
+# Install Python 3.12 and required tools
+sudo apt install -y python3.12 python3.12-venv python3.12-dev
+sudo apt install -y build-essential libssl-dev libffi-dev
+sudo apt install -y libpq-dev libjpeg-dev zlib1g-dev
+sudo apt install -y libcurl4-openssl-dev libssl-dev</code></pre>
+
+    <h3>Install MongoDB</h3>
+<pre><code>sudo apt install -y wget gnupg curl
+curl -fsSL https://www.mongodb.org/static/pgp/server-7.0.asc | sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-7.0.gpg
+echo "deb [ signed-by=/usr/share/keyrings/mongodb-server-7.0.gpg ] https://repo.mongodb.org/apt/ubuntu jammy/mongodb-org/7.0 multiverse" | sudo tee /etc/apt/sources.list.d/mongodb-org-7.0.list
+
+sudo apt update
+sudo apt install -y mongodb-org
+sudo systemctl enable mongod
+sudo systemctl start mongod</code></pre>
+
+    <h3>Install Playwright Browsers</h3>
+<pre><code>sudo apt install -y libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 \
+  libdrm2 libdbus-1-3 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 \
+  libxrandr2 libgbm1 libasound2 libpango-1.0-0 libcairo2 libgdk-pixbuf2.0-0
+
+pip install playwright
+python -m playwright install chromium</code></pre>
+
+    <h3>Install Node.js & NGINX</h3>
+<pre><code>curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo apt install -y nginx
+sudo systemctl enable nginx
+sudo systemctl start nginx
+sudo apt install -y certbot python3-certbot-nginx</code></pre>
+
+    <h2>4. Backend Deployment Steps</h2>
+<pre><code>cd ~
+git clone YOUR_GITHUB_REPO_URL lead-finder-project
+cd lead-finder-project/backend
+python3.12 -m venv .venv
+source .venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+cp .env.example .env</code></pre>
+
+    <h3>.env Configuration for Production</h3>
+<pre><code>PROJECT_NAME="Lead Finder Agent API"
+VERSION="1.0.0"
+API_V1_STR="/api/v1"
+MONGODB_URL=mongodb://localhost:27017/lead_finder_agent
+DATABASE_NAME=lead_finder_agent
+
+# Run `python -c "import secrets; print(secrets.token_urlsafe(32))"`
+SECRET_KEY=your_secure_random_string 
+
+# Run `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`
+ENCRYPTION_KEY=your_fernet_key</code></pre>
+
+    <h2>5. Create Systemd Service (Backend)</h2>
+<pre><code>sudo nano /etc/systemd/system/lead-finder-backend.service</code></pre>
+<pre><code>[Unit]
+Description=Lead Finder Agent Backend API
+After=network.target mongod.service
+
+[Service]
+Type=simple
+User=yourusername
+WorkingDirectory=/home/yourusername/lead-finder-project/backend
+Environment="PATH=/home/yourusername/lead-finder-project/backend/.venv/bin"
+ExecStart=/home/yourusername/lead-finder-project/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4 --timeout-keep-alive 120
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+    <h2>6. Frontend Deployment</h2>
+<pre><code>cd ~/lead-finder-project/frontend
+npm install
+npm run build</code></pre>
+
+<pre><code>sudo nano /etc/systemd/system/lead-finder-frontend.service</code></pre>
+<pre><code>[Unit]
+Description=Lead Finder Agent Frontend
+After=network.target
+
+[Service]
+Type=simple
+User=yourusername
+WorkingDirectory=/home/yourusername/lead-finder-project/frontend
+ExecStart=/usr/bin/node --max-old-space-size=4096 /home/yourusername/lead-finder-project/frontend/node_modules/.bin/next start -p 3000
+Restart=always
+RestartSec=10
+Environment="NODE_ENV=production"
+Environment="NEXT_PUBLIC_API_URL=https://api.yourdomain.com/api/v1"
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+    <h2>7. Configure NGINX Reverse Proxy</h2>
+<pre><code>sudo nano /etc/nginx/sites-available/lead-finder</code></pre>
+<pre><code>upstream frontend { server 127.0.0.1:3000; }
+upstream backend { server 127.0.0.1:8000; }
+
+server {
+    listen 80;
+    server_name yourdomain.com www.yourdomain.com;
+    
+    location / {
+        proxy_pass http://frontend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+    }
+
+    location /api/v1/ {
+        proxy_pass http://backend/api/v1/;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_read_timeout 86400; # For WebSockets
+    }
+}</code></pre>
+    <p>Enable and start NGINX:</p>
+<pre><code>sudo ln -s /etc/nginx/sites-available/lead-finder /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx</code></pre>
+
+    <h2>8. SSL Certificate with Let's Encrypt</h2>
+<pre><code>sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com</code></pre>
+
+    <h2>9. Security Hardening & Backups</h2>
+<pre><code>sudo apt install -y fail2ban
+sudo systemctl enable fail2ban
+sudo systemctl start fail2ban</code></pre>
+
+    <div class="no-break">
+        <h3>Backup Script (cron example)</h3>
+<pre><code>#!/bin/bash
+# ~/backup.sh
+mongodump --db lead_finder_agent --out /home/yourusername/backups/$(date +%Y%m%d)
+tar -czf /home/yourusername/backups/frontend_$(date +%Y%m%d).tar.gz /home/yourusername/lead-finder-project/frontend/.next
+find /home/yourusername/backups -type f -mtime +30 -delete</code></pre>
+    </div>
+
+    <h2>10. Performance Optimization (NGINX Tuning)</h2>
+<pre><code># /etc/nginx/nginx.conf inside http block
+gzip on;
+gzip_vary on;
+gzip_min_length 1024;
+gzip_proxied any;
+gzip_types text/plain text/css text/xml text/javascript application/javascript application/json;</code></pre>
+
+    <h2>11. Monitoring and Maintenance</h2>
+    <ul>
+        <li><strong>Logs Backend:</strong> <code>sudo journalctl -u lead-finder-backend -f</code></li>
+        <li><strong>Logs Frontend:</strong> <code>sudo journalctl -u lead-finder-frontend -f</code></li>
+        <li><strong>Status Checking:</strong> <code>htop</code>, <code>df -h</code>, <code>free -h</code></li>
+        <li><strong>MongoDB Clear Cache:</strong> <code>mongosh --eval "db.adminCommand('flushCache')"</code></li>
+    </ul>
+
+</div>
+
+</body>
+</html>

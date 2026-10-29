@@ -1,0 +1,39 @@
+# Netlify configuration for Next.js with Netlify Runtime
+# This enables full Next.js features including RSC, ISR, and API routes
+
+[build]
+  command = "npm run build"
+  # IMPORTANT: Publish .next directory, NOT out directory
+  # This allows Netlify to serve the full Next.js app with server features
+  publish = ".next"
+
+# Use Netlify Next.js Runtime plugin
+# This plugin is required for Server Components, API routes, and SSR
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+
+# Headers for static files
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "DENY"
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+
+# Cache Next.js static assets (automatically generated)
+[[headers]]
+  for = "/_next/static/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Cache JavaScript bundles
+[[headers]]
+  for = "/_next/static/chunks/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Cache CSS files
+[[headers]]
+  for = "/_next/static/css/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

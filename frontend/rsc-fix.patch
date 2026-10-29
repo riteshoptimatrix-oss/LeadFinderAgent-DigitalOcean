@@ -1,0 +1,79 @@
+diff --git a/frontend/next.config.ts b/frontend/next.config.ts
+index 1234567..abcdefg 100644
+--- a/frontend/next.config.ts
++++ b/frontend/next.config.ts
+@@ -1,15 +1,18 @@
+ import type { NextConfig } from "next";
+ 
+ const nextConfig: NextConfig = {
+-  // Static export - generates the /out folder for serving via FastAPI backend
+-  output: "export",
++  // REMOVED: output: "export" - This breaks React Server Components and dynamic features
++  // Now using full Next.js runtime on Netlify with @netlify/plugin-nextjs
+   
+-  // Add trailing slash for better static export compatibility
+-  trailingSlash: false,
+-  
+-  // Images configuration for static export (required - no image optimization in static mode)
++  // Keep images unoptimized if you don't want to use Netlify's image CDN
++  // Or remove this to enable automatic image optimization
+   images: {
+     unoptimized: true,
+   },
+   
+-  // Skip TypeScript errors during build
++  // Skip TypeScript errors during build (optional - consider fixing types instead)
+   typescript: {
+     ignoreBuildErrors: true,
+   },
++  
++  // Optional: Add trailing slash for consistent URLs
++  // trailingSlash: false,
+ };
+ 
+ export default nextConfig;
+
+diff --git a/frontend/netlify.toml b/frontend/netlify.toml
+index 1234567..abcdefg 100644
+--- a/frontend/netlify.toml
++++ b/frontend/netlify.toml
+@@ -3,11 +3,10 @@
+ 
+ [build]
+   command = "npm run build"
++  # IMPORTANT: Publish .next directory, NOT out directory
++  # This allows Netlify to serve the full Next.js app with server features
+   publish = ".next"
+ 
+-# Use Netlify Next.js Runtime
+-# Install the Essential Next.js plugin from Netlify's plugin directory
+-# or add to your netlify.toml:
++# Use Netlify Next.js Runtime plugin
++# This plugin is required for Server Components, API routes, and SSR
+ [[plugins]]
+   package = "@netlify/plugin-nextjs"
+ 
+@@ -18,19 +17,17 @@
+     X-Content-Type-Options = "nosniff"
+     Referrer-Policy = "strict-origin-when-cross-origin"
+ 
+-# Cache static assets
++# Cache Next.js static assets (automatically generated)
+ [[headers]]
+   for = "/_next/static/*"
+   [headers.values]
+     Cache-Control = "public, max-age=31536000, immutable"
+ 
++# Cache JavaScript bundles
+ [[headers]]
+-  for = "/*.js"
++  for = "/_next/static/chunks/*"
+   [headers.values]
+     Cache-Control = "public, max-age=31536000, immutable"
+ 
++# Cache CSS files
+ [[headers]]
+-  for = "/*.css"
++  for = "/_next/static/css/*"
+   [headers.values]
+     Cache-Control = "public, max-age=31536000, immutable"

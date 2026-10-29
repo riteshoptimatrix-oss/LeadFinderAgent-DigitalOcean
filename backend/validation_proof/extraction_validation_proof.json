@@ -1,0 +1,269 @@
+{
+  "query": "Restaurant in Vastral, Ahmedabad, Gujarat, India",
+  "search_type": "keyword + area geographic filter (Area is never a lead)",
+  "canonical_field_count": 21,
+  "keywords_validated": [
+    "Restaurant",
+    "Hotel",
+    "Gym",
+    "Salon",
+    "Spa",
+    "Clinic",
+    "Dentist",
+    "School",
+    "Cafe",
+    "Lawyer",
+    "Interior Designer",
+    "Real Estate"
+  ],
+  "per_keyword": [
+    {
+      "keyword": "Restaurant",
+      "accepted_business": {
+        "name": "Domino's Pizza",
+        "category": "Restaurant",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "Hotel",
+      "accepted_business": {
+        "name": "The Grand Bhagwati",
+        "category": "Hotel",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "Gym",
+      "accepted_business": {
+        "name": "Anytime Fitness",
+        "category": "Gym",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "Salon",
+      "accepted_business": {
+        "name": "Lakme Salon",
+        "category": "Salon",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "Spa",
+      "accepted_business": {
+        "name": "Forest Essentials Spa",
+        "category": "Spa",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "Clinic",
+      "accepted_business": {
+        "name": "Apollo Clinic",
+        "category": "Clinic",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "Dentist",
+      "accepted_business": {
+        "name": "Clove Dental",
+        "category": "Dentist",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "School",
+      "accepted_business": {
+        "name": "Delhi Public School",
+        "category": "School",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "Cafe",
+      "accepted_business": {
+        "name": "Starbucks",
+        "category": "Cafe",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "Lawyer",
+      "accepted_business": {
+        "name": "Sharma & Associates Law Firm",
+        "category": "Lawyer",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "Interior Designer",
+      "accepted_business": {
+        "name": "Livspace",
+        "category": "Interior Designer",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    },
+    {
+      "keyword": "Real Estate",
+      "accepted_business": {
+        "name": "MagicBricks Realty",
+        "category": "Real Estate",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      "rejected_count": 17
+    }
+  ],
+  "vastral_demo": {
+    "accepted": [
+      {
+        "name": "Domino's Pizza",
+        "category": "Restaurant",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      {
+        "name": "Subway",
+        "category": "Restaurant",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      {
+        "name": "McDonald's",
+        "category": "Restaurant",
+        "area": "Vastral",
+        "confidence": 1.0
+      },
+      {
+        "name": "Honest Restaurant",
+        "category": "Restaurant",
+        "area": "Vastral",
+        "confidence": 1.0
+      }
+    ],
+    "rejected": [
+      {
+        "name": "Vastral",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Vastral' equals the Area name - this is a locality/area, not a business."
+      },
+      {
+        "name": "Naroda",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Naroda' is a known locality / area (naroda) - not a business."
+      },
+      {
+        "name": "Khadiya",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Khadiya' is a known locality / area (khadiya) - not a business."
+      },
+      {
+        "name": "Pranami Nagar",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Pranami Nagar' is a known locality / area (pranami nagar) - not a business."
+      },
+      {
+        "name": "Mahadev Nagar Tekra",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Mahadev Nagar Tekra' is a known locality / area (mahadev nagar tekra) - not a business."
+      },
+      {
+        "name": "Satellite",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Satellite' is a known locality / area (satellite) - not a business."
+      },
+      {
+        "name": "Park",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Park' is a generic location type (park) - not a business."
+      },
+      {
+        "name": "Road",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Road' is a generic location type (road) - not a business."
+      },
+      {
+        "name": "Society",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Society' is a generic location type (society) - not a business."
+      },
+      {
+        "name": "Village",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Village' is a generic location type (village) - not a business."
+      },
+      {
+        "name": "Sector",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Sector' is a generic location type (sector) - not a business."
+      },
+      {
+        "name": "Sector 21",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Sector 21' is a geographic descriptor (locality / sector / society / road / park), not a business."
+      },
+      {
+        "name": "Phase 2",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business name 'Phase 2' is a geographic descriptor (locality / sector / society / road / park), not a business."
+      },
+      {
+        "name": "MG Road",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business category missing."
+      },
+      {
+        "name": "Rose Society",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business category missing."
+      },
+      {
+        "name": "Central Park",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business category missing."
+      },
+      {
+        "name": "Riverside Village",
+        "stage": "BUSINESS_VALIDATE",
+        "reason": "Business category missing."
+      }
+    ]
+  },
+  "summary": {
+    "businesses_accepted": 12,
+    "geographic_entities_rejected": 204,
+    "locality_names_stored": 0,
+    "villages_stored": 0,
+    "sectors_stored": 0,
+    "societies_stored": 0,
+    "parks_stored": 0,
+    "roads_stored": 0,
+    "false_positives": 0,
+    "vastral_accepted_only_restaurants": true,
+    "vastral_never_stores_area": true
+  }
+}

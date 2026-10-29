@@ -6,8 +6,9 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { Loader2, Camera, Upload, Building2, Phone, Mail, User as UserIcon, ShieldAlert } from 'lucide-react';
+import { Loader2, Camera, Upload, Building2, Phone, Mail, User as UserIcon, ShieldAlert, Lock } from 'lucide-react';
 import { toast } from 'sonner';
+import { useAuthStore } from '@/src/features/auth/store';
 
 const profileSchema = z.object({
   full_name: z.string().min(2, 'Full name must be at least 2 characters').optional().or(z.literal('')),
@@ -23,6 +24,8 @@ type ProfileFormValues = z.infer<typeof profileSchema>;
 
 export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsavedChanges: (val: boolean) => void }) {
   const queryClient = useQueryClient();
+  const authUser = useAuthStore((state) => state.user);
+  const isAdmin = authUser?.role === 'admin' || authUser?.role === 'ADMIN';
 
   const { data: user, isLoading } = useQuery({
     queryKey: ['userProfile'],
@@ -204,17 +207,32 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Account Role</label>
                 <div className="relative">
                   <ShieldAlert className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <select
-                    {...register('role')}
-                    className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 outline-none transition-all focus:border-gray-300 focus:ring-4 focus:ring-gray-100 appearance-none"
-                  >
-                    <option value="ADMIN">Administrator</option>
-                    <option value="MANAGER">Manager</option>
-                    <option value="VIEWER">Viewer</option>
-                    <option value="USER">User</option>
-                  </select>
+                  {isAdmin ? (
+                    /* Admins can change role */
+                    <select
+                      {...register('role')}
+                      className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 outline-none transition-all focus:border-gray-300 focus:ring-4 focus:ring-gray-100 appearance-none"
+                    >
+                      <option value="ADMIN">Administrator</option>
+                      <option value="MANAGER">Manager</option>
+                      <option value="VIEWER">Viewer</option>
+                      <option value="USER">User</option>
+                    </select>
+                  ) : (
+                    /* Normal users see a read-only badge — cannot change their own role */
+                    <>
+                      <div className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-500 cursor-not-allowed flex items-center justify-between">
+                        <span className="capitalize">{(user?.role || 'User').charAt(0).toUpperCase() + (user?.role || 'User').slice(1).toLowerCase()}</span>
+                        <Lock className="h-3.5 w-3.5 text-gray-400 mr-1" />
+                      </div>
+                    </>
+                  )}
                 </div>
-                <p className="mt-1.5 text-xs text-gray-500">Determines your access level and permissions within the workspace.</p>
+                <p className="mt-1.5 text-xs text-gray-400">
+                  {isAdmin
+                    ? 'Determines access level and permissions within the workspace.'
+                    : 'Your role is assigned by an administrator and cannot be changed.'}
+                </p>
               </div>
             </div>
 

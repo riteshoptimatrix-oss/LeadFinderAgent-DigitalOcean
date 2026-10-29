@@ -8,7 +8,7 @@ import Link from 'next/link';
 
 export default function SearchHistoryPage() {
   const queryClient = useQueryClient();
-  
+
   // State for advanced table
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(10);
@@ -16,7 +16,7 @@ export default function SearchHistoryPage() {
   const [status, setStatus] = useState('ALL');
   const [sortBy, setSortBy] = useState('started_at');
   const [sortOrder, setSortOrder] = useState(-1);
-  
+
   const [selectedJobs, setSelectedJobs] = useState<Set<string>>(new Set());
   const [deletingJobId, setDeletingJobId] = useState<string | null>(null);
 
@@ -51,30 +51,30 @@ export default function SearchHistoryPage() {
     activeJobs.forEach((job: any) => {
       const jobId = job._id || job.id;
       if (!jobId) return;
-      
-      const wsUrl = process.env.NEXT_PUBLIC_API_URL 
+
+      const wsUrl = process.env.NEXT_PUBLIC_API_URL
         ? process.env.NEXT_PUBLIC_API_URL.replace(/^http/, 'ws') + `/ws/search/${jobId}`
         : (typeof window !== 'undefined' ? window.location.origin.replace(/^http/, 'ws').replace(/:\d+$/, ':8000') + `/ws/search/${jobId}` : '');
-      
+
       if (!wsUrl) return;
 
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
       const finalWsUrl = token ? `${wsUrl}?token=${token}` : wsUrl;
 
       const ws = new WebSocket(finalWsUrl);
-      
+
       ws.onmessage = (event) => {
         try {
           const payload = JSON.parse(event.data);
           const type = payload.event_type || payload.type;
-          
+
           if (!type || type === 'heartbeat' || type === 'LOG') return;
 
           queryClient.setQueryData(
             ['searchHistory', page, pageSize, keyword, status, sortBy, sortOrder],
             (oldData: any) => {
               if (!oldData || !oldData.data) return oldData;
-              
+
               let changed = false;
               const newJobs = oldData.data.map((j: any) => {
                 if ((j._id || j.id) === jobId) {
@@ -106,7 +106,7 @@ export default function SearchHistoryPage() {
                 }
                 return j;
               });
-              
+
               return changed ? { ...oldData, data: newJobs } : oldData;
             }
           );
@@ -114,7 +114,7 @@ export default function SearchHistoryPage() {
           // ignore parse errors
         }
       };
-      
+
       sockets.push(ws);
     });
 
@@ -192,7 +192,7 @@ export default function SearchHistoryPage() {
     try {
       // Step 1 & 2: Generate and Download Excel Backup automatically
       await exportExcelAndDownload(jobId);
-      
+
       // Step 3: Show confirmation dialog AFTER backup is secured
       setTimeout(() => {
         if (window.confirm("This action will permanently delete the selected data and cannot be undone.")) {
@@ -202,7 +202,7 @@ export default function SearchHistoryPage() {
           setDeletingJobId(null);
         }
       }, 500); // Small timeout to allow the browser download to start before blocking the thread with confirm()
-      
+
     } catch (e) {
       alert("Failed to export backup. Job was not deleted.");
       setDeletingJobId(null);
@@ -218,7 +218,7 @@ export default function SearchHistoryPage() {
     <div className="space-y-6 flex flex-col h-full">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center gap-4">
-          <Link 
+          <Link
             href="/dashboard/search"
             className="p-2 rounded-xl text-[#6B7280] hover:text-[#111827] hover:bg-[#FCFCFA] transition-all"
           >
@@ -270,7 +270,7 @@ export default function SearchHistoryPage() {
         </div>
       </div>
 
-      <div className="bg-[#FAFAF8]/50 backdrop-blur-sm border border-[#E7E5E4] rounded-2xl flex-1 flex flex-col overflow-hidden">
+      <div className="bg-white border border-gray-200 rounded-xl shadow-xs flex-1 flex flex-col overflow-hidden">
         {isLoading ? (
           <div className="flex-1 flex justify-center items-center py-12"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>
         ) : (
@@ -383,7 +383,7 @@ export default function SearchHistoryPage() {
             </table>
           </div>
         )}
-        
+
         {/* Pagination */}
         {total > 0 && (
           <div className="px-6 py-4 border-t border-[#E7E5E4] bg-[#FAFAF8] flex items-center justify-between">

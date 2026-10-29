@@ -577,7 +577,7 @@ export default function EmailTemplateManager() {
                     contentEditable
                     onInput={handleEditorInput}
                     className="w-full min-h-[300px] focus:outline-none prose prose-sm max-w-none text-slate-800 prose-p:leading-relaxed prose-a:text-blue-600"
-                    placeholder="Start typing your email content here..."
+                    data-placeholder="Start typing your email content here..."
                   />
                 )}
               </div>

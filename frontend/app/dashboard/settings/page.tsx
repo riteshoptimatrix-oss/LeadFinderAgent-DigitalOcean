@@ -3,9 +3,9 @@
 import React, { useState, useEffect, useMemo, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  User, Shield, Bell, Palette, Search, BrainCircuit, Users, 
-  Mail, MessageSquare, Code, Link2, Database, Settings2, 
+import {
+  User, Shield, Bell, Palette, Search, BrainCircuit, Users,
+  Mail, MessageSquare, Code, Link2, Database, Settings2,
   Cpu, Info, Save, RotateCcw, AlertTriangle, CheckCircle2, ChevronRight
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -60,11 +60,11 @@ export default function SettingsDashboard() {
   useEffect(() => {
     if (!searchQuery) return;
     const q = searchQuery.toLowerCase();
-    
+
     // Check if query matches a tab directly
     const matchedTab = TABS.find(t => t.label.toLowerCase().includes(q) || t.id.toLowerCase().includes(q));
     if (matchedTab && matchedTab.id !== activeTab) {
-       handleTabChange(matchedTab.id);
+      handleTabChange(matchedTab.id);
     }
   }, [searchQuery]);
 
@@ -87,20 +87,20 @@ export default function SettingsDashboard() {
   }, [activeTab]);
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-[#FCFCFA] text-gray-900 pb-20">
-      {/* Header */}
-      <header className="sticky top-0 z-30 flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 bg-white/80 backdrop-blur-xl px-6 py-4 md:px-8 shadow-sm">
+    <div className="w-full text-gray-900 pb-16 space-y-6">
+      {/* Settings Top Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-2xl border border-gray-200 bg-white p-5 sm:p-6 shadow-2xs">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">Settings</h1>
-          <p className="text-sm text-gray-500 mt-1">Manage your workspace preferences and integrations.</p>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-gray-900">Settings</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-1">Manage your workspace preferences and integrations.</p>
         </div>
 
         <div className="flex flex-col sm:flex-row items-center gap-4">
           <div className="relative w-full sm:w-64">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <input 
-              type="text" 
-              placeholder="Search settings..." 
+            <input
+              type="text"
+              placeholder="Search settings..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-xl border border-gray-200 bg-gray-50/50 py-2 pl-10 pr-4 text-sm outline-none transition-all focus:border-gray-300 focus:bg-white focus:ring-4 focus:ring-gray-100"
@@ -109,7 +109,7 @@ export default function SettingsDashboard() {
 
           <AnimatePresence>
             {hasUnsavedChanges && (
-              <motion.div 
+              <motion.div
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 20 }}
@@ -122,14 +122,14 @@ export default function SettingsDashboard() {
                   </span>
                   <span className="text-xs font-semibold text-amber-700">Unsaved Changes</span>
                 </div>
-                
-                <button 
+
+                <button
                   onClick={handleReset}
                   className="rounded-xl border border-gray-200 bg-white p-2 text-gray-500 hover:bg-gray-50 transition-colors"
                 >
                   <RotateCcw className="h-4 w-4" />
                 </button>
-                <button 
+                <button
                   onClick={handleSave}
                   disabled={isSaving}
                   className="flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-2 text-sm font-medium text-white transition-all hover:bg-gray-800 focus:outline-none focus:ring-4 focus:ring-gray-200 disabled:opacity-70"
@@ -147,9 +147,9 @@ export default function SettingsDashboard() {
             )}
           </AnimatePresence>
         </div>
-      </header>
+      </div>
 
-      <div className="flex flex-col lg:flex-row mx-auto max-w-[1400px] pt-8 px-6 lg:px-8 gap-12">
+      <div className="flex flex-col lg:flex-row w-full pt-6 gap-8">
         {/* Left Navigation */}
         <aside className="w-full lg:w-64 shrink-0">
           <nav className="sticky top-32 space-y-8">
@@ -163,11 +163,10 @@ export default function SettingsDashboard() {
                     <button
                       key={tab.id}
                       onClick={() => handleTabChange(tab.id)}
-                      className={`group flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-medium transition-all ${
-                        isActive 
-                          ? 'bg-white text-gray-900 shadow-sm border border-gray-200/60' 
-                          : 'text-gray-500 hover:bg-gray-100/50 hover:text-gray-900 transparent border border-transparent'
-                      }`}
+                      className={`group flex w-full items-center justify-between rounded-xl px-3 py-2 text-sm font-medium transition-all ${isActive
+                        ? 'bg-white text-gray-900 shadow-sm border border-gray-200/60'
+                        : 'text-gray-500 hover:bg-gray-100/50 hover:text-gray-900 transparent border border-transparent'
+                        }`}
                     >
                       <div className="flex items-center gap-3">
                         <Icon className={`h-4 w-4 ${isActive ? 'text-gray-900' : 'text-gray-400 group-hover:text-gray-600'}`} />
@@ -194,12 +193,12 @@ export default function SettingsDashboard() {
             {activeTab === 'profile' && <ProfileSettings setHasUnsavedChanges={setHasUnsavedChanges} />}
             {activeTab === 'account' && <AccountSettings setHasUnsavedChanges={setHasUnsavedChanges} />}
             {activeTab === 'security' && <SecuritySettings setHasUnsavedChanges={setHasUnsavedChanges} />}
-            {activeTab === 'ai' && <AIAnalysisSettings setHasUnsavedChanges={setHasUnsavedChanges} />}
-            {activeTab === 'search' && <SearchEngineSettings setHasUnsavedChanges={setHasUnsavedChanges} />}
+            {activeTab === 'ai' && <AIAnalysisSettings />}
+            {activeTab === 'search' && <SearchEngineSettings />}
             {activeTab === 'crm' && <CRMSettings setHasUnsavedChanges={setHasUnsavedChanges} />}
             {activeTab === 'email' && <EmailSettings setHasUnsavedChanges={setHasUnsavedChanges} />}
             {activeTab === 'whatsapp' && <WhatsAppSettings setHasUnsavedChanges={setHasUnsavedChanges} />}
-            
+
             {/* Fallback for unbuilt sections */}
             {!['profile', 'account', 'security', 'ai', 'search', 'crm', 'email', 'whatsapp'].includes(activeTab) && (
               <div className="flex flex-col items-center justify-center py-20 text-center">

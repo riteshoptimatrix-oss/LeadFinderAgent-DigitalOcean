@@ -142,7 +142,7 @@ export default function CallingAIPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
   return (
-    <div className="max-w-7xl mx-auto flex flex-col min-h-[calc(100vh-8rem)] pb-12">
+    <div className="w-full flex flex-col min-h-[calc(100vh-8rem)] pb-12">
       <div className="flex-none mb-8">
         <PageHeader
           breadcrumbs={[{ label: 'Calling AI Agent' }]}
@@ -153,7 +153,7 @@ export default function CallingAIPage() {
 
       {/* Hero */}
       <section className="mb-12">
-        <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white shadow-sm ring-1 ring-slate-900/5">
+        <div className="relative overflow-hidden rounded-xl border border-gray-200 bg-white shadow-2xs">
           <div className="absolute -top-24 -right-24 w-72 h-72 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="absolute -bottom-24 -left-24 w-72 h-72 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
           <div className="relative grid grid-cols-1 lg:grid-cols-2 gap-10 p-8 lg:p-12 items-center">

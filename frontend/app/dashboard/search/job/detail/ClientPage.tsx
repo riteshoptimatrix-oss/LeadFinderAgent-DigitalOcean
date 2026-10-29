@@ -146,6 +146,10 @@ export default function JobProgressPage() {
 
   useEffect(() => {
     if (!id) return;
+    const currentStatus = (liveData || initialJob)?.status;
+    if (terminalRef.current || (currentStatus && TERMINAL_STATUSES.includes(currentStatus))) {
+      return;
+    }
 
     const wsUrl = (process.env.NEXT_PUBLIC_API_URL
       ? process.env.NEXT_PUBLIC_API_URL.replace('http', 'ws') + `/ws/search/${id}`
@@ -161,7 +165,17 @@ export default function JobProgressPage() {
     const connectWs = () => {
       if (!isComponentMounted || websocketUnavailable || terminalRef.current) return;
       if (ws) {
-        ws.close();
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState === 0) {
+          ws.onopen = () => {
+            try { ws?.close(); } catch (_) {}
+          };
+        } else {
+          try { ws.close(); } catch (_) {}
+        }
       }
 
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
@@ -169,11 +183,14 @@ export default function JobProgressPage() {
 
       ws = new WebSocket(finalWsUrl);
       const connectTimeout = window.setTimeout(() => {
+        if (!isComponentMounted) return;
         if (ws && ws.readyState !== WebSocket.OPEN) {
-          ws.close();
           websocketUnavailable = true;
           setWsConnected(false);
           console.info('Search job WebSocket unavailable; continuing without live updates.');
+          try {
+            ws.close();
+          } catch (_) {}
         }
       }, 15000);
 
@@ -455,6 +472,7 @@ export default function JobProgressPage() {
       };
 
       ws.onerror = () => {
+        if (!isComponentMounted) return;
         if (!hasConnected && !websocketUnavailable) {
           websocketUnavailable = true;
           setWsConnected(false);
@@ -468,9 +486,21 @@ export default function JobProgressPage() {
     return () => {
       isComponentMounted = false;
       clearTimeout(reconnectTimer);
-      if (ws) ws.close();
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        if (ws.readyState === 0) {
+          ws.onopen = () => {
+            try { ws?.close(); } catch (_) {}
+          };
+        } else {
+          try { ws.close(); } catch (_) {}
+        }
+      }
     };
-  }, [id, queryClient]);
+  }, [id, queryClient, liveData?.status, initialJob?.status]);
 
   const isTerminalStatus = job && ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'].includes(job.status);
   const displayDuration = job?.duration_seconds || 0;

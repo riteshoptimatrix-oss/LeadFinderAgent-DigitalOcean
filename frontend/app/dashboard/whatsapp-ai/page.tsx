@@ -15,14 +15,14 @@ type Tab = 'dashboard' | 'leads' | 'templates' | 'campaigns' | 'history';
 
 export default function WhatsAppAIPage() {
   const searchParams = useSearchParams();
-const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
-useEffect(() => {
-  const tabParam = searchParams.get('tab') as Tab | null;
-  if (tabParam && ['dashboard', 'leads', 'templates', 'campaigns', 'history'].includes(tabParam)) {
-    setActiveTab(tabParam);
-  }
-   }, [searchParams]);
+  useEffect(() => {
+    const tabParam = searchParams.get('tab') as Tab | null;
+    if (tabParam && ['dashboard', 'leads', 'templates', 'campaigns', 'history'].includes(tabParam)) {
+      setActiveTab(tabParam);
+    }
+  }, [searchParams]);
 
   const tabs = [
     { id: 'dashboard', label: 'Dashboard', icon: BarChart3, desc: 'Analytics & Overview' },
@@ -33,27 +33,27 @@ useEffect(() => {
   ] as const;
 
   return (
-    <div className="max-w-7xl mx-auto flex flex-col min-h-[calc(100vh-8rem)]">
+    <div className="w-full flex flex-col min-h-[calc(100vh-8rem)]">
       <div className="flex-none mb-8">
         <PageHeader
           title="WhatsApp AI"
           description="Enterprise-grade WhatsApp automation with AI-powered template generation and intelligent targeting."
         />
-        
+
         {/* Minimal Modern Tabs */}
         <div className="flex items-center gap-1.5 p-1.5 bg-slate-100/60 backdrop-blur-md rounded-2xl border border-slate-200/60 inline-flex mt-6 overflow-x-auto w-full md:w-auto max-w-full">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
-            
+
             return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as Tab)}
                 className={cn(
                   "flex items-center gap-2.5 px-5 py-2.5 rounded-xl transition-all duration-300 text-sm font-semibold whitespace-nowrap",
-                  isActive 
-                    ? "bg-white text-slate-900 shadow-sm shadow-slate-200/50 ring-1 ring-slate-200/80" 
+                  isActive
+                    ? "bg-white text-slate-900 shadow-sm shadow-slate-200/50 ring-1 ring-slate-200/80"
                     : "text-slate-500 hover:text-slate-800 hover:bg-white/50"
                 )}
               >
@@ -65,7 +65,7 @@ useEffect(() => {
         </div>
       </div>
 
-      <div className="flex-1 bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 lg:p-8 overflow-hidden flex flex-col relative ring-1 ring-slate-900/5">
+      <div className="flex-1 bg-white rounded-xl border border-gray-200 shadow-2xs p-5 lg:p-7 overflow-hidden flex flex-col relative">
         <div className="relative z-10 h-full flex flex-col">
           {activeTab === 'dashboard' && <AnalyticsDashboard />}
           {activeTab === 'leads' && <LeadsSelection />}

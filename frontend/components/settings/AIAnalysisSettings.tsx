@@ -66,7 +66,7 @@ const flowSteps = [
   }
 ];
 
-export default function AIAnalysisSettings() {
+export default function AIAnalysisSettings({ setHasUnsavedChanges }: { setHasUnsavedChanges?: (val: boolean) => void } = {}) {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10 max-w-5xl mx-auto">
       <div className="text-center sm:text-left">

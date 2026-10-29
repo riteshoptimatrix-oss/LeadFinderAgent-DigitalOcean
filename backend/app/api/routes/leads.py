@@ -743,6 +743,29 @@ async def start_analysis(
         if not re.match(r'^https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}', website):
             raise HTTPException(status_code=400, detail="AI Website Analysis requires a valid website URL.")
 
+    # Check if an active job already exists for this lead
+    from app.models.ai_analysis import AIAnalysisState
+    active_job = await db["ai_analysis_jobs"].find_one({
+        "lead_id": str(id),
+        "status": {"$in": [
+            AIAnalysisState.WAITING,
+            AIAnalysisState.STARTED,
+            AIAnalysisState.RUNNING,
+            AIAnalysisState.COLLECTING,
+            AIAnalysisState.ANALYZING,
+            AIAnalysisState.SCORING,
+            AIAnalysisState.SAVING,
+        ]}
+    })
+    if active_job and active_job.get("queue_id"):
+        logger.info(f"START_ANALYSIS_REUSE: Lead {id} already has active job {active_job.get('_id')} in queue {active_job.get('queue_id')}")
+        return StartAnalysisResponse(
+            lead_id=str(id),
+            website_url=website,
+            queue_id=str(active_job["queue_id"]),
+            worker_id="Worker-Alpha"
+        )
+
     from app.services.ai_analysis_queue_service import AIAnalysisQueueService
     
     lead_copy = dict(lead)
@@ -752,6 +775,30 @@ async def start_analysis(
         user_id=str(current_user.id),
         leads=[lead_copy]
     )
+
+    # Immediately mark lead as in-progress in database
+    await db["leads"].update_one(
+        query,
+        {"$set": {
+            "ai_analysis.status": AIAnalysisState.STARTED.value,
+            "ai_analysis.analysis_status": "Running",
+            "ai_analysis.analysis_started_at": datetime.utcnow()
+        }}
+    )
+
+    try:
+        from app.services.activity_logger import log_user_activity
+        lead_name = lead.get("name") or lead.get("company_name") or website
+        await log_user_activity(
+            user_id=str(current_user.id),
+            activity_type="AI_ANALYSIS_STARTED",
+            module="ai",
+            title=f"AI Website Analysis: {lead_name}",
+            description=f"Initiated deep AI audit on {website}",
+            metadata={"lead_id": str(id), "website": website, "queue_id": queue.id}
+        )
+    except Exception:
+        pass
     
     return StartAnalysisResponse(
         lead_id=str(id),

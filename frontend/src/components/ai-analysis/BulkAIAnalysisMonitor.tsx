@@ -107,7 +107,7 @@ const buildFallbackSummary = (d: BulkFallbackSource): BulkSummary => ({
   skipped: d.skipped_jobs || d.skipped || 0,
   failed: d.failed_jobs || d.failed || 0,
   total_time: d.total_time ?? null,
-  average_time_per_website: d.average_time ?? d.average_time_per_website ?? null,
+  average_time_per_website: d.average_time ?? d.average_time_per_website ?? 0,
 });
 
 export default function BulkAIAnalysisMonitor({ queueId, queueName, onClose, onComplete }: BulkMonitorProps) {

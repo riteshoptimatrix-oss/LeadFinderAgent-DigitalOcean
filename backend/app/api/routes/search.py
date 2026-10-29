@@ -15,6 +15,21 @@ async def create_search(query: Dict[str, Any], current_user: Any = Depends(get_c
     try:
         user_id = str(current_user.id) if hasattr(current_user, 'id') else None
         result = await search_api.execute_search(query, user_id=user_id)
+        if user_id:
+            try:
+                from app.services.activity_logger import log_user_activity
+                kw = query.get("keyword") or query.get("query") or "Search"
+                loc = query.get("location") or query.get("city") or ""
+                await log_user_activity(
+                    user_id=user_id,
+                    activity_type="SEARCH_STARTED",
+                    module="search",
+                    title=f"Searched for '{kw}'",
+                    description=f"Initiated lead discovery in {loc or 'selected area'}",
+                    metadata={"query": query, "job_id": str(result.get("job_id", ""))}
+                )
+            except Exception:
+                pass
         return result
     except Exception as e:
         raise HTTPException(

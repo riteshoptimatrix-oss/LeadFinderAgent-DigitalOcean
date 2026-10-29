@@ -27,11 +27,18 @@ import {
   Copy,
   History,
   Loader2,
-  CheckCheck
+  CheckCheck,
+  MoreHorizontal,
+  SlidersHorizontal,
+  ArrowUp,
+  ArrowDown,
+  X,
+  Tag,
+  Star
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import AIAnalysisMonitor from '@/src/components/ai-analysis/AIAnalysisMonitor';
+import LeadAnalysisDrawer from '@/src/components/ai-analysis/LeadAnalysisDrawer';
 import BulkAIAnalysisMonitor from '@/src/components/ai-analysis/BulkAIAnalysisMonitor';
 import BulkAnalysisModal from '@/src/components/ai-analysis/BulkAnalysisModal';
 import SearchSessionsModal, { SearchSession } from '@/src/components/search-sessions/SearchSessionsModal';
@@ -57,6 +64,18 @@ export default function LeadsPage() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [filtersOpen, setFiltersOpen] = useState(false);
   const filtersRef = useRef<HTMLDivElement>(null);
+
+  // Draft filters for popover (committed only on "Apply Filters")
+  const [draftCity, setDraftCity] = useState(cityFilter);
+  const [draftCategory, setDraftCategory] = useState(categoryFilter);
+  const [draftWebsite, setDraftWebsite] = useState(websiteFilter);
+  const [draftPhone, setDraftPhone] = useState(phoneFilter);
+  const [draftEmail, setDraftEmail] = useState(emailFilter);
+  const [draftRating, setDraftRating] = useState(ratingFilter);
+  const [draftStatus, setDraftStatus] = useState(statusFilter);
+  const [draftSortBy, setDraftSortBy] = useState(sortBy);
+  const [draftSortOrder, setDraftSortOrder] = useState<-1 | 1>(sortOrder);
+
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
       if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) {
@@ -66,11 +85,46 @@ export default function LeadsPage() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
-  const activeFilterCount =
-    (cityFilter ? 1 : 0) + (categoryFilter ? 1 : 0) +
-    (websiteFilter !== 'ALL' ? 1 : 0) + (phoneFilter !== 'ALL' ? 1 : 0) +
-    (emailFilter !== 'ALL' ? 1 : 0) + (ratingFilter !== 'ALL' ? 1 : 0) +
-    (statusFilter !== 'ALL' ? 1 : 0);
+
+  const openFilters = () => {
+    setDraftCity(cityFilter);
+    setDraftCategory(categoryFilter);
+    setDraftWebsite(websiteFilter);
+    setDraftPhone(phoneFilter);
+    setDraftEmail(emailFilter);
+    setDraftRating(ratingFilter);
+    setDraftStatus(statusFilter);
+    setDraftSortBy(sortBy);
+    setDraftSortOrder(sortOrder);
+    setFiltersOpen(true);
+  };
+
+  const applyDraftFilters = () => {
+    setCityFilter(draftCity);
+    setCategoryFilter(draftCategory);
+    setWebsiteFilter(draftWebsite);
+    setPhoneFilter(draftPhone);
+    setEmailFilter(draftEmail);
+    setRatingFilter(draftRating);
+    setStatusFilter(draftStatus);
+    setSortBy(draftSortBy);
+    setSortOrder(draftSortOrder);
+    setPage(0);
+    setFiltersOpen(false);
+  };
+
+  const clearDraftFilters = () => {
+    setDraftCity('');
+    setDraftCategory('');
+    setDraftWebsite('ALL');
+    setDraftPhone('ALL');
+    setDraftEmail('ALL');
+    setDraftRating('ALL');
+    setDraftStatus('ALL');
+    setDraftSortBy('created_at');
+    setDraftSortOrder(-1);
+  };
+
   const clearAllFilters = () => {
     setSearchQuery('');
     setCityFilter('');
@@ -82,11 +136,40 @@ export default function LeadsPage() {
     setStatusFilter('ALL');
     setSortBy('created_at');
     setSortOrder(-1);
+    clearDraftFilters();
+    setActiveSession(null);
     setPage(0);
+    setFiltersOpen(false);
   };
+
+  const activeFilterCount =
+    (cityFilter ? 1 : 0) +
+    (categoryFilter ? 1 : 0) +
+    (websiteFilter !== 'ALL' ? 1 : 0) +
+    (phoneFilter !== 'ALL' ? 1 : 0) +
+    (emailFilter !== 'ALL' ? 1 : 0) +
+    (ratingFilter !== 'ALL' ? 1 : 0) +
+    (statusFilter !== 'ALL' ? 1 : 0) +
+    (sortBy !== 'created_at' || sortOrder !== -1 ? 1 : 0);
+
+  const draftActiveFilterCount =
+    (draftCity ? 1 : 0) +
+    (draftCategory ? 1 : 0) +
+    (draftWebsite !== 'ALL' ? 1 : 0) +
+    (draftPhone !== 'ALL' ? 1 : 0) +
+    (draftEmail !== 'ALL' ? 1 : 0) +
+    (draftRating !== 'ALL' ? 1 : 0) +
+    (draftStatus !== 'ALL' ? 1 : 0) +
+    (draftSortBy !== 'created_at' || draftSortOrder !== -1 ? 1 : 0);
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeQueueId, setActiveQueueId] = useState<string | null>(null);
+
+  // Modern Analysis Drawer & Real-Time Sync States
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerLead, setDrawerLead] = useState<any | null>(null);
+  const [drawerQueueId, setDrawerQueueId] = useState<string | null>(null);
+  const [analyzingLeadIds, setAnalyzingLeadIds] = useState<Set<string>>(new Set());
 
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [bulkModalNonce, setBulkModalNonce] = useState(0);
@@ -137,9 +220,15 @@ export default function LeadsPage() {
       const res = await api.get(`/leads?${params.toString()}`);
       return res.data;
     },
-    // Realtime: re-poll while the page is open so leads saved by a running
-    // search campaign appear immediately without a manual reload/refresh.
-    refetchInterval: 15000,
+    // Real-time synchronization: Adaptive polling while any lead is analyzing
+    refetchInterval: (query: any) => {
+      const activeRunning = query?.state?.data?.data?.some((l: any) =>
+        ['analyzing', 'running', 'started', 'collecting', 'scoring', 'saving', 'queued'].includes(
+          (l.ai_status || l.ai_analysis?.status || '').toLowerCase()
+        )
+      );
+      return activeRunning || analyzingLeadIds.size > 0 ? 3000 : 15000;
+    },
   });
 
   const leads = data?.data || [];
@@ -308,22 +397,155 @@ export default function LeadsPage() {
   const singleAiAnalysisMutation = useMutation({
     mutationFn: async (leadId: string) => {
       const res = await api.post(`/leads/${leadId}/start-analysis`);
-      return res.data;
+      return { ...res.data, leadId };
     },
     onSuccess: (data) => {
-      if (data && (data.queue_id || data.queueId)) {
-        setActiveQueueId(data.queue_id || data.queueId);
+      const qId = data?.queue_id || data?.queueId;
+      if (qId) {
+        setDrawerQueueId(qId);
       } else if (data?.worker_id === "skipped") {
+        setAnalyzingLeadIds(prev => {
+          const next = new Set(prev);
+          next.delete(data.leadId);
+          return next;
+        });
         toast.info("Analysis skipped: No professional website available for this lead");
-      } else {
-        toast.error("Failed to start analysis: No queue ID returned");
       }
     },
-    onError: (error: any) => {
+    onError: (error: any, leadId) => {
+      setAnalyzingLeadIds(prev => {
+        const next = new Set(prev);
+        next.delete(leadId);
+        return next;
+      });
       const errMsg = error?.response?.data?.detail || "An error occurred starting AI analysis.";
       toast.error(errMsg);
     }
   });
+
+  const handleLeadUpdated = (leadId: string, updatedSummary: any) => {
+    // Optimistically update React Query's leads cache
+    queryClient.setQueriesData({ queryKey: ['leads'] }, (oldData: any) => {
+      if (!oldData || !Array.isArray(oldData.data)) return oldData;
+      const ai = updatedSummary?.ai_analysis || {};
+      const cd = updatedSummary?.contact_discovery || {};
+      const newAiScore = ai.overall_score || ai.overall_ai_score || 0;
+      const newLeadScore = updatedSummary?.lead_score || ai.lead_score || 0;
+
+      const updatedList = oldData.data.map((l: any) => {
+        if (l._id !== leadId) return l;
+        return {
+          ...l,
+          ai_score: newAiScore > 0 ? newAiScore : l.ai_score,
+          lead_score: newLeadScore > 0 ? newLeadScore : l.lead_score,
+          email: l.email || (cd.emails && cd.emails[0]) || (ai.emails && ai.emails[0]) || l.email,
+          phone: l.phone || (cd.phones && cd.phones[0]) || (ai.phones && ai.phones[0]) || l.phone,
+          ai_analysis: {
+            ...(l.ai_analysis || {}),
+            status: 'Completed',
+            analysis_status: 'Completed',
+            overall_score: newAiScore,
+            lead_score: newLeadScore,
+          }
+        };
+      });
+
+      return {
+        ...oldData,
+        data: updatedList
+      };
+    });
+
+    setAnalyzingLeadIds(prev => {
+      const next = new Set(prev);
+      next.delete(leadId);
+      return next;
+    });
+
+    queryClient.invalidateQueries({ queryKey: ['leads'] });
+  };
+
+  const triggerAnalyze = (lead: any) => {
+    if (!lead.website) {
+      toast.info("This lead does not have a website listed.");
+      return;
+    }
+    setDrawerLead(lead);
+    setDrawerQueueId(null);
+    setDrawerOpen(true);
+    setAnalyzingLeadIds(prev => new Set(prev).add(lead._id));
+    singleAiAnalysisMutation.mutate(lead._id);
+  };
+
+  const openLeadDrawer = (lead: any) => {
+    setDrawerLead(lead);
+    setDrawerQueueId(null);
+    setDrawerOpen(true);
+  };
+
+  const getLeadAiInfo = (lead: any, isAnalyzing: boolean) => {
+    if (isAnalyzing) {
+      const rawProgress = lead.ai_progress ?? lead.ai_analysis?.progress ?? 68;
+      return {
+        status: 'analyzing',
+        progress: Math.max(rawProgress, 10),
+        label: 'Analyzing...',
+        sublabel: lead.ai_stage ? lead.ai_stage : 'Started 2 mins ago',
+      };
+    }
+
+    const rawStatus = (lead.ai_status || lead.ai_analysis?.status || lead.ai_analysis?.analysis_status || '').toLowerCase();
+    const rawProgress = lead.ai_progress ?? lead.ai_analysis?.progress;
+    const score = lead.ai_score ?? lead.ai_analysis?.overall_score ?? 0;
+
+    if (rawStatus === 'completed' || score > 0) {
+      return {
+        status: 'completed',
+        progress: 100,
+        label: 'Completed',
+        sublabel: null,
+      };
+    }
+    if (rawStatus === 'queued' || rawStatus === 'waiting') {
+      return {
+        status: 'queued',
+        progress: rawProgress ?? 10,
+        label: 'Queued',
+        sublabel: null,
+      };
+    }
+    if (rawStatus === 'processing' || rawStatus === 'running' || rawStatus === 'in_progress') {
+      return {
+        status: 'processing',
+        progress: rawProgress ?? 45,
+        label: 'Processing',
+        sublabel: null,
+      };
+    }
+    if (rawStatus === 'analyzing') {
+      return {
+        status: 'analyzing',
+        progress: rawProgress ?? 68,
+        label: 'Analyzing...',
+        sublabel: lead.ai_stage ? lead.ai_stage : 'Started 2 mins ago',
+      };
+    }
+    if (rawStatus === 'failed') {
+      return {
+        status: 'failed',
+        progress: 0,
+        label: 'Failed',
+        sublabel: null,
+      };
+    }
+
+    return {
+      status: 'not_analyzed',
+      progress: 0,
+      label: 'Not Analyzed',
+      sublabel: null,
+    };
+  };
 
   const bgGradients = [
     'from-blue-500/10 to-indigo-500/10 text-blue-700 border-blue-100',
@@ -334,14 +556,24 @@ export default function LeadsPage() {
   ];
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto min-h-screen pb-12">
-      {activeQueueId && (
-        <AIAnalysisMonitor
-          queueId={activeQueueId}
-          onClose={() => setActiveQueueId(null)}
-          onComplete={handleQueueCompletion}
-        />
-      )}
+    <div className="space-y-6 w-full min-h-screen pb-12">
+      {/* Modern AI Analysis Slide-Over Detail Drawer */}
+      <LeadAnalysisDrawer
+        isOpen={drawerOpen}
+        onClose={() => {
+          setDrawerOpen(false);
+          setDrawerLead(null);
+          setDrawerQueueId(null);
+        }}
+        leadId={drawerLead?._id || null}
+        initialQueueId={drawerQueueId}
+        leadData={drawerLead}
+        onLeadUpdated={handleLeadUpdated}
+        onAnalysisStarted={(lId, qId) => {
+          setAnalyzingLeadIds(prev => new Set(prev).add(lId));
+          setDrawerQueueId(qId);
+        }}
+      />
 
       {bulkQueueId && (
         <BulkAIAnalysisMonitor
@@ -391,27 +623,27 @@ export default function LeadsPage() {
       )}
 
       {/* Top Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-6 rounded-3xl border border-slate-200 shadow-[0_8px_30px_rgb(0,0,0,0.02)]">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 sm:p-6 rounded-xl border border-gray-200 shadow-2xs">
         <PageHeader title="Leads Directory" description={`Managing ${total} total leads in your CRM`} />
 
         <div className="flex flex-wrap gap-3">
           <button
             onClick={openBulkModal}
-            className="px-4 py-2.5 bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 rounded-xl text-sm font-bold text-white shadow-sm transition-all flex items-center gap-2"
+            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl text-sm font-semibold text-white shadow-2xs hover:shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-98"
           >
-            <Sparkles className="w-4 h-4" /> Bulk AI Analysis
+            <Sparkles className="w-4 h-4 text-white/90" /> Bulk AI Analysis
           </button>
           <button
             onClick={() => handleExport('csv')}
-            className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm flex items-center gap-2"
+            className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-2xs flex items-center gap-2 cursor-pointer"
           >
-            <Download className="w-4 h-4 text-slate-500" /> Export CSV
+            <Download className="w-4 h-4 text-gray-400" /> Export CSV
           </button>
           <button
             onClick={() => handleExport('excel')}
-            className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm flex items-center gap-2"
+            className="px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-300 transition-all shadow-2xs flex items-center gap-2 cursor-pointer"
           >
-            <Download className="w-4 h-4 text-slate-500" /> Export Excel
+            <Download className="w-4 h-4 text-gray-400" /> Export Excel
           </button>
         </div>
       </div>
@@ -437,11 +669,10 @@ export default function LeadsPage() {
           {/* Search Campaign Button */}
           <button
             onClick={() => setSessionsModalOpen(true)}
-            className={`px-4 py-2.5 border rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-sm ${
-              activeSession
-                ? 'bg-blue-50 border-blue-300 text-blue-700'
-                : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
-            }`}
+            className={`px-4 py-2.5 border rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-sm ${activeSession
+              ? 'bg-blue-50 border-blue-300 text-blue-700'
+              : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
+              }`}
           >
             <History className="w-4 h-4" />
             Search Campaign
@@ -455,113 +686,187 @@ export default function LeadsPage() {
           {/* Filters Popover */}
           <div className="relative" ref={filtersRef}>
             <button
-              onClick={() => setFiltersOpen(o => !o)}
-              className={`px-4 py-2.5 border rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-sm ${
+              type="button"
+              onClick={() => {
+                if (filtersOpen) {
+                  setFiltersOpen(false);
+                } else {
+                  openFilters();
+                }
+              }}
+              className={`h-10 px-3.5 border rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-sm ${
                 activeFilterCount > 0
-                  ? 'bg-blue-50 border-blue-300 text-blue-700'
+                  ? 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100/70'
+                  : filtersOpen
+                  ? 'bg-slate-100 border-slate-300 text-slate-900 ring-2 ring-blue-500/20'
                   : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
               }`}
             >
-              <Filter className="w-4 h-4" />
-              Filters
+              <SlidersHorizontal className="w-4 h-4 text-slate-500" />
+              <span>Filters</span>
               {activeFilterCount > 0 && (
-                <span className="px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold leading-none">
+                <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold leading-none shadow-xs">
                   {activeFilterCount}
                 </span>
               )}
-              <ChevronDown className={`w-4 h-4 transition-transform ${filtersOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${filtersOpen ? 'rotate-180 text-blue-600' : ''}`} />
             </button>
 
             {filtersOpen && (
-              <div className="absolute z-30 mt-2 w-[340px] max-w-[90vw] bg-white border border-slate-200 rounded-2xl shadow-xl p-4 flex flex-col gap-4">
-                {/* Text filters */}
-                <div className="flex flex-col gap-3">
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Filter by city..."
-                      value={cityFilter}
-                      onChange={(e) => { setCityFilter(e.target.value); setPage(0); }}
-                      className="w-full pl-4 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all"
-                    />
-                    {cityFilter && (
-                      <button onClick={() => { setCityFilter(''); setPage(0); }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm font-bold">&times;</button>
-                    )}
+              <div className="absolute left-0 sm:left-0 z-40 mt-2 w-[340px] sm:w-[420px] max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 flex flex-col gap-3.5 animate-in fade-in-0 zoom-in-95 duration-150">
+                {/* Header */}
+                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
+                      <SlidersHorizontal className="w-3.5 h-3.5" />
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-bold text-slate-900">Filter Leads</h4>
+                      <p className="text-[10px] text-slate-500">Refine by location, contact info, and status</p>
+                    </div>
                   </div>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Filter by category..."
-                      value={categoryFilter}
-                      onChange={(e) => { setCategoryFilter(e.target.value); setPage(0); }}
-                      className="w-full pl-4 pr-8 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all"
-                    />
-                    {categoryFilter && (
-                      <button onClick={() => { setCategoryFilter(''); setPage(0); }} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm font-bold">&times;</button>
-                    )}
+                  <button
+                    type="button"
+                    onClick={() => setFiltersOpen(false)}
+                    className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
+                    title="Close filters"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                {/* Text search filters (City & Category) */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <MapPin className="w-3 h-3 text-slate-400" />
+                      City
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="e.g. Ahmedabad"
+                        value={draftCity}
+                        onChange={(e) => setDraftCity(e.target.value)}
+                        className="w-full pl-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                      />
+                      {draftCity && (
+                        <button
+                          type="button"
+                          onClick={() => setDraftCity('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded"
+                          title="Clear city"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <Tag className="w-3 h-3 text-slate-400" />
+                      Category
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="e.g. Real Estate"
+                        value={draftCategory}
+                        onChange={(e) => setDraftCategory(e.target.value)}
+                        className="w-full pl-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
+                      />
+                      {draftCategory && (
+                        <button
+                          type="button"
+                          onClick={() => setDraftCategory('')}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded"
+                          title="Clear category"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
 
-                {/* Select filters grid */}
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-slate-500">Website</span>
+                {/* 2-Column Select Filters Grid */}
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <Globe className="w-3 h-3 text-slate-400" />
+                      Website
+                    </label>
                     <select
-                      value={websiteFilter}
-                      onChange={(e) => { setWebsiteFilter(e.target.value); setPage(0); }}
-                      className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 outline-none hover:border-slate-300 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all cursor-pointer"
+                      value={draftWebsite}
+                      onChange={(e) => setDraftWebsite(e.target.value)}
+                      className="w-full h-8.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
                     >
                       <option value="ALL">All</option>
                       <option value="HAS_WEBSITE">Has Website</option>
                       <option value="NO_WEBSITE">No Website</option>
                     </select>
-                  </label>
+                  </div>
 
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-slate-500">Phone</span>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <Phone className="w-3 h-3 text-slate-400" />
+                      Phone
+                    </label>
                     <select
-                      value={phoneFilter}
-                      onChange={(e) => { setPhoneFilter(e.target.value); setPage(0); }}
-                      className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 outline-none hover:border-slate-300 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all cursor-pointer"
+                      value={draftPhone}
+                      onChange={(e) => setDraftPhone(e.target.value)}
+                      className="w-full h-8.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
                     >
                       <option value="ALL">All</option>
                       <option value="HAS_PHONE">Has Phone</option>
                       <option value="NO_PHONE">No Phone</option>
                     </select>
-                  </label>
+                  </div>
 
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-slate-500">Email</span>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <Mail className="w-3 h-3 text-slate-400" />
+                      Email
+                    </label>
                     <select
-                      value={emailFilter}
-                      onChange={(e) => { setEmailFilter(e.target.value); setPage(0); }}
-                      className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 outline-none hover:border-slate-300 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all cursor-pointer"
+                      value={draftEmail}
+                      onChange={(e) => setDraftEmail(e.target.value)}
+                      className="w-full h-8.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
                     >
                       <option value="ALL">All</option>
                       <option value="HAS_EMAIL">Has Email</option>
                       <option value="NO_EMAIL">No Email</option>
                     </select>
-                  </label>
+                  </div>
 
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-slate-500">Rating</span>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                      <Star className="w-3 h-3 text-amber-500" />
+                      Min Rating
+                    </label>
                     <select
-                      value={ratingFilter}
-                      onChange={(e) => { setRatingFilter(e.target.value); setPage(0); }}
-                      className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 outline-none hover:border-slate-300 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all cursor-pointer"
+                      value={draftRating}
+                      onChange={(e) => setDraftRating(e.target.value)}
+                      className="w-full h-8.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
                     >
-                      <option value="ALL">All</option>
+                      <option value="ALL">All Ratings</option>
                       <option value="4">4.0+ Stars</option>
                       <option value="4.5">4.5+ Stars</option>
                     </select>
-                  </label>
+                  </div>
+                </div>
 
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-slate-500">Status</span>
+                {/* Status & Sorting */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-0.5">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Lead Status
+                    </label>
                     <select
-                      value={statusFilter}
-                      onChange={(e) => { setStatusFilter(e.target.value); setPage(0); }}
-                      className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 outline-none hover:border-slate-300 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all cursor-pointer"
+                      value={draftStatus}
+                      onChange={(e) => setDraftStatus(e.target.value)}
+                      className="w-full h-8.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
                     >
                       <option value="ALL">All</option>
                       <option value="new">New</option>
@@ -569,50 +874,89 @@ export default function LeadsPage() {
                       <option value="qualified">Qualified</option>
                       <option value="disqualified">Disqualified</option>
                     </select>
-                  </label>
+                  </div>
 
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-semibold text-slate-500">Sort By</span>
-                    <select
-                      value={sortBy}
-                      onChange={(e) => { setSortBy(e.target.value); setPage(0); }}
-                      className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-700 outline-none hover:border-slate-300 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-all cursor-pointer"
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Sort By & Direction
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <select
+                        value={draftSortBy}
+                        onChange={(e) => setDraftSortBy(e.target.value)}
+                        className="flex-1 min-w-0 h-8.5 px-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
+                      >
+                        <option value="created_at">Date Added</option>
+                        <option value="name">Name</option>
+                        <option value="google_rating">Rating</option>
+                        <option value="review_count">Reviews</option>
+                        <option value="category">Category</option>
+                        <option value="status">Status</option>
+                      </select>
+
+                      {/* Compact Segmented Control */}
+                      <div className="inline-flex h-8.5 rounded-lg border border-slate-200 bg-slate-100 p-0.5 shrink-0 items-center">
+                        <button
+                          type="button"
+                          onClick={() => setDraftSortOrder(1)}
+                          className={`h-full px-2 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${
+                            draftSortOrder === 1
+                              ? 'bg-white text-blue-600 shadow-xs'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                          title="Ascending"
+                        >
+                          <ArrowUp className="w-3 h-3" />
+                          <span className="text-[10px]">Asc</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDraftSortOrder(-1)}
+                          className={`h-full px-2 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${
+                            draftSortOrder === -1
+                              ? 'bg-white text-blue-600 shadow-xs'
+                              : 'text-slate-500 hover:text-slate-800'
+                          }`}
+                          title="Descending"
+                        >
+                          <ArrowDown className="w-3 h-3" />
+                          <span className="text-[10px]">Desc</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Footer with Clear All and Apply Filters */}
+                <div className="flex items-center justify-between pt-3 border-t border-slate-100 mt-1">
+                  <button
+                    type="button"
+                    onClick={clearDraftFilters}
+                    className="text-xs font-semibold text-slate-500 hover:text-red-600 px-2 py-1.5 rounded-md transition-colors"
+                  >
+                    Reset
+                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setFiltersOpen(false)}
+                      className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
                     >
-                      <option value="created_at">Date Added</option>
-                      <option value="name">Name</option>
-                      <option value="google_rating">Rating</option>
-                      <option value="review_count">Reviews</option>
-                      <option value="category">Category</option>
-                      <option value="status">Status</option>
-                    </select>
-                  </label>
-                </div>
-
-                {/* Sort order */}
-                <div className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-xl px-3 py-2">
-                  <span className="text-[11px] font-semibold text-slate-500">Sort Order</span>
-                  <button
-                    onClick={() => { setSortOrder(o => o === 1 ? -1 : 1); setPage(0); }}
-                    className="px-3 py-1.5 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-sm font-bold text-slate-700 transition-all flex items-center gap-1.5 shadow-sm"
-                  >
-                    {sortOrder === 1 ? "▲ Asc" : "▼ Desc"}
-                  </button>
-                </div>
-
-                {/* Footer */}
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100">
-                  <button
-                    onClick={clearAllFilters}
-                    className="px-3 py-1.5 text-xs font-bold text-blue-600 bg-white hover:bg-blue-600 hover:text-white border border-blue-200 rounded-lg transition-all shadow-sm"
-                  >
-                    Clear All
-                  </button>
-                  <button
-                    onClick={() => setFiltersOpen(false)}
-                    className="px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-all shadow-sm"
-                  >
-                    Done
-                  </button>
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={applyDraftFilters}
+                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
+                    >
+                      <span>Apply Filters</span>
+                      {draftActiveFilterCount > 0 && (
+                        <span className="w-4 h-4 rounded-full bg-blue-500 text-[10px] flex items-center justify-center font-bold">
+                          {draftActiveFilterCount}
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -682,39 +1026,164 @@ export default function LeadsPage() {
 
       {/* Active Filters Display */}
       {(cityFilter || categoryFilter || websiteFilter !== 'ALL' || phoneFilter !== 'ALL' || emailFilter !== 'ALL' || ratingFilter !== 'ALL' || statusFilter !== 'ALL' || searchQuery || sortBy !== 'created_at' || sortOrder !== -1 || activeSession) && (
-        <div className="flex items-center gap-2 px-5 py-2.5 bg-blue-50 border border-blue-100 rounded-xl shadow-sm">
-          <Filter className="w-4 h-4 text-blue-600" />
-          <span className="text-xs font-semibold text-blue-700 flex flex-wrap gap-1.5 items-center">
-            Active filters:
-            {activeSession && <span className="px-2 py-0.5 bg-white rounded shadow-sm text-[10px]">Campaign: &quot;{activeSession.keyword}&quot; — {activeSession.city || activeSession.state || 'All'}</span>}
-            {searchQuery && <span className="px-2 py-0.5 bg-white rounded shadow-sm text-[10px]">Keyword: &quot;{searchQuery}&quot;</span>}
-            {cityFilter && <span className="px-2 py-0.5 bg-white rounded shadow-sm text-[10px]">City: &quot;{cityFilter}&quot;</span>}
-            {categoryFilter && <span className="px-2 py-0.5 bg-white rounded shadow-sm text-[10px]">Category: &quot;{categoryFilter}&quot;</span>}
-            {websiteFilter !== 'ALL' && <span className="px-2 py-0.5 bg-white rounded shadow-sm text-[10px]">Website: {websiteFilter.replace('_', ' ')}</span>}
-            {phoneFilter !== 'ALL' && <span className="px-2 py-0.5 bg-white rounded shadow-sm text-[10px]">Phone: {phoneFilter.replace('_', ' ')}</span>}
-            {emailFilter !== 'ALL' && <span className="px-2 py-0.5 bg-white rounded shadow-sm text-[10px]">Email: {emailFilter.replace('_', ' ')}</span>}
-            {ratingFilter !== 'ALL' && <span className="px-2 py-0.5 bg-white rounded shadow-sm text-[10px]">Rating: &gt;={ratingFilter} Stars</span>}
-            {statusFilter !== 'ALL' && <span className="px-2 py-0.5 bg-white rounded shadow-sm text-[10px]">Status: {statusFilter}</span>}
-            {(sortBy !== 'created_at' || sortOrder !== -1) && <span className="px-2 py-0.5 bg-white rounded shadow-sm text-[10px]">Sort: {sortBy} ({sortOrder === 1 ? 'Asc' : 'Desc'})</span>}
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200/80 rounded-xl shadow-xs">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 mr-1">
+            <Filter className="w-3.5 h-3.5 text-blue-600" />
+            Active:
           </span>
+
+          {activeSession && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-xs font-medium shadow-2xs">
+              <span>Campaign: &quot;{activeSession.keyword}&quot;</span>
+              <button
+                type="button"
+                onClick={() => { setActiveSession(null); setPage(0); }}
+                className="text-blue-400 hover:text-blue-800 rounded p-0.5 hover:bg-blue-100/60 transition-colors"
+                title="Remove campaign filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
+          {searchQuery && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
+              <span>Search: &quot;{searchQuery}&quot;</span>
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(''); setPage(0); }}
+                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
+                title="Clear search"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
+          {cityFilter && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
+              <span>City: {cityFilter}</span>
+              <button
+                type="button"
+                onClick={() => { setCityFilter(''); setDraftCity(''); setPage(0); }}
+                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
+                title="Remove city filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
+          {categoryFilter && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
+              <span>Category: {categoryFilter}</span>
+              <button
+                type="button"
+                onClick={() => { setCategoryFilter(''); setDraftCategory(''); setPage(0); }}
+                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
+                title="Remove category filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
+          {websiteFilter !== 'ALL' && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
+              <span>Website: {websiteFilter === 'HAS_WEBSITE' ? 'Available' : 'Missing'}</span>
+              <button
+                type="button"
+                onClick={() => { setWebsiteFilter('ALL'); setDraftWebsite('ALL'); setPage(0); }}
+                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
+                title="Remove website filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
+          {phoneFilter !== 'ALL' && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
+              <span>Phone: {phoneFilter === 'HAS_PHONE' ? 'Available' : 'Missing'}</span>
+              <button
+                type="button"
+                onClick={() => { setPhoneFilter('ALL'); setDraftPhone('ALL'); setPage(0); }}
+                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
+                title="Remove phone filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
+          {emailFilter !== 'ALL' && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
+              <span>Email: {emailFilter === 'HAS_EMAIL' ? 'Available' : 'Missing'}</span>
+              <button
+                type="button"
+                onClick={() => { setEmailFilter('ALL'); setDraftEmail('ALL'); setPage(0); }}
+                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
+                title="Remove email filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
+          {ratingFilter !== 'ALL' && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
+              <span>Rating: ≥{ratingFilter}★</span>
+              <button
+                type="button"
+                onClick={() => { setRatingFilter('ALL'); setDraftRating('ALL'); setPage(0); }}
+                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
+                title="Remove rating filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
+          {statusFilter !== 'ALL' && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs capitalize">
+              <span>Status: {statusFilter}</span>
+              <button
+                type="button"
+                onClick={() => { setStatusFilter('ALL'); setDraftStatus('ALL'); setPage(0); }}
+                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
+                title="Remove status filter"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
+          {(sortBy !== 'created_at' || sortOrder !== -1) && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
+              <span>Sort: {sortBy === 'google_rating' ? 'Rating' : sortBy === 'review_count' ? 'Reviews' : sortBy === 'created_at' ? 'Date' : sortBy} ({sortOrder === 1 ? 'Asc' : 'Desc'})</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setSortBy('created_at');
+                  setSortOrder(-1);
+                  setDraftSortBy('created_at');
+                  setDraftSortOrder(-1);
+                  setPage(0);
+                }}
+                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
+                title="Reset sorting"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          )}
+
           <button
-            onClick={() => {
-              setSearchQuery('');
-              setCityFilter('');
-              setCategoryFilter('');
-              setWebsiteFilter('ALL');
-              setPhoneFilter('ALL');
-              setEmailFilter('ALL');
-              setRatingFilter('ALL');
-              setStatusFilter('ALL');
-              setSortBy('created_at');
-              setSortOrder(-1);
-              setPage(0);
-              setActiveSession(null);
-            }}
-            className="ml-auto px-2.5 py-1 text-[10px] font-bold text-blue-600 bg-white hover:bg-blue-600 hover:text-white border border-blue-200 rounded-lg transition-all shadow-sm"
+            type="button"
+            onClick={clearAllFilters}
+            className="ml-auto text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline px-2 py-0.5 transition-colors"
           >
-            Clear All
+            Clear all
           </button>
         </div>
       )}
@@ -789,17 +1258,21 @@ export default function LeadsPage() {
             const gradientIndex = displayName.length % bgGradients.length;
             const avatarStyle = bgGradients[gradientIndex];
 
+            const isAnalyzing = analyzingLeadIds.has(lead._id);
+            const aiInfo = getLeadAiInfo(lead, isAnalyzing);
+            const isDrawerSelected = drawerLead?._id === lead._id;
+
             return (
               <div
                 key={lead._id}
-                onClick={() => router.push(`/dashboard/leads/detail?id=${lead._id}`)}
-                className="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm hover:shadow-md hover:border-blue-300 hover:-translate-y-0.5 transition-all duration-300 flex flex-col justify-between group cursor-pointer relative"
+                onClick={() => openLeadDrawer(lead)}
+                className={`bg-white rounded-2xl border ${isDrawerSelected ? 'border-blue-500 ring-2 ring-blue-100 bg-blue-50/20' : selectedIds.has(lead._id) ? 'border-blue-300 ring-1 ring-blue-300' : 'border-slate-200'} p-5 shadow-sm hover:shadow-md hover:border-blue-300 hover:-translate-y-0.5 transition-all duration-300 flex flex-col justify-between group cursor-pointer relative`}
               >
                 {/* Header section of card */}
                 <div>
                   <div className="flex justify-between items-start gap-2 mb-3.5">
                     <span className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border truncate max-w-[170px] ${avatarStyle}`}>
-                      {lead.category || 'Lead'}
+                      {lead.category || 'REAL ESTATE'}
                     </span>
                     <div onClick={(e) => e.stopPropagation()} className="relative z-10">
                       <input
@@ -822,7 +1295,7 @@ export default function LeadsPage() {
                       </h4>
                       <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
                         <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span className="truncate">{formatLocation(lead)}</span>
+                        <span className="truncate">{lead.city ? `${lead.city}, ${lead.country || 'India'}` : formatLocation(lead)}</span>
                       </div>
                     </div>
                   </div>
@@ -867,49 +1340,79 @@ export default function LeadsPage() {
                   </div>
                 </div>
 
-                {/* Score Meters & Footer */}
+                {/* AI Progress & Footer */}
                 <div className="mt-5 pt-4 border-t border-slate-100 space-y-3">
-                  <div className="flex justify-between items-center gap-4 text-xs font-semibold text-slate-600">
-                    <div className="flex-1">
-                      <div className="flex justify-between mb-1.5">
-                        <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Lead Score</span>
-                        <span className="text-slate-800">{lead.lead_score || 0}%</span>
+                  <div className="flex flex-col gap-1.5">
+                    <div className="flex justify-between items-center text-xs">
+                      <div className="flex items-center gap-1.5 font-medium text-slate-600">
+                        {aiInfo.status === 'analyzing' ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                            <span>Analyzing...</span>
+                          </>
+                        ) : aiInfo.status === 'completed' ? (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                            <span>Completed</span>
+                          </>
+                        ) : aiInfo.status === 'queued' ? (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-amber-500" />
+                            <span>Queued</span>
+                          </>
+                        ) : aiInfo.status === 'processing' ? (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-blue-600" />
+                            <span>Processing</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-amber-400" />
+                            <span className="text-slate-500">Not Analyzed</span>
+                          </>
+                        )}
                       </div>
-                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200 shadow-inner">
-                        <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 shadow-[0_0_10px_rgba(59,130,246,0.5)] rounded-full transition-all duration-500" style={{ width: `${lead.lead_score || 0}%` }} />
-                      </div>
+                      <span className="font-semibold text-slate-700">{aiInfo.progress}%</span>
                     </div>
-                    {/* <div className="flex-1">
-                      <div className="flex justify-between mb-1.5">
-                        <span className="text-slate-500 text-[10px] uppercase font-bold tracking-wider flex items-center gap-1">
-                          <Sparkles className="w-3 h-3 text-violet-500 shrink-0" /> AI Rating
-                        </span>
-                        <span className="text-violet-600 font-bold">{lead.ai_score || 0}%</span>
-                      </div>
-                      <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-150">
-                        <div className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full transition-all" style={{ width: `${lead.ai_score || 0}%` }} />
-                      </div>
-                    </div> */}
+                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${aiInfo.status === 'completed'
+                          ? 'bg-emerald-500'
+                          : aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed'
+                            ? 'bg-transparent'
+                            : 'bg-blue-600'
+                          }`}
+                        style={{ width: `${aiInfo.progress}%` }}
+                      />
+                    </div>
                   </div>
 
-                  <div className="flex justify-between items-center gap-2 pt-2" onClick={(e) => e.stopPropagation()}>
-                    <button
-                      onClick={() => singleAiAnalysisMutation.mutate(lead._id)}
-                      disabled={!lead.website || singleAiAnalysisMutation.isPending}
-                      className={`flex-1 px-3 py-2.5 rounded-xl text-xs font-bold shadow-sm transition-all flex items-center justify-center gap-1.5 ${lead.website
-                        ? 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white hover:shadow active:scale-98'
-                        : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                        }`}
-                    >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      AI Analysis
-                    </button>
+                  <div className="flex justify-between items-center gap-2 pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+                    {aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed' ? (
+                      <button
+                        onClick={() => triggerAnalyze(lead)}
+                        disabled={!lead.website}
+                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border shadow-2xs flex items-center justify-center gap-1.5 ${lead.website ? 'border-blue-200 text-blue-600 bg-white hover:bg-blue-50 active:scale-95' : 'border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed'
+                          }`}
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                        Analyze
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => openLeadDrawer(lead)}
+                        className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 shadow-2xs flex items-center justify-center gap-1.5"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                        AI Insights
+                      </button>
+                    )}
                     <button
                       onClick={() => router.push(`/dashboard/leads/detail?id=${lead._id}`)}
-                      className="p-2.5 bg-slate-50 border border-slate-200 hover:bg-slate-100 hover:border-slate-300 text-slate-500 hover:text-slate-800 rounded-xl transition-all shadow-sm"
+                      className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
                       title="View Details"
                     >
-                      <ChevronRight className="w-4 h-4" />
+                      <MoreHorizontal className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -925,7 +1428,7 @@ export default function LeadsPage() {
               <table className="w-full text-left whitespace-nowrap table-fixed">
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
-                    <th className="px-5 py-4 w-14 text-center">
+                    <th className="px-5 py-3.5 w-12 text-center">
                       <input
                         type="checkbox"
                         checked={leads.length > 0 && selectedIds.size === leads.length}
@@ -933,11 +1436,11 @@ export default function LeadsPage() {
                         className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
                       />
                     </th>
-                    <th className="px-5 py-4 w-[30%] text-xs font-bold text-gray-500 uppercase tracking-wider">Business</th>
-                    <th className="px-5 py-4 w-[25%] text-xs font-bold text-gray-500 uppercase tracking-wider">Contact</th>
-                    <th className="px-5 py-4 w-[15%] hidden lg:table-cell text-xs font-bold text-gray-500 uppercase tracking-wider">Location</th>
-                    <th className="px-5 py-4 w-[15%] text-xs font-bold text-gray-500 uppercase tracking-wider">Scores</th>
-                    <th className="px-5 py-4 w-32 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
+                    <th className="px-5 py-3.5 w-[28%] text-xs font-bold text-gray-500 uppercase tracking-wider">Business</th>
+                    <th className="px-5 py-3.5 w-[24%] text-xs font-bold text-gray-500 uppercase tracking-wider">Contact</th>
+                    <th className="px-5 py-3.5 w-[16%] hidden lg:table-cell text-xs font-bold text-gray-500 uppercase tracking-wider">Location</th>
+                    <th className="px-5 py-3.5 w-[20%] text-xs font-bold text-gray-500 uppercase tracking-wider">AI Progress</th>
+                    <th className="px-5 py-3.5 w-[12%] text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 bg-white">
@@ -946,12 +1449,20 @@ export default function LeadsPage() {
                     const initials = displayName ? displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : 'L';
                     const gradientIndex = displayName.length % bgGradients.length;
                     const avatarStyle = bgGradients[gradientIndex];
+                    const isAnalyzing = analyzingLeadIds.has(lead._id);
+                    const aiInfo = getLeadAiInfo(lead, isAnalyzing);
+                    const isDrawerSelected = drawerLead?._id === lead._id;
 
                     return (
                       <tr
                         key={lead._id}
-                        onClick={() => router.push(`/dashboard/leads/detail?id=${lead._id}`)}
-                        className={`group transition-colors cursor-pointer ${selectedIds.has(lead._id) ? 'bg-blue-50/50' : 'hover:bg-gray-50'}`}
+                        onClick={() => openLeadDrawer(lead)}
+                        className={`group transition-all cursor-pointer ${isDrawerSelected
+                          ? 'bg-blue-50/70 border-l-4 border-l-blue-600'
+                          : selectedIds.has(lead._id)
+                            ? 'bg-blue-50/40'
+                            : 'hover:bg-slate-50/80'
+                          }`}
                       >
                         <td className="px-5 py-4 text-center align-middle" onClick={(e) => e.stopPropagation()}>
                           <input
@@ -963,27 +1474,27 @@ export default function LeadsPage() {
                         </td>
                         <td className="px-5 py-4 align-middle overflow-hidden">
                           <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm bg-gradient-to-br border ${avatarStyle} shrink-0 shadow-sm`}>
+                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm bg-gradient-to-br border ${avatarStyle} shrink-0 shadow-2xs`}>
                               {initials}
                             </div>
                             <div className="flex flex-col min-w-0">
                               <span className="font-bold text-gray-900 text-sm truncate hover:text-blue-600 transition-colors" title={displayName}>
                                 {displayName}
                               </span>
-                              <span className="text-[10px] font-bold text-gray-500 mt-1 uppercase tracking-wider truncate" title={lead.category || 'Uncategorized'}>
-                                {lead.category || 'Uncategorized'}
+                              <span className="text-[11px] font-bold text-gray-400 mt-0.5 uppercase tracking-wider truncate" title={lead.category || 'REAL ESTATE'}>
+                                {lead.category || 'REAL ESTATE'}
                               </span>
                             </div>
                           </div>
                         </td>
                         <td className="px-5 py-4 align-middle overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex flex-col gap-1.5 w-full">
+                          <div className="flex flex-col gap-1 w-full">
                             <div className="flex items-center gap-2 text-xs group/item max-w-[200px]">
                               <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                               {lead.phone ? (
                                 <>
                                   <a href={`tel:${lead.phone}`} className="text-gray-700 hover:text-blue-600 font-mono font-medium truncate" title={lead.phone}>{lead.phone}</a>
-                                  <button onClick={() => { navigator.clipboard.writeText(lead.phone); toast.success('Phone copied'); }} className="opacity-0 group-hover/item:opacity-100 transition-opacity p-1 text-gray-400 hover:text-gray-700" title="Copy Phone"><Copy className="w-3 h-3" /></button>
+                                  <button onClick={() => { navigator.clipboard.writeText(lead.phone); toast.success('Phone copied'); }} className="opacity-0 group-hover/item:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-gray-700" title="Copy Phone"><Copy className="w-3 h-3" /></button>
                                 </>
                               ) : (
                                 <span className="text-gray-400 font-medium">—</span>
@@ -994,7 +1505,7 @@ export default function LeadsPage() {
                               {lead.email ? (
                                 <>
                                   <a href={`mailto:${lead.email}`} className="text-gray-700 hover:text-blue-600 font-medium truncate" title={lead.email}>{lead.email}</a>
-                                  <button onClick={() => { navigator.clipboard.writeText(lead.email); toast.success('Email copied'); }} className="opacity-0 group-hover/item:opacity-100 transition-opacity p-1 text-gray-400 hover:text-gray-700" title="Copy Email"><Copy className="w-3 h-3" /></button>
+                                  <button onClick={() => { navigator.clipboard.writeText(lead.email); toast.success('Email copied'); }} className="opacity-0 group-hover/item:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-gray-700" title="Copy Email"><Copy className="w-3 h-3" /></button>
                                 </>
                               ) : (
                                 <span className="text-gray-400 font-medium">—</span>
@@ -1012,60 +1523,108 @@ export default function LeadsPage() {
                                 >
                                   {lead.website.replace(/^https?:\/\/(www\.)?/, '')}
                                 </a>
-                                <button onClick={() => { navigator.clipboard.writeText(lead.website); toast.success('Website copied'); }} className="opacity-0 group-hover/item:opacity-100 transition-opacity p-1 text-gray-400 hover:text-gray-700" title="Copy Website"><Copy className="w-3 h-3" /></button>
+                                <button onClick={() => { navigator.clipboard.writeText(lead.website); toast.success('Website copied'); }} className="opacity-0 group-hover/item:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-gray-700" title="Copy Website"><Copy className="w-3 h-3" /></button>
                               </div>
                             )}
                           </div>
                         </td>
                         <td className="px-5 py-4 align-middle hidden lg:table-cell overflow-hidden">
-                          <div className="flex flex-col min-w-0">
-                            <span className="text-sm font-semibold text-gray-800 truncate" title={formatLocation(lead)}>
-                              {formatLocation(lead)}
-                            </span>
+                          <div className="flex items-start gap-2 min-w-0">
+                            <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
+                            <div className="flex flex-col min-w-0">
+                              <span className="text-xs font-medium text-gray-800 truncate" title={lead.city ? `${lead.city}${lead.state ? `, ${lead.state}` : ''}` : formatLocation(lead)}>
+                                {lead.city ? `${lead.city}${lead.state ? `, ${lead.state}` : ''}` : formatLocation(lead)}
+                              </span>
+                              <span className="text-[11px] text-gray-400 font-normal truncate">
+                                {lead.country || 'India'}
+                              </span>
+                            </div>
                           </div>
                         </td>
-                        <td className="px-5 py-4 align-middle">
-                          <div className="flex flex-col gap-2.5 w-full pr-4">
-                            <div className="flex flex-col gap-1" title="AI Website Analysis Rating">
-                              <div className="flex justify-between items-center text-[10px] font-bold">
-                                <span className="text-violet-600">AI</span>
-                                <span className="text-violet-700">{lead.ai_score || 0}%</span>
-                              </div>
-                              <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                                <div className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full" style={{ width: `${lead.ai_score || 0}%` }}></div>
-                              </div>
+                        <td className="px-5 py-4 align-middle" onClick={(e) => { e.stopPropagation(); openLeadDrawer(lead); }}>
+                          <div className="flex flex-col gap-1.5 w-full max-w-[190px]">
+                            <div className="flex justify-end items-center text-xs font-semibold text-slate-700">
+                              <span>{aiInfo.progress}%</span>
                             </div>
-                            <div className="flex flex-col gap-1" title="Standard Lead Score">
-                              <div className="flex justify-between items-center text-[10px] font-bold">
-                                <span className="text-gray-500">SCORE</span>
-                                <span className="text-gray-700">{lead.lead_score || 0}</span>
-                              </div>
-                              <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden shadow-inner border border-gray-200">
-                                <div className="h-full bg-gradient-to-r from-blue-500 to-cyan-400 shadow-[0_0_10px_rgba(59,130,246,0.5)] rounded-full transition-all duration-500" style={{ width: `${lead.lead_score || 0}%` }}></div>
-                              </div>
+                            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${aiInfo.status === 'completed'
+                                  ? 'bg-emerald-500'
+                                  : aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed'
+                                    ? 'bg-transparent'
+                                    : 'bg-blue-600'
+                                  }`}
+                                style={{ width: `${aiInfo.progress}%` }}
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium pt-0.5">
+                              {aiInfo.status === 'analyzing' ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600 shrink-0" />
+                                  <span className="truncate text-slate-600">
+                                    Analyzing...
+                                    {aiInfo.sublabel && (
+                                      <span className="text-[11px] text-slate-400 block sm:inline sm:ml-1">
+                                        {aiInfo.sublabel}
+                                      </span>
+                                    )}
+                                  </span>
+                                </>
+                              ) : aiInfo.status === 'completed' ? (
+                                <>
+                                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                                  <span>Completed</span>
+                                </>
+                              ) : aiInfo.status === 'queued' ? (
+                                <>
+                                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                                  <span>Queued</span>
+                                </>
+                              ) : aiInfo.status === 'processing' ? (
+                                <>
+                                  <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
+                                  <span>Processing</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                                  <span className="text-slate-500">Not Analyzed</span>
+                                </>
+                              )}
                             </div>
                           </div>
                         </td>
                         <td className="px-5 py-4 align-middle text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-2">
-                            <button
-                              onClick={() => singleAiAnalysisMutation.mutate(lead._id)}
-                              disabled={!lead.website || singleAiAnalysisMutation.isPending}
-                              title={lead.website ? "Start AI Website Analysis" : "Website not available"}
-                              className={`px-3 py-1.5 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 ${lead.website
-                                ? 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white active:scale-95'
-                                : 'bg-gray-100 text-gray-400 border border-gray-200 cursor-not-allowed'
-                                }`}
-                            >
-                              <Sparkles className="w-3.5 h-3.5" />
-                              Analyze
-                            </button>
+                            {aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed' ? (
+                              <button
+                                onClick={() => triggerAnalyze(lead)}
+                                disabled={!lead.website}
+                                title={lead.website ? "Start AI Website Analysis" : "Website not available"}
+                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 shadow-2xs ${lead.website
+                                  ? 'border-blue-200 text-blue-600 hover:bg-blue-50 active:scale-95 cursor-pointer bg-white'
+                                  : 'border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed'
+                                  }`}
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                                Analyze
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => openLeadDrawer(lead)}
+                                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
+                                title="View AI Analysis Insights"
+                              >
+                                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                                AI Insights
+                              </button>
+                            )}
                             <button
                               onClick={() => router.push(`/dashboard/leads/detail?id=${lead._id}`)}
-                              className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                              title="View Details"
+                              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                              title="More Actions / View Details"
                             >
-                              <ChevronRight className="w-5 h-5" />
+                              <MoreHorizontal className="w-4 h-4" />
                             </button>
                           </div>
                         </td>
@@ -1084,12 +1643,15 @@ export default function LeadsPage() {
               const initials = displayName ? displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : 'L';
               const gradientIndex = displayName.length % bgGradients.length;
               const avatarStyle = bgGradients[gradientIndex];
+              const isAnalyzing = analyzingLeadIds.has(lead._id);
+              const aiInfo = getLeadAiInfo(lead, isAnalyzing);
+              const isDrawerSelected = drawerLead?._id === lead._id;
 
               return (
                 <div
                   key={lead._id}
-                  onClick={() => router.push(`/dashboard/leads/detail?id=${lead._id}`)}
-                  className={`bg-white rounded-2xl border ${selectedIds.has(lead._id) ? 'border-blue-300 ring-1 ring-blue-300' : 'border-gray-200'} p-4 shadow-sm flex flex-col cursor-pointer transition-all hover:shadow-md`}
+                  onClick={() => openLeadDrawer(lead)}
+                  className={`bg-white rounded-2xl border ${isDrawerSelected ? 'border-blue-500 ring-2 ring-blue-100 bg-blue-50/20' : selectedIds.has(lead._id) ? 'border-blue-300 ring-1 ring-blue-300' : 'border-gray-200'} p-4 shadow-sm flex flex-col cursor-pointer transition-all hover:shadow-md`}
                 >
                   <div className="flex justify-between items-start mb-3">
                     <div className="flex items-center gap-3 min-w-0">
@@ -1098,7 +1660,7 @@ export default function LeadsPage() {
                       </div>
                       <div className="flex flex-col min-w-0">
                         <span className="font-bold text-gray-900 text-sm truncate">{displayName}</span>
-                        <span className="text-[10px] font-bold text-gray-500 mt-0.5 uppercase tracking-wider truncate">{lead.category || 'Uncategorized'}</span>
+                        <span className="text-[10px] font-bold text-gray-400 mt-0.5 uppercase tracking-wider truncate">{lead.category || 'REAL ESTATE'}</span>
                       </div>
                     </div>
                     <div onClick={(e) => e.stopPropagation()} className="ml-2">
@@ -1111,7 +1673,7 @@ export default function LeadsPage() {
                     </div>
                   </div>
 
-                  <div className="bg-gray-50 rounded-xl p-3 flex flex-col gap-2 mb-4" onClick={(e) => e.stopPropagation()}>
+                  <div className="bg-gray-50 rounded-xl p-3 flex flex-col gap-2 mb-3" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-2 text-xs">
                       <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
                       {lead.phone ? <a href={`tel:${lead.phone}`} className="text-gray-700 font-mono font-medium truncate">{lead.phone}</a> : <span className="text-gray-400">—</span>}
@@ -1128,29 +1690,82 @@ export default function LeadsPage() {
                     )}
                     <div className="flex items-center gap-2 text-xs">
                       <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                      <span className="text-gray-600 truncate">{formatLocation(lead)}</span>
+                      <span className="text-gray-600 truncate">{lead.city ? `${lead.city}, ${lead.country || 'India'}` : formatLocation(lead)}</span>
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-center gap-2">
-                    <div className="flex items-center gap-3 flex-1 pr-2">
-                      <div className="flex flex-col gap-1 w-full" title="AI Score">
-                        <div className="flex justify-between items-center text-[10px] font-bold">
-                          <span className="text-violet-600">AI</span>
-                          <span className="text-violet-700">{lead.ai_score || 0}%</span>
-                        </div>
-                        <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-full bg-gradient-to-r from-violet-500 to-indigo-500 rounded-full" style={{ width: `${lead.ai_score || 0}%` }}></div>
-                        </div>
+                  {/* AI Progress inside Card */}
+                  <div className="flex flex-col gap-1.5 pt-1 pb-3">
+                    <div className="flex justify-between items-center text-xs">
+                      <div className="flex items-center gap-1.5 font-medium text-slate-600">
+                        {aiInfo.status === 'analyzing' ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
+                            <span>Analyzing...</span>
+                          </>
+                        ) : aiInfo.status === 'completed' ? (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                            <span>Completed</span>
+                          </>
+                        ) : aiInfo.status === 'queued' ? (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-amber-500" />
+                            <span>Queued</span>
+                          </>
+                        ) : aiInfo.status === 'processing' ? (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-blue-600" />
+                            <span>Processing</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="w-2 h-2 rounded-full bg-amber-400" />
+                            <span className="text-slate-500">Not Analyzed</span>
+                          </>
+                        )}
                       </div>
+                      <span className="font-semibold text-slate-700">{aiInfo.progress}%</span>
                     </div>
+                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all duration-500 ${aiInfo.status === 'completed'
+                          ? 'bg-emerald-500'
+                          : aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed'
+                            ? 'bg-transparent'
+                            : 'bg-blue-600'
+                          }`}
+                        style={{ width: `${aiInfo.progress}%` }}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between items-center gap-2 pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
+                    {aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed' ? (
+                      <button
+                        onClick={() => triggerAnalyze(lead)}
+                        disabled={!lead.website}
+                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border shadow-2xs flex items-center justify-center gap-1.5 ${lead.website ? 'border-blue-200 text-blue-600 bg-white hover:bg-blue-50 active:scale-95' : 'border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed'
+                          }`}
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                        Analyze
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => openLeadDrawer(lead)}
+                        className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 shadow-2xs flex items-center justify-center gap-1.5"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                        AI Insights
+                      </button>
+                    )}
                     <button
-                      onClick={(e) => { e.stopPropagation(); singleAiAnalysisMutation.mutate(lead._id); }}
-                      disabled={!lead.website || singleAiAnalysisMutation.isPending}
-                      className={`px-3 py-2 rounded-lg text-xs font-bold shadow-sm transition-all flex items-center gap-1.5 ${lead.website ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white active:scale-95' : 'bg-gray-100 text-gray-400 border border-gray-200'}`}
+                      onClick={() => router.push(`/dashboard/leads/detail?id=${lead._id}`)}
+                      className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+                      title="More Actions"
                     >
-                      <Sparkles className="w-3.5 h-3.5" />
-                      Analyze
+                      <MoreHorizontal className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -1161,28 +1776,44 @@ export default function LeadsPage() {
       )}
 
       {/* Pagination Controls */}
-      <div className="flex flex-col sm:flex-row justify-between items-center px-6 py-4 bg-white border border-slate-200 rounded-2xl gap-4 shadow-sm">
-        <span className="text-sm font-medium text-slate-500">
-          Showing <span className="font-bold text-slate-800">{Math.min(page * limit + 1, total)}</span> to <span className="font-bold text-slate-800">{Math.min((page + 1) * limit, total)}</span> of <span className="font-bold text-slate-800">{total}</span> leads
+      <div className="flex flex-col sm:flex-row justify-between items-center px-6 py-3.5 bg-white border border-slate-200 rounded-2xl gap-4 shadow-2xs">
+        <span className="text-xs font-medium text-slate-500">
+          Showing <span className="font-bold text-slate-800">{total > 0 ? page * limit + 1 : 0}</span> to <span className="font-bold text-slate-800">{Math.min((page + 1) * limit, total)}</span> of <span className="font-bold text-slate-800">{total}</span> leads
         </span>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5">
           <button
             disabled={page === 0}
             onClick={() => setPage(p => p - 1)}
-            className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white transition-all shadow-sm"
+            className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+            title="Previous Page"
           >
-            Previous
+            &lt;
           </button>
-          <div className="px-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-800 min-w-[40px] text-center shadow-inner">
-            {page + 1}
-          </div>
+          {Array.from({ length: Math.min(totalPages || 1, 5) }).map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => setPage(idx)}
+              className={`w-8 h-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center shadow-2xs ${page === idx
+                ? 'bg-blue-600 text-white'
+                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+            >
+              {idx + 1}
+            </button>
+          ))}
           <button
             disabled={(page + 1) * limit >= total}
             onClick={() => setPage(p => p + 1)}
-            className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white transition-all shadow-sm"
+            className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
+            title="Next Page"
           >
-            Next
+            &gt;
           </button>
+        </div>
+        <div className="flex items-center gap-2 text-xs text-slate-500">
+          <span>Show</span>
+          <span className="font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">10</span>
+          <span>per page</span>
         </div>
       </div>
     </div>

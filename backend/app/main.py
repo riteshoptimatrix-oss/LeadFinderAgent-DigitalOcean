@@ -19,6 +19,11 @@ if os.getenv('DISABLE_SSL_VERIFICATION', 'false').lower() == 'true':
 
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    try:
+        import uvicorn.loops.asyncio
+        uvicorn.loops.asyncio.asyncio_loop_factory = lambda use_subprocess=False: asyncio.ProactorEventLoop
+    except Exception:
+        pass
 
 from fastapi import FastAPI
 from fastapi.responses import Response, RedirectResponse

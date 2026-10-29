@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     SMTP_ENCRYPTION: str = "TLS"   # TLS, SSL, or None
     SMTP_FROM_NAME: str = "Lead Finder Agent"
 
-    model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
+    model_config = SettingsConfigDict(env_file=(".env", "backend/.env"), env_ignore_empty=True, extra="ignore")
 
     @property
     def cors_origins_list(self) -> List[str]:

@@ -114,7 +114,19 @@ export default function SearchProgressPage() {
     socket.onerror = () => setWsConnected(false);
     socket.onclose = () => setWsConnected(false);
 
-    return () => socket.close();
+    return () => {
+      socket.onopen = null;
+      socket.onmessage = null;
+      socket.onerror = null;
+      socket.onclose = null;
+      if (socket.readyState === 0) {
+        socket.onopen = () => {
+          try { socket?.close(); } catch (_) {}
+        };
+      } else {
+        try { socket.close(); } catch (_) {}
+      }
+    };
   }, [jobId]);
 
   useEffect(() => {

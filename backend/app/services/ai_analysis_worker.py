@@ -813,6 +813,30 @@ class AIAnalysisWorker:
                 }
                 await manager.broadcast_to_job(str(queue_id), payload)
                 logger.info(f"EVENT_SENT: {legacy_type or event_type} for queue {queue_id} (job {job_id})")
+
+                # Persist ongoing progress into the lead and job documents so it survives drawer close / page reload
+                try:
+                    is_terminal = status in ("success", "failed", "completed")
+                    ai_db_status = "COMPLETED" if (is_terminal and status != "failed") else ("FAILED" if status == "failed" else "ANALYZING")
+                    await db["leads"].update_one(
+                        {"_id": to_object_id(lead_id)},
+                        {"$set": {
+                            "ai_analysis.status": ai_db_status,
+                            "ai_analysis.stage": stage,
+                            "ai_analysis.progress": progress,
+                            "ai_analysis.analysis_status": "Completed" if (is_terminal and status != "failed") else ("Failed" if status == "failed" else "Running"),
+                        }}
+                    )
+                    await db["ai_analysis_jobs"].update_one(
+                        {"_id": job_id},
+                        {"$set": {
+                            "current_stage": stage,
+                            "current_progress": progress,
+                            "updated_at": datetime.now(timezone.utc)
+                        }}
+                    )
+                except Exception as persist_err:
+                    logger.debug(f"Progress persistence non-fatal error: {persist_err}")
             except Exception as ws_err:
                 logger.warning(f"WebSocket broadcast failed: {repr(ws_err)}")
 

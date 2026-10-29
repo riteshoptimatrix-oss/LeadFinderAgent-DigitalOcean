@@ -1,9 +1,8 @@
-cat >> .gitignore <<'EOF'
-
 # Dependencies
 node_modules/
 .venv/
 venv/
+myenv/
 __pycache__/
 .pytest_cache/
 
@@ -13,29 +12,11 @@ dist/
 build/
 coverage/
 
-# Runtime data and generated screenshots
-backend/storage/screenshots/
-backend/storage/uploads/
-backend/storage/temp/
-
-# Logs and local databases
-*.log
-*.sqlite
-*.sqlite3
-EOF
-
-# Dependencies
-node_modules/
-.venv/
-venv/
-__pycache__/
-.pytest_cache/
-
-# Build outputs
-.next/
-dist/
-build/
-coverage/
+# Environment Variables
+.env
+.env.*
+!.env.example
+*.env.local
 
 # Runtime data and generated screenshots
 backend/storage/screenshots/

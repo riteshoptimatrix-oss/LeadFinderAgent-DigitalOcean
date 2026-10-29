@@ -49,7 +49,7 @@ export default function EmailAIPage() {
   ] as const;
 
   return (
-    <div className="max-w-7xl mx-auto flex flex-col min-h-[calc(100vh-8rem)]">
+    <div className="w-full flex flex-col min-h-[calc(100vh-8rem)]">
       <div className="flex-none mb-8">
         <PageHeader
           title="Email AI"
@@ -81,7 +81,7 @@ export default function EmailAIPage() {
         </div>
       </div>
 
-      <div className="flex-1 bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 lg:p-8 overflow-hidden flex flex-col relative ring-1 ring-slate-900/5">
+      <div className="flex-1 bg-white rounded-xl border border-gray-200 shadow-2xs p-5 lg:p-7 overflow-hidden flex flex-col relative">
         <div className="relative z-10 h-full flex flex-col">
           <EmailErrorBoundary>
             {activeTab === 'dashboard' && <EmailAnalyticsDashboard />}

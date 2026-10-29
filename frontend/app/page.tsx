@@ -215,14 +215,7 @@ export default function HomePage() {
                 src="/logo.png"
                 alt="OptiMatrix"
                 className="h-10 w-auto object-contain drop-shadow-sm"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                }}
               />
-              <div className="hidden items-center text-lg font-bold tracking-tight text-slate-900">
-                Opti<span className="text-[#c1121f]">Matrix</span>
-              </div>
               <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500 tracking-wide uppercase">
                 LeadFinderAgent
               </span>

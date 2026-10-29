@@ -152,7 +152,7 @@ export default function WhatsAppSettings({ setHasUnsavedChanges }: { setHasUnsav
               </a>
 
               <a
-                href="mailto:support@leadfinder.ai"
+                href="mailto:info@optiinfo.com"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white hover:bg-gray-50 border border-gray-200 text-gray-700 text-sm font-semibold shadow-2xs transition-colors"
               >
                 <HeadphonesIcon className="h-4 w-4 text-gray-500" />

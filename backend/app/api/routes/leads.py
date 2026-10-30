@@ -26,13 +26,28 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
         return lead
 
     raw_status = str(ai.get("analysis_status") or ai.get("status") or "").lower()
-    transient = {"queued", "running", "analyzing", "processing", "in_progress", "started", "collecting", "scoring", "saving", "waiting"}
+    transient = {"queued", "running", "analyzing", "processing", "in_progress", "started", "collecting", "scoring", "saving", "waiting", "pending"}
 
     if raw_status in transient:
         lead_id_str = str(lead.get("_id"))
+        id_filters = [lead_id_str]
+        if ObjectId.is_valid(lead_id_str):
+            id_filters.append(ObjectId(lead_id_str))
+
         active_job = await db["ai_analysis_jobs"].find_one({
-            "lead_id": lead_id_str,
-            "status": {"$in": ["WAITING", "STARTED", "COLLECTING", "ANALYZING", "SCORING", "SAVING"]}
+            "lead_id": {"$in": id_filters},
+            "status": {"$in": [
+                "WAITING", "waiting",
+                "QUEUED", "queued",
+                "PENDING", "pending",
+                "RUNNING", "running",
+                "STARTED", "started",
+                "COLLECTING", "collecting",
+                "ANALYZING", "analyzing",
+                "SCORING", "scoring",
+                "SAVING", "saving",
+                "RETRY", "retry"
+            ]}
         })
 
         now = datetime.now(timezone.utc)
@@ -46,9 +61,14 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
         if active_job:
             job_updated = active_job.get("updated_at") or active_job.get("started_at") or active_job.get("created_at")
             if job_updated:
-                if job_updated.tzinfo is None:
+                if isinstance(job_updated, str):
+                    try:
+                        job_updated = datetime.fromisoformat(job_updated.replace('Z', '+00:00'))
+                    except Exception:
+                        job_updated = None
+                if isinstance(job_updated, datetime) and job_updated.tzinfo is None:
                     job_updated = job_updated.replace(tzinfo=timezone.utc)
-                age_seconds = (now - job_updated).total_seconds()
+                age_seconds = (now - job_updated).total_seconds() if isinstance(job_updated, datetime) else 0
             else:
                 age_seconds = 0
 
@@ -75,12 +95,15 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
                 )
             else:
                 # Sync real-time progress and stage from active job
+                job_raw_status = str(active_job.get("status", "Analyzing")).lower()
+                canonical_status = "Analyzing" if job_raw_status in ["started", "collecting", "analyzing", "scoring", "saving", "running"] else "Queued"
+                lead.setdefault("ai_analysis", {})["analysis_status"] = canonical_status
                 if active_job.get("progress") is not None:
-                    lead.setdefault("ai_analysis", {})["progress"] = active_job["progress"]
+                    lead["ai_analysis"]["progress"] = active_job["progress"]
                 if active_job.get("current_stage"):
-                    lead.setdefault("ai_analysis", {})["stage"] = active_job["current_stage"]
+                    lead["ai_analysis"]["stage"] = active_job["current_stage"]
         else:
-            # No active job exists
+            # No active job exists yet in DB
             if has_score:
                 lead.setdefault("ai_analysis", {})["analysis_status"] = "Completed"
                 lead["ai_analysis"]["progress"] = 100
@@ -96,13 +119,20 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
                 )
             else:
                 started_at = ai.get("analysis_started_at") or lead.get("created_at")
-                age_seconds = 999
-                if started_at and isinstance(started_at, datetime):
-                    if started_at.tzinfo is None:
-                        started_at = started_at.replace(tzinfo=timezone.utc)
-                    age_seconds = (now - started_at).total_seconds()
+                age_seconds = 0
+                if started_at:
+                    if isinstance(started_at, str):
+                        try:
+                            started_at = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                        except Exception:
+                            started_at = None
+                    if isinstance(started_at, datetime):
+                        if started_at.tzinfo is None:
+                            started_at = started_at.replace(tzinfo=timezone.utc)
+                        age_seconds = (now - started_at).total_seconds()
                 
-                if age_seconds > 45:
+                # Only fail if started more than 180s ago! If recently started (<180s), it is actively enqueued in background!
+                if age_seconds > 180:
                     lead.setdefault("ai_analysis", {})["analysis_status"] = "Failed"
                     lead["ai_analysis"]["stage"] = "Analysis incomplete. Please retry."
                     lead["ai_analysis"]["progress"] = 0
@@ -115,6 +145,13 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
                             "updated_at": now,
                         }}
                     )
+                else:
+                    # Maintain queued/analyzing state
+                    lead.setdefault("ai_analysis", {})["analysis_status"] = "Queued"
+                    if not lead["ai_analysis"].get("progress"):
+                        lead["ai_analysis"]["progress"] = 10
+                    if not lead["ai_analysis"].get("stage"):
+                        lead["ai_analysis"]["stage"] = "Queued for AI analysis"
 
     return lead
 

@@ -188,6 +188,7 @@ function LeadsPageContent() {
 
   // Currently starting analysis indicator per lead
   const [startingAnalysisId, setStartingAnalysisId] = useState<string | null>(null);
+  const [analyzingLeadIds, setAnalyzingLeadIds] = useState<Set<string>>(new Set());
 
   // Lead Analysis Drawer state
   const [selectedDrawerLead, setSelectedDrawerLead] = useState<any | null>(null);
@@ -443,67 +444,55 @@ function LeadsPageContent() {
       toast.error('Cannot analyze: Lead has no website available');
       return;
     }
-    setStartingAnalysisId(lead._id);
+    const leadId = lead._id;
+    setStartingAnalysisId(leadId);
+    setAnalyzingLeadIds(prev => new Set(prev).add(leadId));
     try {
-      const res = await api.post(`/leads/${lead._id}/start-analysis`);
+      const res = await api.post(`/leads/${leadId}/start-analysis`);
       const resData = res.data;
       if (resData?.worker_id === 'skipped') {
+        setAnalyzingLeadIds(prev => {
+          const next = new Set(prev);
+          next.delete(leadId);
+          return next;
+        });
         toast.info('Analysis skipped: No professional website available for this lead');
       } else {
         toast.success('AI Analysis started', {
           description: `Analysis queued for ${lead.name || lead.business_name || 'lead'}.`
         });
 
-        // Optimistically update query cache so button immediately shows Analyzing...
-        queryClient.setQueryData(
-          [
-            'leads',
-            page,
-            limit,
-            searchQuery,
-            activeSession?.job_id,
-            filterCity,
-            filterCategory,
-            filterHasWebsite,
-            filterHasPhone,
-            filterHasEmail,
-            filterStatus,
-            sortBy,
-            sortOrder
-          ],
-          (oldData: any) => {
-            if (!oldData?.data) return oldData;
-            return {
-              ...oldData,
-              data: oldData.data.map((l: any) => {
-                if (l._id === lead._id) {
-                  return {
-                    ...l,
-                    ai_analysis: {
-                      ...(l.ai_analysis || {}),
-                      analysis_status: 'Queued',
-                      progress: 10,
-                      stage: 'Queued for AI analysis',
-                      analysis_started_at: new Date().toISOString(),
-                    }
-                  };
-                }
-                return l;
-              })
-            };
-          }
-        );
-
         // Invalidate queries so fresh backend telemetry syncs immediately
         queryClient.invalidateQueries({ queryKey: ['leads'] });
-        queryClient.invalidateQueries({ queryKey: ['lead', lead._id] });
+        queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
       }
     } catch (err: any) {
+      setAnalyzingLeadIds(prev => {
+        const next = new Set(prev);
+        next.delete(leadId);
+        return next;
+      });
       toast.error(err?.response?.data?.detail || 'Failed to start AI analysis');
     } finally {
       setStartingAnalysisId(null);
     }
   };
+
+  // Auto-clear active analyzing tracking when lead finishes analysis
+  useEffect(() => {
+    if (analyzingLeadIds.size > 0 && leads.length > 0) {
+      leads.forEach((l: any) => {
+        const state = getLeadAnalysisState(l);
+        if (state.status === 'completed' && analyzingLeadIds.has(l._id)) {
+          setAnalyzingLeadIds(prev => {
+            const next = new Set(prev);
+            next.delete(l._id);
+            return next;
+          });
+        }
+      });
+    }
+  }, [leads, analyzingLeadIds]);
 
   // Navigate to individual lead detail page
   const handleOpenLeadDetail = (leadId: string) => {
@@ -1259,7 +1248,20 @@ function LeadsPageContent() {
                     : 'L';
 
                   const palette = avatarPalettes[idx % avatarPalettes.length];
-                  const analysisState = getLeadAnalysisState(lead);
+                  const rawAnalysisState = getLeadAnalysisState(lead);
+                  const isActivelyAnalyzing = Boolean(
+                    analyzingLeadIds.has(lead._id) ||
+                    startingAnalysisId === lead._id ||
+                    ['queued', 'analyzing', 'processing', 'running', 'started'].includes(rawAnalysisState.status)
+                  );
+                  const analysisState = isActivelyAnalyzing && rawAnalysisState.status !== 'completed'
+                    ? {
+                        status: 'analyzing',
+                        label: 'Analyzing...',
+                        progress: Math.max(rawAnalysisState.progress, 15),
+                        startedAt: rawAnalysisState.startedAt || new Date().toISOString()
+                      }
+                    : rawAnalysisState;
                   const isSelectedInDrawer = selectedDrawerLead?._id === lead._id && drawerOpen;
 
                   return (
@@ -1441,17 +1443,17 @@ function LeadsPageContent() {
                           {analysisState.status === 'not_analyzed' ? (
                             <button
                               onClick={() => handleStartAnalysis(lead)}
-                              disabled={!lead.website || startingAnalysisId === lead._id}
+                              disabled={!lead.website || isActivelyAnalyzing}
                               title={lead.website ? "Start AI Website Analysis" : "Website not available"}
                               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold shadow-2xs transition-all ${lead.website
                                 ? 'text-blue-600 hover:bg-blue-50/70 hover:border-blue-200 active:scale-95 cursor-pointer'
                                 : 'text-slate-300 border-slate-100 cursor-not-allowed'
                                 }`}
                             >
-                              {startingAnalysisId === lead._id ? (
+                              {isActivelyAnalyzing ? (
                                 <>
                                   <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
-                                  <span>Starting...</span>
+                                  <span>Analyzing...</span>
                                 </>
                               ) : (
                                 <>
@@ -1460,7 +1462,7 @@ function LeadsPageContent() {
                                 </>
                               )}
                             </button>
-                          ) : analysisState.status === 'queued' || analysisState.status === 'analyzing' || analysisState.status === 'processing' ? (
+                          ) : analysisState.status === 'queued' || analysisState.status === 'analyzing' || analysisState.status === 'processing' || isActivelyAnalyzing ? (
                             /* While running/queued/processing: Persistent Analyzing... button with spinner.
                                Clicking opens AI drawer to inspect live progress without interrupting job. */
                             <button
@@ -1482,15 +1484,28 @@ function LeadsPageContent() {
                               <span>AI Insights</span>
                             </button>
                           ) : (
-                            /* When failed: Shows Retry Analysis button */
+                            /* When failed: Shows Retry Analysis button (or Analyzing... if user clicked retry) */
                             <button
                               onClick={() => handleStartAnalysis(lead)}
-                              disabled={!lead.website || startingAnalysisId === lead._id}
-                              title="Analysis failed. Click to retry analysis."
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50/60 text-xs font-semibold text-rose-700 hover:bg-rose-100/60 transition-all shadow-2xs active:scale-95 cursor-pointer"
+                              disabled={!lead.website || isActivelyAnalyzing}
+                              title={isActivelyAnalyzing ? "Analysis in progress." : "Analysis failed. Click to retry analysis."}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-2xs transition-all active:scale-95 cursor-pointer ${
+                                isActivelyAnalyzing
+                                  ? 'border-blue-200 bg-blue-50/80 text-blue-700'
+                                  : 'border-rose-200 bg-rose-50/60 text-rose-700 hover:bg-rose-100/60'
+                              }`}
                             >
-                              <RefreshCw className="w-3.5 h-3.5 text-rose-600" />
-                              <span>Retry Analysis</span>
+                              {isActivelyAnalyzing ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
+                                  <span>Analyzing...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="w-3.5 h-3.5 text-rose-600" />
+                                  <span>Retry Analysis</span>
+                                </>
+                              )}
                             </button>
                           )}
 
@@ -1520,7 +1535,20 @@ function LeadsPageContent() {
               ? displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
               : 'L';
             const palette = avatarPalettes[idx % avatarPalettes.length];
-            const analysisState = getLeadAnalysisState(lead);
+            const rawAnalysisState = getLeadAnalysisState(lead);
+            const isActivelyAnalyzing = Boolean(
+              analyzingLeadIds.has(lead._id) ||
+              startingAnalysisId === lead._id ||
+              ['queued', 'analyzing', 'processing', 'running', 'started'].includes(rawAnalysisState.status)
+            );
+            const analysisState = isActivelyAnalyzing && rawAnalysisState.status !== 'completed'
+              ? {
+                  status: 'analyzing',
+                  label: 'Analyzing...',
+                  progress: Math.max(rawAnalysisState.progress, 15),
+                  startedAt: rawAnalysisState.startedAt || new Date().toISOString()
+                }
+              : rawAnalysisState;
 
             return (
               <div
@@ -1589,7 +1617,7 @@ function LeadsPageContent() {
                   </div>
                   <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                     <div
-                      className={`h-full rounded-full ${analysisState.status === 'completed' ? 'bg-teal-500' : 'bg-blue-600'}`}
+                      className={`h-full rounded-full ${analysisState.status === 'completed' ? 'bg-teal-500' : analysisState.status === 'failed' ? 'bg-rose-500' : 'bg-blue-600'}`}
                       style={{ width: `${analysisState.progress}%` }}
                     />
                   </div>
@@ -1598,12 +1626,20 @@ function LeadsPageContent() {
                     {analysisState.status === 'not_analyzed' ? (
                       <button
                         onClick={() => handleStartAnalysis(lead)}
-                        disabled={!lead.website || startingAnalysisId === lead._id}
+                        disabled={!lead.website || startingAnalysisId === lead._id || isActivelyAnalyzing}
                         className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-blue-50 text-xs font-bold text-blue-600 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
-                        <Sparkles className="w-3.5 h-3.5" /> Analyze
+                        {isActivelyAnalyzing ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" /> Analyzing...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-3.5 h-3.5" /> Analyze
+                          </>
+                        )}
                       </button>
-                    ) : analysisState.status === 'queued' || analysisState.status === 'analyzing' || analysisState.status === 'processing' ? (
+                    ) : analysisState.status === 'queued' || analysisState.status === 'analyzing' || analysisState.status === 'processing' || isActivelyAnalyzing ? (
                       <button
                         onClick={() => handleOpenAnalysisDrawer(lead, false)}
                         className="flex-1 px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
@@ -1620,9 +1656,22 @@ function LeadsPageContent() {
                     ) : (
                       <button
                         onClick={() => handleStartAnalysis(lead)}
-                        className="flex-1 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                        disabled={!lead.website || isActivelyAnalyzing}
+                        className={`flex-1 px-3 py-2 rounded-xl border text-xs font-semibold shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          isActivelyAnalyzing
+                            ? 'bg-blue-50 border-blue-200 text-blue-700'
+                            : 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                        }`}
                       >
-                        <RefreshCw className="w-3.5 h-3.5 text-rose-600" /> Retry
+                        {isActivelyAnalyzing ? (
+                          <>
+                            <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" /> Analyzing...
+                          </>
+                        ) : (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 text-rose-600" /> Retry
+                          </>
+                        )}
                       </button>
                     )}
                     <button

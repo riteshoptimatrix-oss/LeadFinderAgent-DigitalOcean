@@ -536,7 +536,7 @@ export default function LeadAnalysisDrawer({
                       AI QUALITY
                     </span>
                     <div className="w-11 h-11 rounded-full bg-indigo-50 border border-indigo-200/80 flex items-center justify-center text-sm font-black text-indigo-700">
-                      {aiScore ? `${aiScore}%` : (isAnalyzing ? '—' : '75%')}
+                      {aiScore ? `${aiScore}%` : '—'}
                     </div>
                   </div>
 
@@ -546,7 +546,7 @@ export default function LeadAnalysisDrawer({
                       SEO AUDIT
                     </span>
                     <div className="w-11 h-11 rounded-full bg-violet-50 border border-violet-200/80 flex items-center justify-center text-sm font-black text-violet-700">
-                      {seoScore ? `${seoScore}%` : (isAnalyzing ? '—' : '51%')}
+                      {seoScore ? `${seoScore}%` : '—'}
                     </div>
                   </div>
 
@@ -556,7 +556,7 @@ export default function LeadAnalysisDrawer({
                       SPEED & SEC
                     </span>
                     <div className="w-11 h-11 rounded-full bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-sm font-black text-emerald-700">
-                      {perfScore ? `${perfScore}%` : (isAnalyzing ? '—' : '70%')}
+                      {perfScore ? `${perfScore}%` : '—'}
                     </div>
                   </div>
                 </div>
@@ -573,28 +573,32 @@ export default function LeadAnalysisDrawer({
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 text-slate-700">
                         <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span className="font-mono">{phones[0] || lead?.phone || '090996 80902'}</span>
+                        <span className="font-mono">{phones[0] || lead?.phone || <span className="text-slate-400 font-sans italic">Not Available</span>}</span>
                       </div>
-                      <button
-                        onClick={() => handleCopy(phones[0] || lead?.phone || '090996 80902', 'phone')}
-                        className="text-slate-400 hover:text-blue-600 p-1 transition-colors"
-                      >
-                        {copiedKey === 'phone' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-                      </button>
+                      {(phones[0] || lead?.phone) && (
+                        <button
+                          onClick={() => handleCopy(phones[0] || lead?.phone, 'phone')}
+                          className="text-slate-400 hover:text-blue-600 p-1 transition-colors cursor-pointer"
+                        >
+                          {copiedKey === 'phone' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      )}
                     </div>
 
                     {/* Email */}
                     <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100">
                       <div className="flex items-center gap-2 text-slate-700">
                         <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span>{emails[0] || lead?.email || 'info@ashishestate.com'}</span>
+                        <span>{emails[0] || lead?.email || <span className="text-slate-400 italic">Not Available</span>}</span>
                       </div>
-                      <button
-                        onClick={() => handleCopy(emails[0] || lead?.email || 'info@ashishestate.com', 'email')}
-                        className="text-slate-400 hover:text-blue-600 p-1 transition-colors"
-                      >
-                        {copiedKey === 'email' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
-                      </button>
+                      {(emails[0] || lead?.email) && (
+                        <button
+                          onClick={() => handleCopy(emails[0] || lead?.email, 'email')}
+                          className="text-slate-400 hover:text-blue-600 p-1 transition-colors cursor-pointer"
+                        >
+                          {copiedKey === 'email' ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                        </button>
+                      )}
                     </div>
 
                     {/* Website Link */}
@@ -624,18 +628,18 @@ export default function LeadAnalysisDrawer({
                       <div className="h-3 bg-slate-100 rounded-md w-full" />
                       <div className="h-3 bg-slate-100 rounded-md w-5/6" />
                     </div>
-                  ) : (
+                  ) : ai.recommendations && ai.recommendations.length > 0 ? (
                     <div className="bg-slate-50/70 border border-slate-100 rounded-xl p-3.5 space-y-2 text-xs text-slate-700">
-                      {(ai.recommendations && ai.recommendations.length > 0 ? ai.recommendations : [
-                        'Fix missing H1 tags and meta descriptions to improve Google Maps and local SEO visibility.',
-                        'Enforce HTTPS and implement Content Security Policy (CSP) headers.',
-                        'Target decision maker via automated calling sequence during standard business hours.'
-                      ]).map((rec: string, i: number) => (
+                      {ai.recommendations.map((rec: string, i: number) => (
                         <div key={i} className="flex items-start gap-2">
                           <span className="text-blue-500 font-bold">•</span>
                           <span className="leading-relaxed">{rec}</span>
                         </div>
                       ))}
+                    </div>
+                  ) : (
+                    <div className="bg-slate-50/70 border border-slate-100 rounded-xl p-3.5 text-xs text-slate-400 italic">
+                      No recommendations generated yet. Run AI Analysis to generate recommendations.
                     </div>
                   )}
                 </div>
@@ -703,29 +707,31 @@ export default function LeadAnalysisDrawer({
                 <div className="bg-white border border-slate-200/80 rounded-xl p-4 space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="font-bold text-slate-800">SEO Health Rating</span>
-                    <span className="font-black text-blue-600 text-sm">{seoScore ?? 51}%</span>
+                    <span className="font-black text-blue-600 text-sm">{seoScore != null ? `${seoScore}%` : '—'}</span>
                   </div>
                   <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                    <div className="h-full bg-blue-600 rounded-full" style={{ width: `${seoScore ?? 51}%` }} />
+                    <div className="h-full bg-blue-600 rounded-full" style={{ width: `${seoScore ?? 0}%` }} />
                   </div>
                 </div>
 
                 <div className="bg-white border border-slate-200/80 rounded-xl p-4 divide-y divide-slate-100">
                   <div className="flex justify-between py-2">
                     <span className="text-slate-400">Meta Title</span>
-                    <span className="font-semibold text-slate-800">{displayName}</span>
+                    <span className="font-semibold text-slate-800">{ai.meta_title || displayName || '—'}</span>
                   </div>
                   <div className="flex justify-between py-2">
                     <span className="text-slate-400">CMS Framework</span>
-                    <span className="font-semibold text-slate-800">{ai.cms || 'WordPress / Custom'}</span>
+                    <span className="font-semibold text-slate-800">{ai.cms || (website ? 'Custom' : '—')}</span>
                   </div>
                   <div className="flex justify-between py-2">
                     <span className="text-slate-400">SSL Certificate</span>
-                    <span className="font-semibold text-emerald-600">Active (HTTPS)</span>
+                    <span className={`font-semibold ${website?.startsWith('https') || ai.ssl_valid ? 'text-emerald-600' : 'text-slate-400'}`}>
+                      {website?.startsWith('https') || ai.ssl_valid ? 'Active (HTTPS)' : 'Not Detected'}
+                    </span>
                   </div>
                   <div className="flex justify-between py-2">
                     <span className="text-slate-400">Response Latency</span>
-                    <span className="font-semibold text-slate-800">{ai.response_time ? `${ai.response_time}ms` : '320ms'}</span>
+                    <span className="font-semibold text-slate-800">{ai.response_time ? `${ai.response_time}ms` : '—'}</span>
                   </div>
                 </div>
               </div>
@@ -734,21 +740,23 @@ export default function LeadAnalysisDrawer({
             {/* TAB 4: RECOMMENDATIONS */}
             {activeTab === 'recommendations' && (
               <div className="space-y-3 text-xs">
-                {(ai.recommendations && ai.recommendations.length > 0 ? ai.recommendations : [
-                  'Deploy meta descriptions and target geo-keywords to improve local Google Maps presence.',
-                  'Set up Content Security Policy (CSP) and HTTP strict transport security headers.',
-                  'Initiate multi-channel outreach via synchronized phone and WhatsApp automation.'
-                ]).map((rec: string, i: number) => (
-                  <div key={i} className="bg-white border border-slate-200/80 rounded-xl p-4 space-y-1 shadow-xs">
-                    <div className="flex items-center gap-2 font-bold text-slate-900">
-                      <span className="w-5 h-5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-black flex items-center justify-center">
-                        {i + 1}
-                      </span>
-                      <span>Recommendation #{i + 1}</span>
+                {ai.recommendations && ai.recommendations.length > 0 ? (
+                  ai.recommendations.map((rec: string, i: number) => (
+                    <div key={i} className="bg-white border border-slate-200/80 rounded-xl p-4 space-y-1 shadow-xs">
+                      <div className="flex items-center gap-2 font-bold text-slate-900">
+                        <span className="w-5 h-5 rounded-full bg-blue-50 text-blue-700 text-[10px] font-black flex items-center justify-center">
+                          {i + 1}
+                        </span>
+                        <span>Recommendation #{i + 1}</span>
+                      </div>
+                      <p className="text-slate-600 leading-relaxed pl-7">{rec}</p>
                     </div>
-                    <p className="text-slate-600 leading-relaxed pl-7">{rec}</p>
+                  ))
+                ) : (
+                  <div className="bg-white border border-slate-200/80 rounded-xl p-6 text-center text-slate-400 italic">
+                    No recommendations generated yet. Run AI Analysis to generate recommendations.
                   </div>
-                ))}
+                )}
               </div>
             )}
           </div>

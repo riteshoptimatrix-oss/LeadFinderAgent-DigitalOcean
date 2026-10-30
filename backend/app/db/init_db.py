@@ -50,14 +50,67 @@ async def init_email_ai_defaults():
     """Seed Email AI defaults so the Campaign Wizard can run out of the box.
 
     If no SMTP profile exists yet and valid SMTP credentials are present in the
-    environment (.env), a default profile is created from them. This keeps the
-    SMTP workflow functional without requiring the (removed) SMTP Manager UI.
+    environment (.env), a default profile is created from them.
+    Also seeds professional starter templates if none exist yet.
     """
     try:
         db = get_db()
     except Exception as e:
         logger.error(f"Database connection not found during init_email_ai_defaults: {e}")
         return
+
+    # Seed starter templates if none exist
+    try:
+        existing_templates = await db["email_ai_templates"].count_documents({})
+        if existing_templates == 0:
+            starter_templates = [
+                {
+                    "name": "Cold Outreach - Introduction",
+                    "subject": "Quick question for {{business_name}}",
+                    "body_html": "<p>Hi {{owner_name}},</p><p>I came across <strong>{{business_name}}</strong> in {{city}} and was impressed by your work.</p><p>We specialize in helping businesses in the {{industry}} industry streamline operations and scale customer acquisition.</p><p>Would you be open to a brief 5-minute chat this week?</p><p>Best regards,<br/>Your Name</p>",
+                    "body_text": "Hi {{owner_name}},\n\nI came across {{business_name}} in {{city}} and was impressed by your work.\n\nWe specialize in helping businesses in the {{industry}} industry streamline operations and scale customer acquisition.\n\nWould you be open to a brief 5-minute chat this week?\n\nBest regards,\nYour Name",
+                    "category": "Outreach",
+                    "language": "English",
+                    "is_active": True,
+                    "is_favorite": True,
+                    "usage_count": 0,
+                    "version": 1,
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                {
+                    "name": "Follow-Up - Quick Check-in",
+                    "subject": "Following up regarding {{business_name}}",
+                    "body_html": "<p>Hi {{owner_name}},</p><p>Just following up on my previous note regarding <strong>{{business_name}}</strong>.</p><p>I understand you are busy, so if now is not the right time, no worries at all.</p><p>If you'd like to connect when things quiet down, just reply to this email.</p><p>Warm regards,<br/>Your Name</p>",
+                    "body_text": "Hi {{owner_name}},\n\nJust following up on my previous note regarding {{business_name}}.\n\nI understand you are busy, so if now is not the right time, no worries at all.\n\nIf you'd like to connect when things quiet down, just reply to this email.\n\nWarm regards,\nYour Name",
+                    "category": "Follow Up",
+                    "language": "English",
+                    "is_active": True,
+                    "is_favorite": False,
+                    "usage_count": 0,
+                    "version": 1,
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc)
+                },
+                {
+                    "name": "Value Proposition & Audit",
+                    "subject": "Growth opportunity for {{business_name}}",
+                    "body_html": "<p>Hi {{owner_name}},</p><p>We recently reviewed digital presence metrics for businesses in {{city}}, including <strong>{{business_name}}</strong>.</p><p>We noticed a few quick optimizations that could help you attract more high-value clients this quarter.</p><p>Let me know if you would like me to share a complimentary summary report.</p><p>Best regards,<br/>Your Team</p>",
+                    "body_text": "Hi {{owner_name}},\n\nWe recently reviewed digital presence metrics for businesses in {{city}}, including {{business_name}}.\n\nWe noticed a few quick optimizations that could help you attract more high-value clients this quarter.\n\nLet me know if you would like me to share a complimentary summary report.\n\nBest regards,\nYour Team",
+                    "category": "Promotional",
+                    "language": "English",
+                    "is_active": True,
+                    "is_favorite": False,
+                    "usage_count": 0,
+                    "version": 1,
+                    "created_at": datetime.now(timezone.utc),
+                    "updated_at": datetime.now(timezone.utc)
+                }
+            ]
+            await db["email_ai_templates"].insert_many(starter_templates)
+            logger.info("Email AI defaults: Seeded 3 starter templates.")
+    except Exception as e:
+        logger.error(f"Email AI defaults: Failed to seed starter templates: {e}")
 
     if not settings.smtp_is_configured:
         logger.info("SMTP settings not configured in .env. Skipping default SMTP profile seeding.")

@@ -82,20 +82,20 @@ export default function SMTPManager() {
 
   const testConnectionMutation = useMutation({
     mutationFn: async (id: string) => {
-      // Mocking the test endpoint for now since the backend might not have it implemented in Phase 1
       setTestingId(id);
-      await new Promise(r => setTimeout(r, 2000));
-      return { status: 'success', ms: Math.floor(Math.random() * 300) + 50 };
+      const res = await api.get(`/email-ai/smtp/${id}/test`);
+      return res.data;
     },
     onSuccess: (data) => {
       setTestingId(null);
-      toast.success(`Connection Successful! Response: ${data.ms}ms`, {
+      toast.success(data?.message || 'SMTP Connection Verified Successfully!', {
         icon: <CheckCircle2 className="w-5 h-5 text-green-500" />
       });
     },
-    onError: () => {
+    onError: (error: any) => {
       setTestingId(null);
-      toast.error('Connection Failed. Check credentials and port.', {
+      const msg = error?.response?.data?.detail || error?.message || 'Connection Failed. Check credentials, port, and security settings.';
+      toast.error(msg, {
         icon: <AlertCircle className="w-5 h-5 text-red-500" />
       });
     }

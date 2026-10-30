@@ -65,7 +65,7 @@ export default function EmailAIPage() {
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
   // Fetch summary analytics for the executive header telemetry
-  const { data: analytics } = useQuery({
+  const { data: analytics, isLoading: isAnalyticsLoading } = useQuery({
     queryKey: ['email-ai-header-analytics'],
     queryFn: async () => {
       try {
@@ -78,6 +78,30 @@ export default function EmailAIPage() {
     refetchInterval: 20000,
     staleTime: 10000
   });
+
+  // Fetch SMTP profiles to determine real engine dispatch status
+  const { data: smtpProfiles = [], isLoading: isSmtpLoading } = useQuery({
+    queryKey: ['email-ai-smtp'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/email-ai/smtp');
+        return Array.isArray(res.data) ? res.data : [];
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 15000
+  });
+
+  const activeSenders = Array.isArray(smtpProfiles) ? smtpProfiles.filter((s: any) => s.is_active !== false) : [];
+  const hasActiveSender = activeSenders.length > 0;
+
+  const totalSent = analytics?.total_sent != null ? Number(analytics.total_sent) : 0;
+  const totalFailed = analytics?.total_failed != null ? Number(analytics.total_failed) : 0;
+  const totalProcessed = totalSent + totalFailed;
+  const successRate = totalProcessed > 0 ? (Number(analytics?.success_rate) || 0) : 0;
+  const avgSendTime = analytics?.avg_send_time != null ? Number(analytics.avg_send_time) : 0;
+  const messagesToday = analytics?.messages_sent_today != null ? Number(analytics.messages_sent_today) : 0;
 
   // Handle URL search params tab sync
   useEffect(() => {
@@ -176,20 +200,37 @@ export default function EmailAIPage() {
           <div className="lg:col-span-4 p-4.5 rounded-2xl bg-gradient-to-r from-blue-50/90 via-indigo-50/70 to-slate-50 border border-blue-100 text-slate-900 shadow-xs relative overflow-hidden flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex items-center gap-3.5 z-10">
               <div className="relative flex h-3.5 w-3.5 items-center justify-center">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                {hasActiveSender ? (
+                  <>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                  </>
+                ) : (
+                  <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-400"></span>
+                )}
               </div>
               <div>
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-sm tracking-wide text-slate-900">
-                    Email Dispatcher Active · v2.4 Multi-SMTP Engine
+                    {hasActiveSender
+                      ? `Email Dispatcher Ready · ${activeSenders.length} Active Sender${activeSenders.length > 1 ? 's' : ''}`
+                      : 'Email Dispatcher Idle · No SMTP Senders Configured'}
                   </span>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 text-[10px] font-bold uppercase tracking-wider">
-                    Online
+                  <span
+                    className={cn(
+                      'px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wider',
+                      hasActiveSender
+                        ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                        : 'bg-amber-100 text-amber-800 border-amber-200'
+                    )}
+                  >
+                    {hasActiveSender ? 'Online' : 'Setup Required'}
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mt-0.5">
-                  SPF/DKIM/DMARC Verified · In-Flight Throttling · Randomized Human Jitter Delay
+                  {hasActiveSender
+                    ? 'SPF/DKIM Verified Relay · In-Flight Throttling · Randomized Human Jitter Delay'
+                    : 'Add and authenticate an outbound SMTP relay in the Senders tab to dispatch campaigns.'}
                 </p>
               </div>
             </div>
@@ -231,11 +272,12 @@ export default function EmailAIPage() {
             <div>
               <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Success Rate</div>
               <div className="text-lg font-black text-slate-900">
-                {analytics?.success_rate != null ? `${analytics.success_rate.toFixed(1)}%` : '98.4%'}
+                {isAnalyticsLoading ? '...' : totalProcessed > 0 ? `${successRate.toFixed(1)}%` : '0.0%'}
               </div>
-              <div className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                High Deliverability
+              <div className="text-[11px] text-slate-500 font-medium">
+                {totalProcessed > 0
+                  ? `${totalSent.toLocaleString()} of ${totalProcessed.toLocaleString()} processed`
+                  : 'No dispatches yet'}
               </div>
             </div>
           </div>
@@ -247,22 +289,26 @@ export default function EmailAIPage() {
             <div>
               <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Sent</div>
               <div className="text-lg font-black text-slate-900">
-                {analytics?.total_sent != null ? Number(analytics.total_sent).toLocaleString() : '12,480+'}
+                {isAnalyticsLoading ? '...' : totalSent.toLocaleString()}
               </div>
               <div className="text-[11px] text-slate-500 font-medium">
-                {analytics?.messages_sent_today != null ? `${analytics.messages_sent_today} sent today` : 'Real-time sync'}
+                {messagesToday > 0 ? `${messagesToday} sent today` : '0 sent today'}
               </div>
             </div>
           </div>
 
           <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-sm flex items-center gap-3.5">
-            <div className="p-3 rounded-xl bg-indigo-50 text-indigo-600">
+            <div className={cn("p-3 rounded-xl", hasActiveSender ? "bg-indigo-50 text-indigo-600" : "bg-slate-100 text-slate-500")}>
               <Shield className="w-5 h-5" />
             </div>
             <div>
               <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sender Reputation</div>
-              <div className="text-lg font-black text-slate-900">100% Healthy</div>
-              <div className="text-[11px] text-indigo-600 font-semibold">Zero Blacklist Triggers</div>
+              <div className="text-lg font-black text-slate-900">
+                {isSmtpLoading ? '...' : hasActiveSender ? 'Healthy' : 'Not Connected'}
+              </div>
+              <div className={cn("text-[11px] font-semibold", hasActiveSender ? "text-indigo-600" : "text-slate-400")}>
+                {hasActiveSender ? `${activeSenders.length} Active SMTP Profile${activeSenders.length > 1 ? 's' : ''}` : 'Configure SMTP Profile'}
+              </div>
             </div>
           </div>
 
@@ -273,7 +319,7 @@ export default function EmailAIPage() {
             <div>
               <div className="text-xs font-bold text-slate-500 uppercase tracking-wider">Avg Send Latency</div>
               <div className="text-lg font-black text-slate-900">
-                {analytics?.avg_send_time != null ? `${analytics.avg_send_time.toFixed(1)}s` : '1.8s'}
+                {isAnalyticsLoading ? '...' : avgSendTime > 0 ? `${avgSendTime.toFixed(1)}s` : '0.0s'}
               </div>
               <div className="text-[11px] text-slate-500 font-medium">Smart human jitter pacing</div>
             </div>

@@ -47,8 +47,8 @@ export default function EmailAnalyticsDashboard() {
           <div>
             <div className="text-slate-400 font-bold uppercase tracking-wider text-xs mb-2">Total Emails Sent</div>
             <div className="text-5xl font-black text-slate-900 tracking-tight">{totalSent.toLocaleString()}</div>
-            <div className="mt-2 text-xs text-emerald-600 font-semibold flex items-center gap-1.5">
-              <CheckCircle2 className="w-4 h-4" /> Successfully Delivered &amp; Inboxed
+            <div className={cn("mt-2 text-xs font-semibold flex items-center gap-1.5", totalSent > 0 ? "text-emerald-600" : "text-slate-400")}>
+              <CheckCircle2 className="w-4 h-4" /> {totalSent > 0 ? "Successfully Delivered & Inboxed" : "No campaign emails dispatched yet"}
             </div>
           </div>
           <div className="p-4 bg-indigo-50 rounded-2xl">
@@ -62,7 +62,7 @@ export default function EmailAnalyticsDashboard() {
             <div className="text-slate-400 font-bold uppercase tracking-wider text-xs mb-2">Delivery Success Rate</div>
             <div className="text-5xl font-black text-slate-900 tracking-tight">{successRate.toFixed(1)}%</div>
             <div className="mt-2 text-xs text-slate-500 font-medium">
-              Out of {(totalSent + totalFailed).toLocaleString()} total processed
+              {totalSent + totalFailed > 0 ? `Out of ${(totalSent + totalFailed).toLocaleString()} total processed` : 'No dispatches recorded'}
             </div>
           </div>
 

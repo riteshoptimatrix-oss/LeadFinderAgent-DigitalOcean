@@ -156,6 +156,28 @@ export default function EmailCampaignWizard() {
     });
   }, []);
 
+  // Auto-select default SMTP profile when loaded
+  useEffect(() => {
+    if (smtpProfiles.length > 0 && !formData.smtp_id) {
+      const defaultSmtp = smtpProfiles.find((s: any) => s.is_default && s.is_active !== false)
+        || smtpProfiles.find((s: any) => s.is_active !== false)
+        || smtpProfiles[0];
+      if (defaultSmtp) {
+        setFormData(prev => ({ ...prev, smtp_id: defaultSmtp._id }));
+      }
+    }
+  }, [smtpProfiles, formData.smtp_id]);
+
+  // Auto-select template if none chosen
+  useEffect(() => {
+    if (templates.length > 0 && !selectedTemplateId) {
+      const defaultTmpl = templates.find((t: any) => t.is_favorite) || templates[0];
+      if (defaultTmpl) {
+        setSelectedTemplateId(defaultTmpl._id);
+      }
+    }
+  }, [templates, selectedTemplateId]);
+
   // Auto save draft
   useEffect(() => {
     if (isMounted) {
@@ -292,11 +314,22 @@ export default function EmailCampaignWizard() {
           <div className="mt-auto p-4 bg-slate-50 rounded-xl border border-slate-200">
             <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Campaign Payload</div>
             <div className="space-y-2 text-sm font-medium">
-              <div className="flex justify-between">
+              <div className="flex justify-between items-center">
                 <span className="text-slate-500">Leads:</span>
-                <span className="text-slate-900">{selectedLeadIds.length.toLocaleString()}</span>
+                <span className={cn("font-bold", selectedLeadIds.length > 0 ? "text-slate-900" : "text-amber-600")}>
+                  {selectedLeadIds.length.toLocaleString()}
+                </span>
               </div>
-              <div className="flex justify-between">
+              {selectedLeadIds.length === 0 && (
+                <button
+                  type="button"
+                  onClick={() => window.dispatchEvent(new CustomEvent('change-tab', { detail: 'leads' }))}
+                  className="text-[11px] text-blue-600 hover:text-blue-700 font-semibold underline block text-left"
+                >
+                  + Select Target Leads
+                </button>
+              )}
+              <div className="flex justify-between items-center">
                 <span className="text-slate-500">Template:</span>
                 <span className="text-slate-900 truncate max-w-[100px]">{activeTemplate?.name || 'None'}</span>
               </div>
@@ -315,6 +348,19 @@ export default function EmailCampaignWizard() {
                   <h2 className="text-2xl font-bold text-slate-900">Campaign Information</h2>
                   <p className="text-slate-500 mt-1">Provide basic details to identify your campaign internally.</p>
                 </div>
+
+                {selectedLeadIds.length === 0 && (
+                  <div className="p-4 bg-amber-50 text-amber-800 rounded-xl border border-amber-200 text-xs font-medium flex items-center justify-between">
+                    <span>No target leads selected yet for this campaign.</span>
+                    <button
+                      type="button"
+                      onClick={() => window.dispatchEvent(new CustomEvent('change-tab', { detail: 'leads' }))}
+                      className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs shrink-0 ml-3"
+                    >
+                      Select Target Leads
+                    </button>
+                  </div>
+                )}
                 
                 <div className="space-y-4 max-w-2xl">
                   <div>

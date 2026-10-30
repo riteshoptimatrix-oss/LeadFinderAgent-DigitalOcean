@@ -82,26 +82,58 @@ export default function EmailTemplateManager() {
 
   useEffect(() => {
     setIsMounted(true);
-    // Load sample lead from selected leads
-    try {
-      const savedIds = localStorage.getItem('email_selected_leads');
-      if (savedIds) {
-        const ids = JSON.parse(savedIds);
+    // Load real sample lead from selected leads or user's database
+    const loadRealLead = async () => {
+      try {
+        let realLead: any = null;
+        const savedIds = localStorage.getItem('email_selected_leads');
+        const ids: string[] = savedIds ? JSON.parse(savedIds) : [];
+
         if (ids.length > 0) {
-          // In a real app we'd fetch the actual lead data, but for preview we can mock it based on expected structure
-          setSampleLead({
-            business_name: 'Acme Corp',
-            owner_name: 'John Doe',
-            email: 'john@acmecorp.com',
-            phone: '+1 555 0199',
-            website: 'www.acmecorp.com',
-            industry: 'Software',
-            city: 'San Francisco',
-            ai_score: 95
-          });
+          try {
+            const res = await api.get('/leads', { params: { limit: 50 } });
+            const list = res.data?.data || (Array.isArray(res.data) ? res.data : []);
+            realLead = list.find((l: any) => ids.includes(l._id)) || list[0];
+          } catch (e) {
+            console.error('Failed to load selected lead', e);
+          }
         }
+
+        // If not found from selected, fetch first real lead from database
+        if (!realLead) {
+          try {
+            const res = await api.get('/leads', { params: { limit: 1 } });
+            const list = res.data?.data || (Array.isArray(res.data) ? res.data : []);
+            if (list.length > 0) {
+              realLead = list[0];
+            }
+          } catch (e) {
+            console.error('Failed to fetch fallback lead from database', e);
+          }
+        }
+
+        if (realLead) {
+          setSampleLead({
+            business_name: realLead.business_name || realLead.company_name || realLead.name || 'Lead Business',
+            owner_name: realLead.owner_name || realLead.contact_name || realLead.business_name || 'Client',
+            email: realLead.email || realLead.primary_email || (Array.isArray(realLead.all_emails) && realLead.all_emails[0]) || '',
+            phone: realLead.whatsapp_number || realLead.phone || '',
+            website: realLead.website || '',
+            industry: realLead.industry || realLead.category || '',
+            city: realLead.city || '',
+            state: realLead.state || '',
+            country: realLead.country || '',
+            ai_score: realLead.ai_score || realLead.lead_score || 85
+          });
+        } else {
+          setSampleLead(null);
+        }
+      } catch (e) {
+        console.error('Failed to load lead for preview', e);
       }
-    } catch (e) {}
+    };
+
+    loadRealLead();
   }, []);
 
   // Fetch Templates
@@ -644,7 +676,7 @@ export default function EmailTemplateManager() {
               >
                 {/* Simulated Email Client Header */}
                 <div className="flex-none p-3 border-b border-slate-100 bg-slate-50/50">
-                  <div className="text-xs text-slate-500 mb-1">To: <span className="font-medium text-slate-700">{sampleLead?.email || 'recipient@example.com'}</span></div>
+                  <div className="text-xs text-slate-500 mb-1">To: <span className="font-medium text-slate-700">{sampleLead?.email || 'lead@domain.com'}</span></div>
                   <div className="text-sm font-bold text-slate-900">
                     <span dangerouslySetInnerHTML={{ __html: renderPreview(formData.subject || 'No Subject') }} />
                   </div>

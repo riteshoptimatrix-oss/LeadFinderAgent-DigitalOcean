@@ -34,6 +34,7 @@ const searchSchema = z.object({
   city: z.string().min(1, 'City is required'),
   area: z.string().optional(),
   provider: z.string().min(1, 'Provider is required'),
+  target_cap: z.string().optional(),
   max_leads: z.any().optional(),
   exhaustive: z.boolean().optional(),
   grid_size: z.any().optional()
@@ -363,6 +364,7 @@ export default function SearchPage() {
     mode: 'onChange',
     defaultValues: {
       provider: 'Google Maps',
+      target_cap: 'SMALL_MEDIUM_CAP',
       exhaustive: false,
       grid_size: 3
     }
@@ -372,6 +374,7 @@ export default function SearchPage() {
   const selectedStateCode = watch('state');
   const watchKeyword = watch('keyword');
   const watchProvider = watch('provider');
+  const watchTargetCap = watch('target_cap');
   const watchArea = watch('area');
   const watchMaxLeads = watch('max_leads');
   const watchCity = watch('city');
@@ -469,6 +472,7 @@ export default function SearchPage() {
       const payload: Record<string, unknown> = {
         keyword: data.keyword,
         provider: data.provider || 'Google Maps',
+        target_cap: data.target_cap || 'SMALL_MEDIUM_CAP',
         country: countryData?.name || data.country,
         state: stateData?.name || data.state || '',
         city: data.city || '',
@@ -590,7 +594,7 @@ export default function SearchPage() {
                 </div>
                 {watchProvider && (
                   <div className="flex items-center gap-2 pt-1">
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md bg-slate-900 text-white">
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-bold rounded-md bg-blue-50 text-blue-700 border border-blue-200/80">
                       <Building2 className="w-3 h-3" />
                       {watchProvider}
                     </span>
@@ -698,14 +702,75 @@ export default function SearchPage() {
             </div>
           </div>
 
-          {/* CARD 3: Limits */}
+          {/* CARD 3: Target Business Scale & Market Cap Filter */}
+          <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
+            <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 rounded-t-xl flex items-center gap-3">
+              <div className="p-2 bg-white rounded-md shadow-sm border border-slate-100">
+                <Building2 className="w-4 h-4 text-slate-700" />
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">3. Business Scale &amp; Target Cap Filter</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Filter leads perfectly by business scale (Small Cap, Medium Cap, SMEs vs Large Enterprises).</p>
+              </div>
+            </div>
+
+            <div className="p-6 md:p-8 space-y-4">
+              <label className="block text-sm font-semibold text-slate-800">Target Business Cap / Size</label>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {[
+                  { value: 'SMALL_MEDIUM_CAP', label: '⭐ Small & Medium Cap (SMEs)', badge: 'RECOMMENDED', desc: 'Independent shops, local agencies & mid-market firms (Filters out giant corporate chains)' },
+                  { value: 'SMALL_CAP', label: '🏪 Small Cap Only', badge: 'SMB / Micro', desc: 'Boutique stores, local service providers & startups (<150 reviews)' },
+                  { value: 'MEDIUM_CAP', label: '🏢 Medium Cap Only', badge: 'Mid-Market', desc: 'Established regional businesses & medium enterprises (150-1000 reviews)' },
+                  { value: 'LARGE_CAP', label: '🏛️ Large Cap / Corporate', badge: 'Enterprise', desc: 'Multinational corporations & national brand chains (>1000 reviews)' },
+                  { value: 'ALL', label: '🌍 All Business Sizes', badge: 'Unfiltered', desc: 'Scrape all businesses without size or cap restrictions' },
+                ].map((option) => (
+                  <label
+                    key={option.value}
+                    className={`p-4 rounded-xl border cursor-pointer transition-all flex flex-col justify-between ${
+                      watchTargetCap === option.value
+                        ? 'border-blue-600 bg-blue-50/60 text-slate-900 shadow-sm ring-2 ring-blue-500/20'
+                        : 'border-slate-200 bg-white text-slate-800 hover:border-slate-300 hover:bg-slate-50/80'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-bold text-sm flex items-center gap-2 text-slate-900">
+                        <input
+                          type="radio"
+                          value={option.value}
+                          {...register('target_cap')}
+                          className="hidden"
+                        />
+                        {option.label}
+                      </span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        watchTargetCap === option.value
+                          ? 'bg-blue-600 text-white shadow-2xs'
+                          : option.badge === 'RECOMMENDED'
+                            ? 'bg-amber-50 text-amber-700 border border-amber-200/80'
+                            : 'bg-slate-100 text-slate-600 border border-slate-200'
+                      }`}>
+                        {option.badge}
+                      </span>
+                    </div>
+                    <p className={`text-xs leading-relaxed ${
+                      watchTargetCap === option.value ? 'text-slate-600 font-medium' : 'text-slate-500'
+                    }`}>
+                      {option.desc}
+                    </p>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* CARD 4: Limits */}
           <div className="bg-white border border-slate-200 rounded-xl shadow-sm">
             <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 rounded-t-xl flex items-center gap-3">
               <div className="p-2 bg-white rounded-md shadow-sm border border-slate-100">
                 <ListChecks className="w-4 h-4 text-slate-700" />
               </div>
               <div>
-                <h3 className="text-sm font-bold text-slate-900">3. Extraction Limits</h3>
+                <h3 className="text-sm font-bold text-slate-900">4. Extraction Limits</h3>
                 <p className="text-xs text-slate-500 mt-0.5">Control the maximum count of leads details collected.</p>
               </div>
             </div>

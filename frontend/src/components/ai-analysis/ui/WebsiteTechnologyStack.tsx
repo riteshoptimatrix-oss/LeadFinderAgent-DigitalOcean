@@ -53,35 +53,6 @@ function toNumber(value: unknown): number | null {
   return Number.isFinite(numberValue) ? Math.round(numberValue) : null;
 }
 
-const INVALID_CDN_SLUGS = new Set([
-  "csp",
-  "securityheaders",
-  "hsts",
-  "subresourceintegrity",
-  "schema",
-  "lazyload",
-  "opengraph",
-  "cookieconsent",
-  "slick",
-  "gravity",
-]);
-
-function isValidLogoUrl(url: unknown): string | null {
-  if (!url || typeof url !== "string") return null;
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname.includes("simpleicons.org")) {
-      const slug = parsed.pathname.split("/").filter(Boolean)[0]?.toLowerCase();
-      if (slug && INVALID_CDN_SLUGS.has(slug)) {
-        return null;
-      }
-    }
-    return url;
-  } catch {
-    return null;
-  }
-}
-
 function normalizeTechnologies(data: Record<string, unknown> | null | undefined): WebsiteTechnology[] {
   if (!data) return [];
   const raw: unknown = Array.isArray(data.websiteTechnologies)
@@ -97,7 +68,7 @@ function normalizeTechnologies(data: Record<string, unknown> | null | undefined)
       confidence: toNumber(item?.confidence ?? (item as unknown as Record<string, unknown>)?.confidence_score),
       version: isPresent(item?.version) ? String(item.version) : null,
       detectedFrom: isPresent(item?.detectedFrom) ? String(item.detectedFrom) : null,
-      logo: isPresent(item?.logo) ? isValidLogoUrl(item.logo) : null,
+      logo: isPresent(item?.logo) ? String(item.logo) : null,
     }))
     .filter((item) => Boolean(item.name)) as WebsiteTechnology[];
 }

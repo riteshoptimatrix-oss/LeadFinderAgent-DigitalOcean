@@ -100,7 +100,7 @@ export default function CampaignBuilderPage() {
   const isFormValid = name.trim() && selectedTemplate && audienceStats?.total > 0 && (!isScheduled || scheduledDate);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6 pb-20">
+    <div className="w-full max-w-5xl mx-auto space-y-6 pb-20">
       <div className="flex items-center gap-4 mb-8">
         <Link href="/dashboard/campaigns" className="p-2 text-[#6B7280] hover:text-[#111827] bg-white rounded-xl transition-colors">
           <ArrowLeft className="w-5 h-5" />
@@ -295,7 +295,7 @@ export default function CampaignBuilderPage() {
 
       {/* Action Bar */}
       <div className="fixed bottom-0 left-0 right-0 bg-[#FAFAF8]/80 backdrop-blur-md border-t border-[#E7E5E4] p-4 z-50">
-        <div className="max-w-4xl mx-auto flex justify-between items-center">
+        <div className="w-full max-w-5xl mx-auto flex justify-between items-center">
           <p className="text-sm text-[#6B7280]">
             {isFormValid ? "Ready to launch campaign." : "Please complete all required fields above."}
           </p>

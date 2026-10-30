@@ -191,7 +191,7 @@ export default function IntelligencePage() {
     <div className="min-h-full bg-white">
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="border-b border-slate-200 bg-white">
-        <div className="max-w-screen-2xl mx-auto px-6 py-6">
+        <div className="w-full px-4 sm:px-6 py-6">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
             <div className="flex items-center gap-3.5 min-w-0">
               <div className="w-11 h-11 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center shrink-0">
@@ -297,11 +297,10 @@ export default function IntelligencePage() {
                   key={t.key}
                   type="button"
                   onClick={() => setTab(t.key)}
-                  className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold whitespace-nowrap transition-colors shrink-0 ${
-                    active
-                      ? 'bg-slate-900 text-white'
-                      : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-                  }`}
+                  className={`flex items-center gap-1.5 rounded-lg px-3.5 py-2 text-[13px] font-semibold whitespace-nowrap transition-colors shrink-0 ${active
+                    ? 'bg-slate-900 text-white'
+                    : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+                    }`}
                 >
                   <Icon className="w-4 h-4" />
                   {t.label}
@@ -322,7 +321,7 @@ export default function IntelligencePage() {
             transition={{ duration: 0.2 }}
             className="overflow-hidden bg-white border-b border-slate-200"
           >
-            <div className="max-w-screen-2xl mx-auto px-6 py-5">
+            <div className="w-full px-4 sm:px-6 py-5">
               <Filters filters={filters} onChange={setFilters} />
             </div>
           </motion.div>
@@ -330,7 +329,7 @@ export default function IntelligencePage() {
       </AnimatePresence>
 
       {/* ── Content ─────────────────────────────────────────────────────────── */}
-      <main className="px-6 py-6 max-w-screen-2xl mx-auto">
+      <main className="px-4 sm:px-6 py-6 w-full">
         <AnimatePresence mode="wait">
           {tab === 'overview' && (
             <motion.div

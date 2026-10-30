@@ -240,7 +240,7 @@ export default function EmailLeadsSelection() {
           <button
             onClick={handleSelectAllGlobally}
             disabled={isSelectingAll || total === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-xl text-sm font-medium hover:bg-slate-800 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-xs"
           >
             {isSelectingAll ? (
               <Loader2 className="w-4 h-4 animate-spin" />

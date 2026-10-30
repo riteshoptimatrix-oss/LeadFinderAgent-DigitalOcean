@@ -88,7 +88,7 @@ export default function LiveCampaignDashboard() {
   };
 
   const connectWebSocket = (id: string) => {
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || (process.env.NEXT_PUBLIC_API_URL ? process.env.NEXT_PUBLIC_API_URL.replace(/^http/, 'ws').replace(/\/api\/v1$/, '') : 'ws://127.0.0.1:8000');
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || 'ws://127.0.0.1:8000';
     const socket = new WebSocket(`${wsUrl}/api/v1/whatsapp-ai/ws/${id}`);
 
     socket.onopen = () => {
@@ -96,35 +96,47 @@ export default function LiveCampaignDashboard() {
     };
 
     socket.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      
-      if (data.type === 'HEARTBEAT') return;
+      if (!event.data || typeof event.data !== 'string') return;
+      const trimmed = event.data.trim();
+      if (!trimmed || trimmed === 'ping' || trimmed === 'pong') {
+        if (trimmed === 'ping') {
+          try { socket.send('pong'); } catch {}
+        }
+        return;
+      }
 
-      // Real-time Event Handling
-      if (data.type === 'wa_lead_opening') {
-        setCurrentLead({ business_name: data.business_name, phone: data.phone });
-        setCurrentMessage(data.message);
-        setStatus('RUNNING (Opening WhatsApp)');
-        addLog(data.lead_id, 'opening', 'Opening WhatsApp Desktop...');
-      } 
-      else if (data.type === 'wa_lead_typing') {
-        setStatus('RUNNING (Typing...)');
-        addLog(data.lead_id, 'typing', 'Pasting message & sending...');
-      }
-      else if (data.type === 'wa_lead_sent') {
-        setStats(prev => ({ ...prev, completed: prev.completed + 1, sent: prev.sent + 1 }));
-        addLog(data.lead_id, 'sent', 'Message Sent Successfully', data.duration);
-        checkCompletion();
-      }
-      else if (data.type === 'wa_lead_failed') {
-        setStats(prev => ({ ...prev, completed: prev.completed + 1, failed: prev.failed + 1 }));
-        addLog(data.lead_id, 'failed', `Failed: ${data.error}`, data.duration);
-        checkCompletion();
-      }
-      else if (data.type === 'wa_lead_skipped') {
-        setStats(prev => ({ ...prev, completed: prev.completed + 1, skipped: prev.skipped + 1 }));
-        addLog(data.lead_id, 'skipped', `Skipped: ${data.error}`);
-        checkCompletion();
+      try {
+        const data = JSON.parse(trimmed);
+        if (!data || data.type === 'HEARTBEAT') return;
+
+        // Real-time Event Handling
+        if (data.type === 'wa_lead_opening') {
+          setCurrentLead({ business_name: data.business_name, phone: data.phone });
+          setCurrentMessage(data.message);
+          setStatus('RUNNING (Opening WhatsApp)');
+          addLog(data.lead_id, 'opening', 'Opening WhatsApp Desktop...');
+        } 
+        else if (data.type === 'wa_lead_typing') {
+          setStatus('RUNNING (Typing...)');
+          addLog(data.lead_id, 'typing', 'Pasting message & sending...');
+        }
+        else if (data.type === 'wa_lead_sent') {
+          setStats(prev => ({ ...prev, completed: prev.completed + 1, sent: prev.sent + 1 }));
+          addLog(data.lead_id, 'sent', 'Message Sent Successfully', data.duration);
+          checkCompletion();
+        }
+        else if (data.type === 'wa_lead_failed') {
+          setStats(prev => ({ ...prev, completed: prev.completed + 1, failed: prev.failed + 1 }));
+          addLog(data.lead_id, 'failed', `Failed: ${data.error}`, data.duration);
+          checkCompletion();
+        }
+        else if (data.type === 'wa_lead_skipped') {
+          setStats(prev => ({ ...prev, completed: prev.completed + 1, skipped: prev.skipped + 1 }));
+          addLog(data.lead_id, 'skipped', `Skipped: ${data.error}`);
+          checkCompletion();
+        }
+      } catch (err) {
+        console.warn('Failed to parse WhatsApp WebSocket message:', err);
       }
     };
 
@@ -183,7 +195,7 @@ export default function LiveCampaignDashboard() {
   const progressPercent = stats.total > 0 ? (stats.completed / stats.total) * 100 : 0;
 
   return (
-    <div className="max-w-7xl mx-auto flex flex-col min-h-[calc(100vh-8rem)]">
+    <div className="w-full flex flex-col pb-12">
       <div className="flex-none mb-8">
         <PageHeader
           title="Live Campaign Dashboard"

@@ -33,7 +33,7 @@ export default function WhatsAppAIPage() {
   ] as const;
 
   return (
-    <div className="w-full flex flex-col min-h-[calc(100vh-8rem)]">
+    <div className="w-full flex flex-col pb-12">
       <div className="flex-none mb-8">
         <PageHeader
           title="WhatsApp AI"
@@ -65,7 +65,7 @@ export default function WhatsAppAIPage() {
         </div>
       </div>
 
-      <div className="flex-1 bg-white rounded-xl border border-gray-200 shadow-2xs p-5 lg:p-7 overflow-hidden flex flex-col relative">
+      <div className="flex-1 bg-white rounded-[2rem] border border-slate-100 shadow-sm p-6 lg:p-8 overflow-hidden flex flex-col relative ring-1 ring-slate-900/5">
         <div className="relative z-10 h-full flex flex-col">
           {activeTab === 'dashboard' && <AnalyticsDashboard />}
           {activeTab === 'leads' && <LeadsSelection />}

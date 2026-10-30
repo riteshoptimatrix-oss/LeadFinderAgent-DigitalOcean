@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 
 class Settings(BaseSettings):
@@ -23,8 +23,8 @@ class Settings(BaseSettings):
     DISABLE_SSL_VERIFICATION: str = "false"
 
     # Admin Setup
-    ADMIN_EMAIL: str | None = None
-    ADMIN_PASSWORD: str | None = None
+    ADMIN_EMAIL: Optional[str] = None
+    ADMIN_PASSWORD: Optional[str] = None
     ADMIN_NAME: str = "System Administrator"
 
     # CORS
@@ -45,21 +45,16 @@ class Settings(BaseSettings):
     SMTP_ENCRYPTION: str = "TLS"   # TLS, SSL, or None
     SMTP_FROM_NAME: str = "Lead Finder Agent"
 
-    model_config = SettingsConfigDict(env_file=(".env", "backend/.env"), env_ignore_empty=True, extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", env_ignore_empty=True, extra="ignore")
 
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse comma-separated CORS origins into a list."""
         origins = [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
         for local_origin in [
-            "http://localhost:3000",
-            "http://127.0.0.1:3000",
-            "http://localhost:3001",
-            "http://127.0.0.1:3001",
-            "http://localhost:3002",
-            "http://127.0.0.1:3002",
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
+            "http://localhost:3000", "http://127.0.0.1:3000",
+            "http://localhost:3001", "http://127.0.0.1:3001",
+            "http://localhost:8000", "http://127.0.0.1:8000"
         ]:
             if local_origin not in origins:
                 origins.append(local_origin)

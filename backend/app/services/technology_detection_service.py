@@ -523,7 +523,7 @@ TECHNOLOGY_RULES: List[Dict[str, Any]] = [
     _tech("Slick Carousel", "JavaScript Library", [
         ("html", r"slick-slider|slick-initialized", 85, "Slick markup"),
         ("script", r"slick(\.min)?\.js", 85, "Slick script"),
-    ], None, None),
+    ], "slick", "FF880F"),
     _tech("Fancybox", "JavaScript Library", [
         ("html", r"fancybox", 75, "Fancybox markup"),
         ("script", r"fancybox", 75, "Fancybox script"),
@@ -742,7 +742,7 @@ TECHNOLOGY_RULES: List[Dict[str, Any]] = [
     _tech("Gravity Forms", "Marketing Tools", [
         ("html", r"gravityforms|gform_", 80, "Gravity Forms markers"),
         ("script", r"gravity_forms|gform", 75, "Gravity Forms script"),
-    ], None, None),
+    ], "gravity", "F7B500"),
 
     # ═══════════════ Chat Widgets ═══════════════
     _tech("Crisp", "Chat Widget", [
@@ -1019,25 +1019,25 @@ TECHNOLOGY_RULES: List[Dict[str, Any]] = [
     ], "hcaptcha", "FF4D00"),
     _tech("HSTS", "Security", [
         ("header", r"strict-transport-security", 96, "`Strict-Transport-Security` header"),
-    ], None, None),
+    ], "hsts", "2B579A"),
     _tech("Content Security Policy", "Security", [
         ("header", r"content-security-policy", 96, "`Content-Security-Policy` header"),
-    ], None, None),
+    ], "csp", "2B579A"),
     _tech("X-Frame-Options", "Security", [
         ("header", r"x-frame-options", 96, "`X-Frame-Options` header"),
-    ], None, None),
+    ], "securityheaders", "2B579A"),
     _tech("X-Content-Type-Options", "Security", [
         ("header", r"x-content-type-options", 96, "`X-Content-Type-Options` header"),
-    ], None, None),
+    ], "securityheaders", "2B579A"),
     _tech("Referrer-Policy", "Security", [
         ("header", r"referrer-policy", 96, "`Referrer-Policy` header"),
-    ], None, None),
+    ], "securityheaders", "2B579A"),
     _tech("Permissions-Policy", "Security", [
         ("header", r"permissions-policy", 96, "`Permissions-Policy` header"),
-    ], None, None),
+    ], "securityheaders", "2B579A"),
     _tech("Subresource Integrity", "Security", [
         ("html", r"integrity=\"sha(256|384|512)-", 82, "SRI integrity attributes"),
-    ], None, None),
+    ], "subresourceintegrity", "2B579A"),
     _tech("CookieYes", "Security", [
         ("script", r"cookieyes\.com|app\.cookieyes", 85, "CookieYes script"),
     ], "cookieyes", "4A4A4A"),
@@ -1114,16 +1114,16 @@ TECHNOLOGY_RULES: List[Dict[str, Any]] = [
     ], "logrocket", "764AFF"),
     _tech("JSON-LD Structured Data", "Other", [
         ("html", r"application/ld\+json", 80, "JSON-LD schema markup"),
-    ], None, None),
+    ], "schema", "FFB13B"),
     _tech("Open Graph", "Other", [
         ("html", r"property=\"og:|name=\"og:", 78, "Open Graph tags"),
-    ], None, None),
+    ], "opengraph", "FFB13B"),
     _tech("Twitter Cards", "Other", [
         ("html", r"name=\"twitter:card\"|property=\"twitter:", 75, "Twitter Card tags"),
     ], "x", "000000"),
     _tech("Native Lazy Loading", "Other", [
         ("html", r"loading=\"lazy\"", 70, "Lazy loading attributes"),
-    ], None, None),
+    ], "lazyload", "2B579A"),
     _tech("Google Maps Embed", "Other", [
         ("html", r"google\.com/maps/embed|maps\.google\.com/maps\?[^\"']*output=embed", 85, "Maps embed"),
         ("html", r"google\.com/maps/embed\?pb=", 85, "Maps embed iframe"),
@@ -1139,7 +1139,7 @@ TECHNOLOGY_RULES: List[Dict[str, Any]] = [
     ], "soundcloud", "FF3300"),
     _tech("Cookie Consent Banner", "Other", [
         ("html", r"cookie-consent|cookieconsent|cookie-banner", 72, "Cookie banner"),
-    ], None, None),
+    ], "cookieconsent", "FFB13B"),
 ]
 
 

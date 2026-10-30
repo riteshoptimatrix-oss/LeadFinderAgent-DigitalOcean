@@ -46,7 +46,7 @@ export default function CampaignDetailsPage() {
   const progress = (processed / total) * 100;
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
+    <div className="w-full space-y-6 pb-12">
       <div className="flex items-center gap-4 mb-8">
         <Link href="/dashboard/campaigns" className="p-2 text-[#6B7280] hover:text-[#111827] bg-white rounded-xl transition-colors">
           <ArrowLeft className="w-5 h-5" />
@@ -132,28 +132,28 @@ export default function CampaignDetailsPage() {
       </div>
 
       {/* Terminal Logs */}
-      <div className="bg-black border border-[#E7E5E4] rounded-2xl overflow-hidden flex flex-col h-96">
-        <div className="bg-white px-4 py-3 border-b border-[#E7E5E4] flex items-center gap-2">
-          <Terminal className="w-4 h-4 text-[#6B7280]" />
-          <h3 className="text-sm font-semibold text-[#111827]">Execution Logs</h3>
+      <div className="bg-slate-50/80 border border-slate-200 rounded-2xl overflow-hidden flex flex-col h-96 shadow-xs">
+        <div className="bg-white px-4 py-3 border-b border-slate-200 flex items-center gap-2">
+          <Terminal className="w-4 h-4 text-slate-600" />
+          <h3 className="text-sm font-bold text-slate-800 tracking-wide">Execution Logs</h3>
         </div>
         <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs">
           {logs.length === 0 ? (
-            <p className="text-neutral-600 text-center py-10">Waiting for campaign to start...</p>
+            <p className="text-slate-400 text-center py-10">Waiting for campaign to start...</p>
           ) : (
             logs.map((log: any) => (
               <div key={log._id} className="flex gap-4">
-                <span className="text-neutral-600 shrink-0">
+                <span className="text-slate-400 shrink-0">
                   {new Date(log.timestamp).toLocaleTimeString()}
                 </span>
                 <span className={`shrink-0 w-24 uppercase font-bold
-                  ${log.action === 'Sent' ? 'text-green-500' : ''}
-                  ${log.action === 'Failed' ? 'text-red-500' : ''}
-                  ${!['Sent', 'Failed'].includes(log.action) ? 'text-blue-500' : ''}
+                  ${log.action === 'Sent' ? 'text-emerald-600' : ''}
+                  ${log.action === 'Failed' ? 'text-rose-600' : ''}
+                  ${!['Sent', 'Failed'].includes(log.action) ? 'text-blue-600' : ''}
                 `}>
                   [{log.action}]
                 </span>
-                <span className="text-[#111827] break-all">{log.message}</span>
+                <span className="text-slate-800 break-all">{log.message}</span>
               </div>
             ))
           )}

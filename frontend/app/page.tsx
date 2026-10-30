@@ -213,19 +213,12 @@ export default function HomePage() {
             <div className="flex items-center gap-2.5">
               <img
                 src="/logo.png"
-                alt="LeadFinder"
+                alt="OptiMatrix"
                 className="h-10 w-auto object-contain drop-shadow-sm"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                }}
               />
-              <span className="hidden sm:inline-flex items-center px-2.5 py-0.5 rounded-full bg-slate-100 text-[11px] font-semibold text-slate-500 tracking-wide uppercase">
+              <span className="hidden sm:inline-flex px-2 py-0.5 rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500 tracking-wide uppercase">
                 LeadFinderAgent
               </span>
-              <div className="hidden items-center text-lg font-bold tracking-tight text-slate-900">
-                Lead<span className="text-blue-600">Finder</span>
-              </div>
             </div>
 
             <nav className="hidden md:flex items-center gap-8 text-sm font-medium text-slate-600">
@@ -881,14 +874,7 @@ export default function HomePage() {
                 src="/logo.png"
                 alt="OptiMatrix"
                 className="h-8 w-auto object-contain"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                  e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                }}
               />
-              <span className="text-base font-bold tracking-tight text-slate-900">
-                Opti<span className="text-[#c1121f]">Matrix</span>
-              </span>
             </div>
 
             <nav className="flex flex-wrap items-center justify-center gap-6 text-sm text-slate-500">

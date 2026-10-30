@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from fastapi.responses import FileResponse
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 import os
 import time
 import json
@@ -13,10 +13,110 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.db.database import get_db
 from app.api.dependencies import get_current_user, RequireRole
 from app.models.user import UserInDB
-from app.models.lead import LeadResponse, PaginatedLeadResponse, build_lead_response
+from app.models.lead import LeadCreate, LeadResponse, PaginatedLeadResponse, build_lead_response
 from app.core.logger import logger
 
 router = APIRouter()
+
+async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dict:
+    """Self-healing helper: ensure lead ai_analysis state accurately reflects genuine worker jobs.
+    Prevents leads from being orphaned in infinite 'Queued' or 'Analyzing...' state."""
+    ai = lead.get("ai_analysis")
+    if not isinstance(ai, dict):
+        return lead
+
+    raw_status = str(ai.get("analysis_status") or ai.get("status") or "").lower()
+    transient = {"queued", "running", "analyzing", "processing", "in_progress", "started", "collecting", "scoring", "saving", "waiting"}
+
+    if raw_status in transient:
+        lead_id_str = str(lead.get("_id"))
+        active_job = await db["ai_analysis_jobs"].find_one({
+            "lead_id": lead_id_str,
+            "status": {"$in": ["WAITING", "STARTED", "COLLECTING", "ANALYZING", "SCORING", "SAVING"]}
+        })
+
+        now = datetime.now(timezone.utc)
+        has_score = bool(
+            (lead.get("ai_score") and lead.get("ai_score") > 0) or
+            (ai.get("overall_score") and ai.get("overall_score") > 0) or
+            (ai.get("overall_ai_score") and ai.get("overall_ai_score") > 0) or
+            (lead.get("lead_score") and lead.get("lead_score") > 0)
+        )
+
+        if active_job:
+            job_updated = active_job.get("updated_at") or active_job.get("started_at") or active_job.get("created_at")
+            if job_updated:
+                if job_updated.tzinfo is None:
+                    job_updated = job_updated.replace(tzinfo=timezone.utc)
+                age_seconds = (now - job_updated).total_seconds()
+            else:
+                age_seconds = 0
+
+            if age_seconds > 180:
+                # Active job is stale/hung beyond 3 minutes -> fail it
+                await db["ai_analysis_jobs"].update_one(
+                    {"_id": active_job["_id"]},
+                    {"$set": {"status": "FAILED", "error_message": "Analysis timed out after 180s.", "updated_at": now}}
+                )
+                new_status = "Completed" if has_score else "Failed"
+                stage_label = "Completed" if has_score else "Analysis timed out. Please retry."
+                prog_val = 100 if has_score else 0
+                lead.setdefault("ai_analysis", {})["analysis_status"] = new_status
+                lead["ai_analysis"]["stage"] = stage_label
+                lead["ai_analysis"]["progress"] = prog_val
+                await db["leads"].update_one(
+                    {"_id": lead["_id"]},
+                    {"$set": {
+                        "ai_analysis.analysis_status": new_status,
+                        "ai_analysis.stage": stage_label,
+                        "ai_analysis.progress": prog_val,
+                        "updated_at": now,
+                    }}
+                )
+            else:
+                # Sync real-time progress and stage from active job
+                if active_job.get("progress") is not None:
+                    lead.setdefault("ai_analysis", {})["progress"] = active_job["progress"]
+                if active_job.get("current_stage"):
+                    lead.setdefault("ai_analysis", {})["stage"] = active_job["current_stage"]
+        else:
+            # No active job exists
+            if has_score:
+                lead.setdefault("ai_analysis", {})["analysis_status"] = "Completed"
+                lead["ai_analysis"]["progress"] = 100
+                lead["ai_analysis"]["stage"] = "Completed"
+                await db["leads"].update_one(
+                    {"_id": lead["_id"]},
+                    {"$set": {
+                        "ai_analysis.analysis_status": "Completed",
+                        "ai_analysis.progress": 100,
+                        "ai_analysis.stage": "Completed",
+                        "updated_at": now,
+                    }}
+                )
+            else:
+                started_at = ai.get("analysis_started_at") or lead.get("created_at")
+                age_seconds = 999
+                if started_at and isinstance(started_at, datetime):
+                    if started_at.tzinfo is None:
+                        started_at = started_at.replace(tzinfo=timezone.utc)
+                    age_seconds = (now - started_at).total_seconds()
+                
+                if age_seconds > 45:
+                    lead.setdefault("ai_analysis", {})["analysis_status"] = "Failed"
+                    lead["ai_analysis"]["stage"] = "Analysis incomplete. Please retry."
+                    lead["ai_analysis"]["progress"] = 0
+                    await db["leads"].update_one(
+                        {"_id": lead["_id"]},
+                        {"$set": {
+                            "ai_analysis.analysis_status": "Failed",
+                            "ai_analysis.stage": "Analysis incomplete. Please retry.",
+                            "ai_analysis.progress": 0,
+                            "updated_at": now,
+                        }}
+                    )
+
+    return lead
 
 class DBInfoResponse(BaseModel):
     total_leads: int
@@ -155,7 +255,7 @@ async def get_leads(
         query["user_id"] = current_user.id
 
     # Validation of sort fields
-    if sort_by not in ["name", "google_rating", "review_count", "created_at", "category", "status"]:
+    if sort_by not in ["name", "google_rating", "review_count", "created_at", "category", "status", "lead_score", "ai_score"]:
         sort_by = "created_at"
 
     cursor = db["leads"].find(query).sort(sort_by, sort_order).skip(skip).limit(limit)
@@ -165,6 +265,7 @@ async def get_leads(
     locations_returned = 0
     async for lead in cursor:
         try:
+            lead = await _reconcile_lead_ai_status(lead, db)
             normalized, lead_warnings = build_lead_response(lead, logger=logger)
             if lead_warnings:
                 warnings.extend(lead_warnings)
@@ -186,296 +287,129 @@ async def get_leads(
     )
     return PaginatedLeadResponse(data=leads, total=total, warnings=warnings)
 
-class ExportLeadsRequest(BaseModel):
-    format: str = "excel"
-    lead_ids: Optional[List[str]] = None
-    search: Optional[str] = None
-    keyword: Optional[str] = None
-    job_id: Optional[str] = None
-    city: Optional[str] = None
-    category: Optional[str] = None
-    has_website: Optional[bool] = None
-    has_phone: Optional[bool] = None
-    has_email: Optional[bool] = None
-    min_rating: Optional[float] = None
-    status: Optional[str] = None
-
-async def _execute_lead_export(
-    format: str,
-    lead_ids_list: Optional[List[str]],
-    search_term: Optional[str],
-    job_id: Optional[str],
-    city: Optional[str],
-    category: Optional[str],
-    has_website: Optional[bool],
-    has_phone: Optional[bool],
-    has_email: Optional[bool],
-    min_rating: Optional[float],
-    status: Optional[str],
-    current_user: UserInDB,
-    db: AsyncIOMotorDatabase
+@router.get("/export")
+async def export_leads(
+    format: str = "excel",
+    current_user: UserInDB = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    query = build_lead_filters(
-        search_term=search_term,
-        job_id=job_id,
-        city=city,
-        category=category,
-        has_website=has_website,
-        has_phone=has_phone,
-        has_email=has_email,
-        min_rating=min_rating,
-        status=status,
-    )
-
-    if lead_ids_list:
-        valid_ids = [ObjectId(lid.strip()) for lid in lead_ids_list if ObjectId.is_valid(lid.strip())]
-        if valid_ids:
-            query["_id"] = {"$in": valid_ids}
-
+    query = {}
     if current_user.role != "ADMIN":
         query["user_id"] = current_user.id
-
-    cursor = db["leads"].find(query).sort("created_at", -1)
+    cursor = db["leads"].find(query)
     leads = await cursor.to_list(length=None)
-
+    
     # Fetch job keywords to populate Category column with module name
     job_ids = list(set(
-        str(lead.get("job_id") or lead.get("search_job_id") or lead.get("source_job_id"))
+        lead.get("job_id") or lead.get("search_job_id") or lead.get("source_job_id")
         for lead in leads if (lead.get("job_id") or lead.get("search_job_id") or lead.get("source_job_id"))
     ))
     jobs = await db["search_jobs"].find({"_id": {"$in": [ObjectId(jid) for jid in job_ids if ObjectId.is_valid(jid)]}}).to_list(length=None)
     job_keywords = {str(job["_id"]): job.get("keyword", "") for job in jobs}
-
+    
     headers = [
         "Lead Name",
-        "Category",
-        "Searched Keyword",
-        "Primary Phone",
-        "All Phones",
-        "Primary Email",
-        "All Emails",
-        "WhatsApp Number",
+        "Lead Category (Searched Keyword)",
+        "Phone Number",
         "Website",
-        "Address",
-        "City",
-        "State",
         "Country",
-        "Google Rating",
-        "Review Count",
-        "Google Maps URL",
-        "Status",
-        "Created At",
+        "State",
+        "Address",
     ]
 
-    def _clean(val: any) -> str:
-        if val is None or val == "None" or val == "null":
-            return ""
-        if isinstance(val, (int, float)):
-            return str(val)
-        return str(val).strip()
+    def _get_phone(lead: dict) -> str:
+        for key in ("phone", "primary_phone", "whatsapp_number"):
+            value = lead.get(key)
+            if value:
+                return str(value).strip()
+        for key in ("phones", "all_phones", "contact_discovery"):
+            value = lead.get(key)
+            if isinstance(value, list):
+                for p in value:
+                    if p:
+                        return str(p).strip()
+            elif isinstance(value, dict):
+                for p in (value.get("primary_phone"), value.get("secondary_phones") or []):
+                    if isinstance(p, list):
+                        for item in p:
+                            if item:
+                                return str(item).strip()
+                    elif p:
+                        return str(p).strip()
+        return ""
 
     def _build_row(lead: dict) -> list:
-        job_id_val = str(lead.get("job_id") or lead.get("search_job_id") or lead.get("source_job_id") or "")
+        job_id = str(lead.get("job_id") or lead.get("search_job_id") or lead.get("source_job_id") or "")
         module_name = (
-            job_keywords.get(job_id_val)
-            or _clean(lead.get("search_keyword"))
-            or _clean(lead.get("category"))
+            job_keywords.get(job_id)
+            or lead.get("search_keyword")
+            or lead.get("category")
             or ""
         )
-        try:
-            resp, _ = build_lead_response(lead)
-            name = _clean(resp.name or resp.business_name or lead.get("name") or lead.get("company_name"))
-            category_val = _clean(resp.category or lead.get("category"))
-            primary_phone = _clean(resp.primary_phone or resp.phone or lead.get("phone"))
-            all_phones_list = resp.all_phones or resp.phones or []
-            if not all_phones_list and lead.get("phone"):
-                all_phones_list = [lead.get("phone")]
-            all_phones = ", ".join([_clean(p) for p in all_phones_list if _clean(p)])
-
-            primary_email = _clean(resp.primary_email or resp.email or lead.get("email"))
-            all_emails_list = getattr(resp, "all_emails", None) or lead.get("emails") or []
-            if not all_emails_list and primary_email:
-                all_emails_list = [primary_email]
-            all_emails = ", ".join([_clean(e) for e in all_emails_list if _clean(e)])
-
-            whatsapp = _clean(resp.whatsapp_number or lead.get("whatsapp_number"))
-            website = _clean(resp.website or lead.get("website"))
-            address = _clean(resp.address or lead.get("address"))
-            city_val = _clean(resp.city or lead.get("city"))
-            state_val = _clean(resp.state or lead.get("state"))
-            country_val = _clean(resp.country or lead.get("country") or (lead.get("website_information") or {}).get("country"))
-            rating_val = _clean(resp.google_rating or lead.get("google_rating") or lead.get("rating"))
-            reviews_val = _clean(resp.review_count or lead.get("review_count") or lead.get("reviews_count"))
-            maps_url = _clean(resp.google_maps_url or lead.get("google_maps_url") or lead.get("source_url"))
-            status_val = _clean(resp.status or lead.get("status") or "NEW")
-            created_at_val = _clean(lead.get("created_at"))
-        except Exception:
-            name = _clean(lead.get("name") or lead.get("company_name") or lead.get("business_name"))
-            category_val = _clean(lead.get("category"))
-            primary_phone = _clean(lead.get("phone") or lead.get("primary_phone"))
-            all_phones = _clean(lead.get("phones") or primary_phone)
-            primary_email = _clean(lead.get("email") or lead.get("primary_email"))
-            all_emails = primary_email
-            whatsapp = _clean(lead.get("whatsapp_number") or lead.get("whatsapp"))
-            website = _clean(lead.get("website"))
-            address = _clean(lead.get("address"))
-            city_val = _clean(lead.get("city"))
-            state_val = _clean(lead.get("state"))
-            country_val = _clean(lead.get("country"))
-            rating_val = _clean(lead.get("rating") or lead.get("google_rating"))
-            reviews_val = _clean(lead.get("reviews_count") or lead.get("review_count"))
-            maps_url = _clean(lead.get("google_maps_url"))
-            status_val = _clean(lead.get("status") or "NEW")
-            created_at_val = _clean(lead.get("created_at"))
-
+        country = lead.get("country") or (lead.get("website_information") or {}).get("country") or ""
         return [
-            name,
-            category_val,
+            lead.get("name") or lead.get("business_name") or "",
             module_name,
-            primary_phone,
-            all_phones,
-            primary_email,
-            all_emails,
-            whatsapp,
-            website,
-            address,
-            city_val,
-            state_val,
-            country_val,
-            rating_val,
-            reviews_val,
-            maps_url,
-            status_val,
-            created_at_val,
+            _get_phone(lead),
+            lead.get("website") or "",
+            country,
+            lead.get("state") or "",
+            lead.get("address") or "",
         ]
-
-    rows = [_build_row(lead) for lead in leads]
-    date_str = datetime.utcnow().strftime("%Y-%m-%d")
-
+    
     if format.lower() == "csv":
         import csv
         stream = io.StringIO()
         writer = csv.writer(stream)
         writer.writerow(headers)
-        for r in rows:
-            writer.writerow(r)
-        content = stream.getvalue().encode("utf-8-sig")
+        
+        for lead in leads:
+            writer.writerow(_build_row(lead))
+            
+        content = stream.getvalue()
         response_headers = {
-            "Content-Disposition": f'attachment; filename="leads_export_{date_str}.csv"',
-            "Access-Control-Expose-Headers": "Content-Disposition",
+            "Content-Disposition": "attachment; filename=leads.csv"
         }
         return Response(content=content, media_type="text/csv", headers=response_headers)
-
-    else:  # excel
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        
+    else:  # excel / xlsx / xls
         wb = openpyxl.Workbook()
         ws = wb.active
-        ws.title = "Leads"
         ws.append(headers)
-
-        header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="1E40AF", end_color="1E40AF", fill_type="solid")
-        thin_border = Border(
-            left=Side(style='thin', color='E2E8F0'),
-            right=Side(style='thin', color='E2E8F0'),
-            top=Side(style='thin', color='E2E8F0'),
-            bottom=Side(style='thin', color='E2E8F0')
-        )
-
-        for col_idx in range(1, len(headers) + 1):
-            cell = ws.cell(row=1, column=col_idx)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-
-        for r in rows:
-            ws.append(r)
-
-        for row in ws.iter_rows(min_row=2, max_row=len(rows)+1, min_col=1, max_col=len(headers)):
-            for cell in row:
-                cell.border = thin_border
-                cell.alignment = Alignment(vertical="center")
-
-        for col in ws.columns:
-            max_len = 0
-            col_letter = col[0].column_letter
-            for cell in col:
-                val_str = str(cell.value or "")
-                if len(val_str) > max_len:
-                    max_len = len(val_str)
-            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 50)
-
+        
+        for lead in leads:
+            ws.append(_build_row(lead))
+            
         stream = io.BytesIO()
         wb.save(stream)
         stream.seek(0)
-
+        
         response_headers = {
-            "Content-Disposition": f'attachment; filename="leads_export_{date_str}.xlsx"',
-            "Access-Control-Expose-Headers": "Content-Disposition",
+            "Content-Disposition": "attachment; filename=leads.xlsx"
         }
-        return Response(
-            content=stream.getvalue(),
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers=response_headers
-        )
+        return Response(content=stream.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers=response_headers)
 
-@router.get("/export")
-@router.get("/export/", include_in_schema=False)
-async def export_leads(
-    format: str = "excel",
-    lead_ids: Optional[str] = None,
-    search: Optional[str] = None,
-    keyword: Optional[str] = None,
-    job_id: Optional[str] = None,
-    city: Optional[str] = None,
-    category: Optional[str] = None,
-    has_website: Optional[bool] = None,
-    has_phone: Optional[bool] = None,
-    has_email: Optional[bool] = None,
-    min_rating: Optional[float] = None,
-    status: Optional[str] = None,
+@router.post("", response_model=LeadResponse)
+@router.post("/", response_model=LeadResponse, include_in_schema=False)
+async def create_lead(
+    lead_in: LeadCreate,
     current_user: UserInDB = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    ids_list = [i.strip() for i in lead_ids.split(",") if i.strip()] if lead_ids else None
-    return await _execute_lead_export(
-        format=format,
-        lead_ids_list=ids_list,
-        search_term=keyword or search,
-        job_id=job_id,
-        city=city,
-        category=category,
-        has_website=has_website,
-        has_phone=has_phone,
-        has_email=has_email,
-        min_rating=min_rating,
-        status=status,
-        current_user=current_user,
-        db=db,
-    )
-
-@router.post("/export")
-@router.post("/export/", include_in_schema=False)
-async def export_leads_post(
-    data: ExportLeadsRequest,
-    current_user: UserInDB = Depends(get_current_user),
-    db: AsyncIOMotorDatabase = Depends(get_db)
-):
-    return await _execute_lead_export(
-        format=data.format,
-        lead_ids_list=data.lead_ids,
-        search_term=data.keyword or data.search,
-        job_id=data.job_id,
-        city=data.city,
-        category=data.category,
-        has_website=data.has_website,
-        has_phone=data.has_phone,
-        has_email=data.has_email,
-        min_rating=data.min_rating,
-        status=data.status,
-        current_user=current_user,
-        db=db,
-    )
+    lead_dict = lead_in.model_dump(by_alias=True)
+    lead_dict["user_id"] = current_user.id
+    lead_dict["created_at"] = datetime.utcnow()
+    lead_dict["updated_at"] = datetime.utcnow()
+    if "ai_analysis" not in lead_dict:
+        lead_dict["ai_analysis"] = {
+            "analysis_status": "not_analyzed",
+            "progress": 0,
+            "stage": "Not Analyzed"
+        }
+    result = await db["leads"].insert_one(lead_dict)
+    lead_dict["_id"] = str(result.inserted_id)
+    resp, _ = build_lead_response(lead_dict, logger=logger)
+    return resp
 
 @router.post("/bulk-delete")
 async def bulk_delete(
@@ -749,6 +683,7 @@ async def get_lead(
     if not lead:
         raise HTTPException(404, detail="Lead not found")
 
+    lead = await _reconcile_lead_ai_status(lead, db)
     lead["_id"] = str(lead["_id"])
     try:
         normalized, warnings = build_lead_response(lead, logger=logger)
@@ -922,38 +857,34 @@ async def start_analysis(
             worker_id="skipped"
         )
 
-    # If professional website, continue to validate URL
-    if not website or website.lower() in ["-", "n/a", "none", "null"]:
-        raise HTTPException(status_code=400, detail="AI Website Analysis requires a valid website URL.")
+    if not website.startswith('http'):
+        website = "http://" + website
 
-    if not re.match(r'^https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}', website):
-        if not website.startswith('http'):
-            website = "http://" + website
-        if not re.match(r'^https?://[a-zA-Z0-9\-\.]+\.[a-zA-Z]{2,}', website):
-            raise HTTPException(status_code=400, detail="AI Website Analysis requires a valid website URL.")
-
-    # Check if an active job already exists for this lead
-    from app.models.ai_analysis import AIAnalysisState
+    from datetime import timezone
+    # Check for genuinely active jobs; if stale (>180s), fail it so a fresh analysis runs
+    now = datetime.now(timezone.utc)
     active_job = await db["ai_analysis_jobs"].find_one({
         "lead_id": str(id),
-        "status": {"$in": [
-            AIAnalysisState.WAITING,
-            AIAnalysisState.STARTED,
-            AIAnalysisState.RUNNING,
-            AIAnalysisState.COLLECTING,
-            AIAnalysisState.ANALYZING,
-            AIAnalysisState.SCORING,
-            AIAnalysisState.SAVING,
-        ]}
+        "status": {"$in": ["WAITING", "STARTED", "COLLECTING", "ANALYZING", "SCORING", "SAVING", "QUEUED"]}
     })
-    if active_job and active_job.get("queue_id"):
-        logger.info(f"START_ANALYSIS_REUSE: Lead {id} already has active job {active_job.get('_id')} in queue {active_job.get('queue_id')}")
-        return StartAnalysisResponse(
-            lead_id=str(id),
-            website_url=website,
-            queue_id=str(active_job["queue_id"]),
-            worker_id="Worker-Alpha"
-        )
+    if active_job:
+        job_updated = active_job.get("updated_at") or active_job.get("started_at") or active_job.get("created_at")
+        if job_updated and job_updated.tzinfo is None:
+            job_updated = job_updated.replace(tzinfo=timezone.utc)
+        age = (now - job_updated).total_seconds() if job_updated else 999
+        if age <= 180:
+            return StartAnalysisResponse(
+                lead_id=str(id),
+                website_url=website,
+                queue_id=str(active_job["queue_id"]),
+                worker_id="Worker-Active"
+            )
+        else:
+            # Stale job auto-failed
+            await db["ai_analysis_jobs"].update_one(
+                {"_id": active_job["_id"]},
+                {"$set": {"status": "FAILED", "error_message": "Stale job superseded by fresh analysis request.", "updated_at": now}}
+            )
 
     from app.services.ai_analysis_queue_service import AIAnalysisQueueService
     
@@ -964,30 +895,20 @@ async def start_analysis(
         user_id=str(current_user.id),
         leads=[lead_copy]
     )
-
-    # Immediately mark lead as in-progress in database
+    
+    # Immediately update the lead document with genuine processing state
+    now = datetime.now(timezone.utc)
     await db["leads"].update_one(
         query,
         {"$set": {
-            "ai_analysis.status": AIAnalysisState.STARTED.value,
-            "ai_analysis.analysis_status": "Running",
-            "ai_analysis.analysis_started_at": datetime.utcnow()
+            "ai_analysis.analysis_status": "Queued",
+            "ai_analysis.progress": 5,
+            "ai_analysis.stage": "Queued for AI analysis",
+            "ai_analysis.queue_id": str(queue.id),
+            "ai_analysis.analysis_started_at": now,
+            "updated_at": now,
         }}
     )
-
-    try:
-        from app.services.activity_logger import log_user_activity
-        lead_name = lead.get("name") or lead.get("company_name") or website
-        await log_user_activity(
-            user_id=str(current_user.id),
-            activity_type="AI_ANALYSIS_STARTED",
-            module="ai",
-            title=f"AI Website Analysis: {lead_name}",
-            description=f"Initiated deep AI audit on {website}",
-            metadata={"lead_id": str(id), "website": website, "queue_id": queue.id}
-        )
-    except Exception:
-        pass
     
     return StartAnalysisResponse(
         lead_id=str(id),

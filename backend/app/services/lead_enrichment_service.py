@@ -16,7 +16,7 @@ Rules enforced:
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from bson import ObjectId
 
 from app.db.database import get_db
@@ -31,7 +31,7 @@ from app.services.contact_deduplication import (
 )
 
 
-def to_object_id(lead_id: Any) -> ObjectId | str:
+def to_object_id(lead_id: Any) -> Union[ObjectId, str]:
     """
     Convert lead_id to ObjectId safely if it's a valid 24-character hex string.
     Otherwise returns the lead_id as-is (e.g. for string IDs like 'lead-123').

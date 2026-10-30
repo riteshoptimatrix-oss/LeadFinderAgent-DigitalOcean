@@ -3,8 +3,16 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  X, Layers, Loader2, Globe, AlertTriangle, XOctagon,
-  Sparkles, ChevronDown, Link2, Info, Play, Users, Zap
+  X,
+  Sparkles,
+  Loader2,
+  Globe,
+  AlertTriangle,
+  XOctagon,
+  ChevronDown,
+  Info,
+  Play,
+  RotateCw,
 } from "lucide-react";
 import api from '@/lib/axios';
 
@@ -29,8 +37,19 @@ interface PrepareReport {
   invalid_url: number;
   deleted: number;
   non_professional_website: number;
-  skipped_leads: { lead_id: string | null; name: string | null; website: string | null; reason: string; category: string }[];
-  websites: { website: string; business_name: string | null; lead_id: string; linked_lead_count: number }[];
+  skipped_leads: {
+    lead_id: string | null;
+    name: string | null;
+    website: string | null;
+    reason: string;
+    category: string;
+  }[];
+  websites: {
+    website: string;
+    business_name: string | null;
+    lead_id: string;
+    linked_lead_count: number;
+  }[];
 }
 
 const EMPTY_REPORT: PrepareReport = {
@@ -49,7 +68,14 @@ const EMPTY_REPORT: PrepareReport = {
   websites: [],
 };
 
-export default function BulkAnalysisModal({ isOpen, onClose, onStarted, leadIds, filters, scopeLabel }: BulkAnalysisModalProps) {
+export default function BulkAnalysisModal({
+  isOpen,
+  onClose,
+  onStarted,
+  leadIds,
+  filters,
+  scopeLabel,
+}: BulkAnalysisModalProps) {
   const [report, setReport] = useState<PrepareReport>(EMPTY_REPORT);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -58,9 +84,10 @@ export default function BulkAnalysisModal({ isOpen, onClose, onStarted, leadIds,
   const [name, setName] = useState("Bulk AI Website Analysis");
   const [showSkipped, setShowSkipped] = useState(false);
   const [showWebsites, setShowWebsites] = useState(false);
+  const [reanalyze, setReanalyze] = useState(false);
 
   const payload = () => {
-    const body: Record<string, unknown> = { concurrency, name };
+    const body: Record<string, unknown> = { concurrency, name, reanalyze };
     if (leadIds && leadIds.length > 0) body.lead_ids = leadIds;
     else if (filters) body.filters = filters;
     return body;
@@ -72,10 +99,12 @@ export default function BulkAnalysisModal({ isOpen, onClose, onStarted, leadIds,
     setShowSkipped(false);
     setShowWebsites(false);
     try {
-      const res = await api.post('/ai-analysis/bulk/prepare', payload());
+      const res = await api.post("/ai-analysis/bulk/prepare", payload());
       setReport(res.data || EMPTY_REPORT);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || "Failed to compute eligibility summary.");
+      setError(
+        err?.response?.data?.detail || "Failed to compute eligibility summary."
+      );
     } finally {
       setLoading(false);
     }
@@ -85,30 +114,36 @@ export default function BulkAnalysisModal({ isOpen, onClose, onStarted, leadIds,
     if (!isOpen) return;
     let cancelled = false;
     (async () => {
+      setLoading(true);
       try {
-        const res = await api.post('/ai-analysis/bulk/prepare', payload());
+        const res = await api.post("/ai-analysis/bulk/prepare", payload());
         if (cancelled) return;
         setReport(res.data || EMPTY_REPORT);
         setError(null);
       } catch (err: any) {
         if (cancelled) return;
-        setError(err?.response?.data?.detail || "Failed to compute eligibility summary.");
+        setError(
+          err?.response?.data?.detail ||
+            "Failed to compute eligibility summary."
+        );
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen]);
+  }, [isOpen, reanalyze]);
 
   const handleStart = async () => {
     setStarting(true);
     setError(null);
     try {
-      const res = await api.post('/ai-analysis/bulk/start', payload());
+      const res = await api.post("/ai-analysis/bulk/start", payload());
       const queueId = res.data?.id || res.data?._id;
       if (!queueId) {
-        setError("No queue ID returned from the server.");
+        setError("No queue ID returned from server.");
         return;
       }
       onStarted(String(queueId), name);
@@ -120,13 +155,13 @@ export default function BulkAnalysisModal({ isOpen, onClose, onStarted, leadIds,
   };
 
   const skipCategories = [
-    { key: 'no_website', label: 'No Website', cls: 'bg-slate-100 text-slate-600' },
-    { key: 'invalid_url', label: 'Invalid URL', cls: 'bg-slate-100 text-slate-600' },
-    { key: 'non_professional_website', label: 'Social / Directory', cls: 'bg-amber-100 text-amber-700' },
-    { key: 'already_analyzed', label: 'Already Analyzed', cls: 'bg-emerald-100 text-emerald-700' },
-    { key: 'already_queued', label: 'Already Queued', cls: 'bg-blue-100 text-blue-700' },
-    { key: 'currently_analyzing', label: 'Currently Analyzing', cls: 'bg-purple-100 text-purple-700' },
-    { key: 'deleted', label: 'Deleted', cls: 'bg-red-100 text-red-700' },
+    { key: "no_website", label: "No Website", cls: "bg-slate-100 text-slate-600" },
+    { key: "invalid_url", label: "Invalid URL", cls: "bg-slate-100 text-slate-600" },
+    { key: "non_professional_website", label: "Social Profile", cls: "bg-amber-50 text-amber-700" },
+    { key: "already_analyzed", label: "Already Analyzed", cls: "bg-emerald-50 text-emerald-700" },
+    { key: "already_queued", label: "Already Queued", cls: "bg-blue-50 text-blue-700" },
+    { key: "currently_analyzing", label: "In Progress", cls: "bg-purple-50 text-purple-700" },
+    { key: "deleted", label: "Deleted", cls: "bg-rose-50 text-rose-700" },
   ] as const;
 
   return (
@@ -136,148 +171,187 @@ export default function BulkAnalysisModal({ isOpen, onClose, onStarted, leadIds,
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
+          className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-6 bg-slate-900/40 backdrop-blur-xs"
           onClick={onClose}
         >
           <motion.div
-            initial={{ opacity: 0, scale: 0.96, y: 16 }}
+            initial={{ opacity: 0, scale: 0.97, y: 12 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.96, y: 16 }}
-            transition={{ duration: 0.2 }}
-            className="bg-white rounded-3xl shadow-2xl border border-gray-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+            exit={{ opacity: 0, scale: 0.97, y: 12 }}
+            transition={{ duration: 0.18 }}
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden text-slate-900 font-sans"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-100 shrink-0">
-              <div className="flex items-center gap-4">
-                <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
-                  <Layers className="w-6 h-6" />
+            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-white shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                  <Sparkles className="w-4 h-4" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900 tracking-tight">Bulk AI Website Analysis</h2>
-                  <p className="text-sm text-slate-500 mt-0.5">
-                    Analyze {scopeLabel || 'matching leads'} — one job per unique website, results reused for duplicates.
+                  <h2 className="text-base font-bold text-slate-900">
+                    Bulk AI Website Analysis
+                  </h2>
+                  <p className="text-xs text-slate-500">
+                    Analyze {scopeLabel || "selected leads"} (one job per unique website)
                   </p>
                 </div>
               </div>
-              <button onClick={onClose} className="p-2 bg-gray-50 hover:bg-gray-100 rounded-xl text-gray-500 hover:text-gray-900 border border-gray-200 transition-colors">
-                <X className="w-5 h-5" />
+              <button
+                onClick={onClose}
+                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/40">
               {error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl p-4 text-sm font-medium flex items-start gap-2">
-                  <XOctagon className="w-4 h-4 mt-0.5 shrink-0" />
-                  {error}
+                <div className="bg-rose-50 border border-rose-200/80 text-rose-700 rounded-xl p-3.5 text-xs font-medium flex items-center gap-2">
+                  <XOctagon className="w-4 h-4 shrink-0 text-rose-600" />
+                  <span>{error}</span>
                 </div>
               )}
 
               {loading ? (
                 <div className="flex flex-col items-center justify-center py-16 gap-3">
-                  <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
-                  <p className="text-sm font-medium text-slate-500">Computing eligibility summary...</p>
+                  <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+                  <p className="text-xs font-medium text-slate-500">
+                    Scanning leads and checking websites...
+                  </p>
                 </div>
               ) : (
                 <>
-                  {/* Ready to analyze hero */}
-                  <div className="bg-gradient-to-br from-indigo-50 via-white to-violet-50 border border-indigo-100 rounded-2xl p-6 flex items-center gap-6 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-40 h-40 bg-indigo-100 blur-3xl rounded-full opacity-60" />
-                    <div className="p-3.5 bg-indigo-600 text-white rounded-2xl shadow-lg shrink-0 relative z-10">
-                      <Sparkles className="w-7 h-7" />
-                    </div>
-                    <div className="relative z-10 flex-1">
-                      <div className="text-[11px] uppercase font-bold tracking-widest text-indigo-600 mb-1">Ready to Analyze</div>
-                      <div className="flex items-end gap-2">
-                        <span className="text-5xl font-black font-mono text-slate-900 leading-none">{report.ready_to_analyze}</span>
-                        <span className="text-sm font-semibold text-slate-500 pb-1">unique website{report.ready_to_analyze === 1 ? '' : 's'}</span>
+                  {/* Hero Metric Card */}
+                  <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs flex items-center justify-between">
+                    <div>
+                      <div className="text-[11px] font-bold text-blue-600 uppercase tracking-wider mb-0.5">
+                        Ready To Analyze
                       </div>
-                      <div className="flex flex-wrap gap-x-5 gap-y-1 mt-3 text-sm text-slate-600">
-                        <span className="flex items-center gap-1.5"><Users className="w-4 h-4 text-indigo-500" /> <b className="font-mono">{report.total_leads}</b> leads scanned</span>
-                        <span className="flex items-center gap-1.5"><Link2 className="w-4 h-4 text-violet-500" /> <b className="font-mono">{report.duplicate_leads}</b> duplicate leads (reuse report)</span>
+                      <div className="flex items-baseline gap-2">
+                        <span className="text-4xl font-extrabold font-mono text-slate-900">
+                          {report.ready_to_analyze}
+                        </span>
+                        <span className="text-xs text-slate-500 font-medium">
+                          unique website{report.ready_to_analyze === 1 ? "" : "s"}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-500 mt-2 flex items-center gap-3">
+                        <span>{report.total_leads} leads scanned</span>
+                        <span>•</span>
+                        <span>{report.duplicate_leads} duplicate leads (reused)</span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Configuration */}
-                  <div className="bg-white rounded-2xl border border-gray-200 p-5">
-                    <div className="text-xs font-bold uppercase tracking-widest text-slate-500 mb-4 flex items-center gap-2">
-                      <Zap className="w-4 h-4 text-indigo-600" /> Analysis Configuration
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                      <label className="flex flex-col gap-1.5">
-                        <span className="text-xs font-bold text-slate-600">Queue Name</span>
+                  {/* Settings */}
+                  <div className="bg-white rounded-2xl border border-slate-200/80 p-4 space-y-3.5 shadow-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-xs font-semibold text-slate-700 block mb-1">
+                          Queue Name
+                        </label>
                         <input
                           type="text"
                           value={name}
                           onChange={(e) => setName(e.target.value)}
-                          className="px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-indigo-500 focus:bg-white outline-none transition-all"
-                          placeholder="Bulk AI Website Analysis"
+                          className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
                         />
-                      </label>
-                      <label className="flex flex-col gap-1.5">
-                        <span className="text-xs font-bold text-slate-600">Concurrency (parallel analyses)</span>
-                        <div className="flex items-center gap-3">
-                          <input
-                            type="range"
-                            min={1}
-                            max={10}
-                            value={concurrency}
-                            onChange={(e) => setConcurrency(Number(e.target.value))}
-                            className="flex-1 accent-indigo-600"
-                          />
-                          <span className="w-10 text-center font-mono font-bold text-indigo-600 text-lg bg-indigo-50 border border-indigo-100 rounded-lg py-1">{concurrency}</span>
+                      </div>
+
+                      <div>
+                        <div className="flex justify-between items-center mb-1">
+                          <label className="text-xs font-semibold text-slate-700">
+                            Concurrency
+                          </label>
+                          <span className="text-xs font-mono font-bold text-blue-600">
+                            {concurrency} workers
+                          </span>
                         </div>
-                        <span className="text-[11px] text-slate-400">Higher concurrency analyzes more websites at once (1–10).</span>
+                        <input
+                          type="range"
+                          min={1}
+                          max={10}
+                          value={concurrency}
+                          onChange={(e) => setConcurrency(Number(e.target.value))}
+                          className="w-full accent-blue-600 cursor-pointer"
+                        />
+                        <span className="text-[10px] text-slate-400 block mt-0.5">
+                          Parallel website crawling threads (1 to 10)
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={reanalyze}
+                          onChange={(e) => setReanalyze(e.target.checked)}
+                          className="rounded text-blue-600 focus:ring-blue-500 w-3.5 h-3.5 cursor-pointer"
+                        />
+                        <span className="text-xs font-medium text-slate-700">
+                          Re-analyze previously analyzed leads
+                        </span>
                       </label>
                     </div>
                   </div>
 
-                  {/* Skipped breakdown */}
-                  <div className="bg-white rounded-2xl border border-gray-200 p-5">
-                    <div className="flex items-center justify-between mb-4">
-                      <div className="text-xs font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                        <Info className="w-4 h-4 text-indigo-600" /> Eligibility Breakdown
-                      </div>
-                      <span className="text-xs font-mono text-slate-500">{report.total_leads} leads scanned</span>
+                  {/* Eligibility Breakdown */}
+                  <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs">
+                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-2">
+                      Eligibility Breakdown
                     </div>
-                    <div className="flex flex-wrap gap-2.5">
-                      <Pill label={`${report.eligible_websites} eligible websites`} cls="bg-emerald-100 text-emerald-700 border-emerald-200" />
-                      {skipCategories.map(cat => {
-                        const value = report[cat.key];
-                        if (!value) return null;
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-100">
+                        {report.eligible_websites} Eligible Websites
+                      </span>
+                      {skipCategories.map((cat) => {
+                        const val = report[cat.key];
+                        if (!val) return null;
                         return (
-                          <Pill key={cat.key} label={`${value} ${cat.label.toLowerCase()}`} cls={cat.cls} />
+                          <span
+                            key={cat.key}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-semibold ${cat.cls}`}
+                          >
+                            {val} {cat.label}
+                          </span>
                         );
                       })}
                     </div>
                   </div>
 
-                  {/* Websites preview */}
+                  {/* Websites list accordion */}
                   {report.websites.length > 0 && (
-                    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
                       <button
-                        onClick={() => setShowWebsites(v => !v)}
-                        className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors"
+                        onClick={() => setShowWebsites((v) => !v)}
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer text-xs font-semibold text-slate-700"
                       >
-                        <span className="text-xs font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                          <Globe className="w-4 h-4 text-indigo-600" /> Websites to Analyze ({report.websites.length})
+                        <span className="flex items-center gap-1.5">
+                          <Globe className="w-3.5 h-3.5 text-blue-600" />
+                          Websites to Analyze ({report.websites.length})
                         </span>
-                        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showWebsites ? 'rotate-180' : ''}`} />
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                            showWebsites ? "rotate-180" : ""
+                          }`}
+                        />
                       </button>
                       {showWebsites && (
-                        <div className="border-t border-gray-100 max-h-56 overflow-y-auto divide-y divide-gray-50">
+                        <div className="border-t border-slate-100 max-h-48 overflow-y-auto divide-y divide-slate-50 text-xs">
                           {report.websites.map((w, i) => (
-                            <div key={i} className="flex items-center justify-between px-5 py-2.5 gap-3">
-                              <div className="min-w-0">
-                                <div className="text-sm font-semibold text-slate-800 truncate">{w.business_name || 'Unknown business'}</div>
-                                <div className="text-xs text-blue-600 font-mono truncate">{w.website}</div>
-                              </div>
-                              {w.linked_lead_count > 0 && (
-                                <span className="shrink-0 text-[10px] font-bold px-2 py-1 rounded-full bg-violet-100 text-violet-700">
-                                  +{w.linked_lead_count} dup
-                                </span>
-                              )}
+                            <div
+                              key={i}
+                              className="flex items-center justify-between px-4 py-2 gap-2"
+                            >
+                              <span className="font-semibold text-slate-800 truncate">
+                                {w.business_name || "Lead"}
+                              </span>
+                              <span className="text-slate-500 font-mono text-[11px] truncate">
+                                {w.website}
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -285,30 +359,36 @@ export default function BulkAnalysisModal({ isOpen, onClose, onStarted, leadIds,
                     </div>
                   )}
 
-                  {/* Skipped preview */}
+                  {/* Skipped leads accordion */}
                   {report.skipped_leads.length > 0 && (
-                    <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+                    <div className="bg-white rounded-2xl border border-slate-200/80 overflow-hidden shadow-xs">
                       <button
-                        onClick={() => setShowSkipped(v => !v)}
-                        className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-50 transition-colors"
+                        onClick={() => setShowSkipped((v) => !v)}
+                        className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer text-xs font-semibold text-slate-700"
                       >
-                        <span className="text-xs font-bold uppercase tracking-widest text-slate-500 flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 text-amber-500" /> Skipped Leads ({report.skipped_leads.length})
+                        <span className="flex items-center gap-1.5">
+                          <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                          Skipped Leads ({report.skipped_leads.length})
                         </span>
-                        <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${showSkipped ? 'rotate-180' : ''}`} />
+                        <ChevronDown
+                          className={`w-3.5 h-3.5 text-slate-400 transition-transform ${
+                            showSkipped ? "rotate-180" : ""
+                          }`}
+                        />
                       </button>
                       {showSkipped && (
-                        <div className="border-t border-gray-100 max-h-56 overflow-y-auto divide-y divide-gray-50">
+                        <div className="border-t border-slate-100 max-h-48 overflow-y-auto divide-y divide-slate-50 text-xs">
                           {report.skipped_leads.map((s, i) => (
-                            <div key={i} className="flex items-start justify-between px-5 py-2.5 gap-3">
-                              <div className="min-w-0">
-                                <div className="text-sm font-semibold text-slate-800 truncate">{s.name || 'Unknown business'}</div>
-                                {s.website && <div className="text-xs text-slate-400 font-mono truncate">{s.website}</div>}
-                              </div>
-                              <div className="shrink-0 flex flex-col items-end">
-                                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">{s.category}</span>
-                                <span className="text-[10px] text-slate-400 mt-1 text-right max-w-[180px]">{s.reason}</span>
-                              </div>
+                            <div
+                              key={i}
+                              className="flex items-center justify-between px-4 py-2 gap-2"
+                            >
+                              <span className="font-semibold text-slate-800 truncate">
+                                {s.name || "Lead"}
+                              </span>
+                              <span className="text-slate-400 text-[11px]">
+                                {s.reason}
+                              </span>
                             </div>
                           ))}
                         </div>
@@ -320,30 +400,31 @@ export default function BulkAnalysisModal({ isOpen, onClose, onStarted, leadIds,
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between gap-3 p-6 border-t border-gray-100 shrink-0 bg-slate-50">
-              <div className="text-xs text-slate-500 font-medium flex items-center gap-1.5">
-                <Info className="w-3.5 h-3.5 text-indigo-500" />
-                Identical websites are analyzed once — every linked lead receives a copy of the report.
+            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-slate-100 bg-white shrink-0">
+              <div className="flex items-center gap-1.5 text-xs text-slate-400">
+                <Info className="w-3.5 h-3.5" />
+                <span>Runs in background • You can minimize anytime</span>
               </div>
-              <div className="flex items-center gap-3 shrink-0">
+              <div className="flex items-center gap-2">
                 <button
                   onClick={fetchReport}
                   disabled={loading || starting}
-                  className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 hover:bg-slate-100 transition-all shadow-sm flex items-center gap-2 disabled:opacity-50"
+                  className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                 >
-                  <RefreshIcon spinning={loading} /> Refresh
+                  <RotateCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+                  Refresh
                 </button>
                 <button
                   onClick={handleStart}
                   disabled={loading || starting || report.ready_to_analyze === 0}
-                  className={`px-6 py-2.5 rounded-xl text-sm font-bold shadow-sm transition-all flex items-center gap-2 ${
-                    report.ready_to_analyze === 0
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed border border-gray-200'
-                      : 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-700 hover:to-indigo-700 text-white hover:shadow'
-                  }`}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                 >
-                  {starting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                  {starting ? 'Starting...' : 'Start Bulk Analysis'}
+                  {starting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5 fill-current" />
+                  )}
+                  {starting ? "Starting..." : "Start Analysis"}
                 </button>
               </div>
             </div>
@@ -351,30 +432,5 @@ export default function BulkAnalysisModal({ isOpen, onClose, onStarted, leadIds,
         </motion.div>
       )}
     </AnimatePresence>
-  );
-}
-
-function Pill({ label, cls }: { label: string, cls: string }) {
-  return (
-    <span className={`px-3 py-1.5 rounded-full border text-xs font-bold ${cls}`}>{label}</span>
-  );
-}
-
-function RefreshIcon({ spinning }: { spinning: boolean }) {
-  return (
-    <svg
-      className={`w-4 h-4 ${spinning ? 'animate-spin' : ''}`}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-      <path d="M21 3v5h-5" />
-      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-      <path d="M3 21v-5h5" />
-    </svg>
   );
 }

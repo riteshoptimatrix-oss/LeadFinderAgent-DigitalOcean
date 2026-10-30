@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
-from pydantic import BaseModel, Field, ConfigDict, model_validator, ValidationError
+from pydantic import BaseModel, Field, ConfigDict, model_validator, field_validator, ValidationError
 
 
 def _as_str(value: Any) -> Optional[str]:
@@ -348,9 +348,6 @@ class AIAnalysisMetadata(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    status: Optional[str] = None
-    progress: Optional[float] = None
-    stage: Optional[str] = None
     analysis_status: Optional[str] = None
     analysis_started_at: Optional[datetime] = None
     analysis_completed_at: Optional[datetime] = None
@@ -644,9 +641,6 @@ class LeadBase(BaseModel):
     is_favorite: bool = Field(default=False)
     lead_score: Optional[int] = Field(default=0)
     ai_score: Optional[int] = Field(default=0)
-    ai_status: Optional[str] = Field(default=None)
-    ai_progress: Optional[float] = Field(default=None)
-    ai_stage: Optional[str] = Field(default=None)
     website_score: Optional[int] = Field(default=0)
     website_status: Optional[str] = Field(default="Unknown")
     website_type: Optional[str] = None
@@ -706,6 +700,20 @@ class LeadBase(BaseModel):
     failure_reason: Optional[str] = None
     missing_fields: List[str] = Field(default_factory=list)
 
+
+
+    @field_validator("website", mode="before")
+    @classmethod
+    def validate_website(cls, v: Any) -> Optional[str]:
+        if not v:
+            return None
+        try:
+            from app.utils.website_validator import is_valid_website
+            if is_valid_website(str(v)):
+                return str(v).strip()
+        except ImportError:
+            pass
+        return None
 
 class LeadCreate(LeadBase):
     created_at: datetime = Field(default_factory=datetime.utcnow)
@@ -856,9 +864,6 @@ def build_lead_response(raw: Any, logger: Any = None) -> Tuple[LeadResponse, Lis
             doc["ai_score"] = ai.get("overall_score") or ai.get("overall_ai_score") or 0
         if "lead_score" not in doc or doc["lead_score"] == 0:
             doc["lead_score"] = ai.get("lead_score") or 0
-        doc["ai_status"] = ai.get("status") or ai.get("analysis_status") or ("Completed" if doc.get("ai_score") else "Not Analyzed")
-        doc["ai_progress"] = float(ai.get("progress")) if ai.get("progress") is not None else (100.0 if doc.get("ai_score") else 0.0)
-        doc["ai_stage"] = ai.get("stage") or ai.get("current_stage")
             
     # Deduplicate phones and emails across the lead document.
     # Use permissive phone validation so leading-zero numbers are never nulled.

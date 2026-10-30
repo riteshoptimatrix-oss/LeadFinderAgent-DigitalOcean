@@ -198,6 +198,10 @@ class WebsiteCrawler:
         return result
 
     async def crawl(self, start_url: str, on_update=None) -> Dict[str, Any]:
+        from app.utils.async_loop_helper import run_in_proactor
+        return await run_in_proactor(self._crawl_internal, start_url, on_update)
+
+    async def _crawl_internal(self, start_url: str, on_update=None) -> Dict[str, Any]:
         logger.info(f"Starting crawler for {start_url}")
         if on_update: await on_update("Pre-flight Validation", start_url)
         

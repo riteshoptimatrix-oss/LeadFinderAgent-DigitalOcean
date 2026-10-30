@@ -1,6 +1,8 @@
 import asyncio
 import logging
 import functools
+import sys
+import threading
 from typing import AsyncGenerator, Dict, Any, Tuple, Optional, Callable
 from playwright.async_api import async_playwright, Browser, BrowserContext, Page, Playwright, Error as PlaywrightError
 
@@ -42,14 +44,49 @@ class PlaywrightEngine:
         self.browser: Browser = None
         self.context: BrowserContext = None
         self.page: Page = None
+
+        self._needs_proactor = False
+        if sys.platform == "win32":
+            try:
+                loop = asyncio.get_running_loop()
+                # On Windows, SelectorEventLoop raises NotImplementedError on subprocesses
+                if not isinstance(loop, getattr(asyncio, "ProactorEventLoop", ())):
+                    self._needs_proactor = True
+            except RuntimeError:
+                pass
+
+        self._proactor_loop: Optional[asyncio.AbstractEventLoop] = None
+        self._proactor_thread: Optional[threading.Thread] = None
         
     async def start_browser(self):
         """Launches Chromium in headless mode."""
+        if self._needs_proactor:
+            if not self._proactor_loop:
+                self._proactor_loop = asyncio.ProactorEventLoop()
+                ready = threading.Event()
+                def _runner():
+                    asyncio.set_event_loop(self._proactor_loop)
+                    ready.set()
+                    self._proactor_loop.run_forever()
+                self._proactor_thread = threading.Thread(target=_runner, daemon=True, name="PlaywrightProactorThread")
+                self._proactor_thread.start()
+                ready.wait()
+
+            fut = asyncio.run_coroutine_threadsafe(self._start_browser_internal(), self._proactor_loop)
+            return await asyncio.wrap_future(fut)
+        return await self._start_browser_internal()
+
+    async def _start_browser_internal(self):
         logger.info("[ENGINE] Starting Playwright Chromium...")
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
             headless=True,
-            args=["--disable-blink-features=AutomationControlled"]
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu"
+            ]
         )
         self.context = await self.browser.new_context(
             viewport={'width': 1280, 'height': 800},
@@ -59,11 +96,24 @@ class PlaywrightEngine:
         logger.info("[ENGINE] Browser started successfully.")
         
     async def close(self):
-        """Closes every running resource: pages, context, browser and playwright.
+        """Closes every running resource: pages, context, browser and playwright."""
+        if self._needs_proactor and self._proactor_loop:
+            try:
+                fut = asyncio.run_coroutine_threadsafe(self._close_internal(), self._proactor_loop)
+                await asyncio.wrap_future(fut)
+            except Exception as e:
+                logger.warning(f"[ENGINE] Error during browser close in proactor thread: {e}")
+            finally:
+                if self._proactor_loop and self._proactor_loop.is_running():
+                    self._proactor_loop.call_soon_threadsafe(self._proactor_loop.stop)
+                if self._proactor_thread:
+                    self._proactor_thread.join(timeout=3.0)
+                self._proactor_loop = None
+                self._proactor_thread = None
+        else:
+            await self._close_internal()
 
-        Each resource is closed independently so a failure on one can never
-        leave a zombie browser or background scraping process behind.
-        """
+    async def _close_internal(self):
         if self.page:
             try:
                 await self.page.close()
@@ -92,6 +142,7 @@ class PlaywrightEngine:
                 logger.warning("[ENGINE] Playwright stop raised.", exc_info=True)
             self.playwright = None
 
+        await asyncio.sleep(0.05)
         logger.info("[ENGINE] Browser closed.")
 
     async def handle_popups(self):
@@ -186,9 +237,15 @@ class PlaywrightEngine:
         logger.error(f"[ENGINE] Feed container not found. DOM might have changed or page didn't load properly: {last_error}")
         return False
 
-    @async_retry(retries=3, base_delay=2.0)
     async def navigate_to_maps(self, query: str) -> bool:
         """Navigates to Google Maps and executes the query, with auto-recovery."""
+        if self._needs_proactor and self._proactor_loop:
+            fut = asyncio.run_coroutine_threadsafe(self._navigate_to_maps_internal(query), self._proactor_loop)
+            return await asyncio.wrap_future(fut)
+        return await self._navigate_to_maps_internal(query)
+
+    @async_retry(retries=3, base_delay=2.0)
+    async def _navigate_to_maps_internal(self, query: str) -> bool:
         url = f"https://www.google.com/maps/search/{query.replace(' ', '+')}"
         
         logger.info(f"[ENGINE] Navigating to Maps: {url}")
@@ -317,6 +374,42 @@ class PlaywrightEngine:
     async def scroll_results(self, limit: int, status_callback: Optional[Callable[[str], None]] = None) -> AsyncGenerator[Tuple[str, str], None]:
         """
         Continuous discovery loop over the Google Maps results feed.
+        """
+        if self._needs_proactor and self._proactor_loop:
+            caller_loop = asyncio.get_running_loop()
+            q: asyncio.Queue[Tuple[Optional[str], Optional[str], Optional[Exception]]] = asyncio.Queue()
+
+            def safe_status_callback(stage: str):
+                if status_callback:
+                    try:
+                        caller_loop.call_soon_threadsafe(status_callback, stage)
+                    except Exception:
+                        pass
+
+            async def _producer():
+                try:
+                    async for detail_html, current_url in self._scroll_results_internal(limit, safe_status_callback):
+                        caller_loop.call_soon_threadsafe(q.put_nowait, (detail_html, current_url, None))
+                    caller_loop.call_soon_threadsafe(q.put_nowait, (None, None, None))
+                except Exception as exc:
+                    caller_loop.call_soon_threadsafe(q.put_nowait, (None, None, exc))
+
+            asyncio.run_coroutine_threadsafe(_producer(), self._proactor_loop)
+
+            while True:
+                detail_html, current_url, exc = await q.get()
+                if exc is not None:
+                    raise exc
+                if detail_html is None:
+                    break
+                yield detail_html, current_url
+        else:
+            async for item in self._scroll_results_internal(limit, status_callback):
+                yield item
+
+    async def _scroll_results_internal(self, limit: int, status_callback: Optional[Callable[[str], None]] = None) -> AsyncGenerator[Tuple[str, str], None]:
+        """
+        Continuous discovery loop over the Google Maps results feed.
 
         Yields (detail_html, current_url) for every newly discovered business.
         The loop does NOT stop when ``len(discovered) == limit`` — the consumer
@@ -366,12 +459,16 @@ class PlaywrightEngine:
                         await new_page.wait_for_function('''() => {
                             const h1s = Array.from(document.querySelectorAll('h1'));
                             return h1s.some(h1 => h1.innerText.trim().toLowerCase() !== 'results' && h1.innerText.trim().length > 0);
-                        }''', timeout=10000)
-                        # Wait for Google Maps dynamic content (like phone numbers) to populate below the h1
-                        await asyncio.sleep(1.0)
+                        }''', timeout=8000)
+                        # Quick wait for dynamic content (phone, website, address) to populate
+                        try:
+                            await new_page.wait_for_selector('[data-item-id]', timeout=1500)
+                        except PlaywrightError:
+                            pass
+                        await asyncio.sleep(0.3)
                     except PlaywrightError:
                         logger.warning("[ENGINE] Timeout waiting for detail panel h1 in new tab. Proceeding anyway.")
-                        await asyncio.sleep(1.5)
+                        await asyncio.sleep(0.5)
 
                     current_url = new_page.url
                     detail_html = await new_page.content()

@@ -60,8 +60,10 @@ async def get_current_user(
     raw_role = user.get("role", role_lower) or role_lower
     user["role"] = raw_role.upper() if isinstance(raw_role, str) else raw_role
     
-    from app.core.context import set_current_user_id
+    from app.core.context import set_current_user_id, set_current_user_role
     set_current_user_id(user["_id"])
+    role_str = str(user["role"])
+    set_current_user_role(role_str)
     
     if role_lower == "admin":
         if "hashed_password" not in user and "password_hash" in user:

@@ -103,23 +103,31 @@ export default function CampaignMonitor({ campaignId, onClose }: CampaignMonitor
     };
 
     socket.onmessage = (event) => {
-      const message = JSON.parse(event.data);
-      console.log('WebSocket message:', message);
+      if (!event.data || typeof event.data !== 'string') return;
+      const trimmed = event.data.trim();
+      if (!trimmed || trimmed === 'ping' || trimmed === 'pong') return;
 
-      // Add to realtime updates feed
-      setRealtimeUpdates((prev) => [
-        `${new Date().toLocaleTimeString()}: ${message.type}`,
-        ...prev.slice(0, 9),
-      ]);
+      try {
+        const message = JSON.parse(trimmed);
+        console.log('WebSocket message:', message);
 
-      // Refresh stats on important events
-      if (
-        message.type === 'message_sent' ||
-        message.type === 'message_failed' ||
-        message.type === 'campaign_completed'
-      ) {
-        fetchStats();
-        fetchLogs();
+        // Add to realtime updates feed
+        setRealtimeUpdates((prev) => [
+          `${new Date().toLocaleTimeString()}: ${message.type}`,
+          ...prev.slice(0, 9),
+        ]);
+
+        // Refresh stats on important events
+        if (
+          message.type === 'message_sent' ||
+          message.type === 'message_failed' ||
+          message.type === 'campaign_completed'
+        ) {
+          fetchStats();
+          fetchLogs();
+        }
+      } catch (err) {
+        console.warn('Failed to parse campaign WS message:', err);
       }
     };
 

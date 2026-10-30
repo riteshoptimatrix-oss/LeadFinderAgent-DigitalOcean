@@ -11,7 +11,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <Sidebar />
           <main className="flex-1 flex flex-col min-w-0 overflow-y-auto bg-transparent">
             <Navbar />
-            <div className="flex-1 w-full px-4 py-5 sm:px-6 sm:py-6 lg:px-8 lg:py-6">
+            <div className="flex-1 px-4 sm:px-6 lg:px-8 py-6 w-full">
               {children}
             </div>
           </main>

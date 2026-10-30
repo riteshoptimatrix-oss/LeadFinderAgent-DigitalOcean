@@ -89,7 +89,7 @@ export default class EmailErrorBoundary extends Component<
         </button>
 
         {this.state.showDetails && this.state.error && (
-          <pre className="mt-4 w-full max-w-2xl text-left text-xs bg-slate-900 text-red-300 p-4 rounded-xl overflow-auto custom-scrollbar">
+          <pre className="mt-4 w-full max-w-2xl text-left text-xs bg-rose-50 border border-rose-200 text-rose-800 p-4 rounded-xl overflow-auto custom-scrollbar">
             {String(this.state.error.stack || this.state.error.message || this.state.error)}
           </pre>
         )}

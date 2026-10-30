@@ -557,14 +557,18 @@ export default function AIAnalysisMonitor({ queueId, onClose, onComplete }: Moni
       };
 
       sock.onmessage = (event) => {
+        if (!event.data || typeof event.data !== 'string') return;
+        const trimmed = event.data.trim();
+        if (!trimmed || trimmed === 'pong' || trimmed === 'ping') return;
+
         try {
-          const data = JSON.parse(event.data);
+          const data = JSON.parse(trimmed);
           if (!data || !data.type) return;
           if (data.type === 'HEARTBEAT' || data.type === 'pong') return;
           console.log(`[AIAnalysisWS] MESSAGE_RECEIVED type=${data.type} stage=${data.stage || ''} status=${data.queue_status || data.status || ''}`);
           handleMessage(data);
         } catch (e) {
-          console.error("[AIAnalysisWS] Parse Error", e);
+          console.warn("[AIAnalysisWS] Parse Error", e);
         }
       };
 
@@ -600,14 +604,21 @@ export default function AIAnalysisMonitor({ queueId, onClose, onComplete }: Moni
       isMounted = false;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (ws) {
-        ws.onopen = null;
-        ws.onmessage = null;
-        ws.onclose = null;
-        ws.onerror = null;
+        const activeWs = ws;
+        activeWs.onopen = null;
+        activeWs.onmessage = null;
+        activeWs.onclose = null;
+        activeWs.onerror = null;
         try {
-          ws.close();
+          if (activeWs.readyState === WebSocket.OPEN) {
+            activeWs.close();
+          } else if (activeWs.readyState === WebSocket.CONNECTING) {
+            activeWs.onopen = () => {
+              try { activeWs.close(); } catch {}
+            };
+          }
         } catch {
-          /* socket was still connecting; it is now aborted */
+          /* socket error ignored */
         }
       }
       wsRef.current = null;

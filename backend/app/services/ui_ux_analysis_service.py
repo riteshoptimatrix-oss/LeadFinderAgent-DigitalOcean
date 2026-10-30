@@ -24,6 +24,10 @@ class UiUxAnalysisService:
         }
 
     async def _capture_screenshots(self, url: str, on_update=None) -> List[ScreenshotRecord]:
+        from app.utils.async_loop_helper import run_in_proactor
+        return await run_in_proactor(self._capture_screenshots_internal, url, on_update)
+
+    async def _capture_screenshots_internal(self, url: str, on_update=None) -> List[ScreenshotRecord]:
         screenshots = []
         
         async with async_playwright() as p:

@@ -36,6 +36,7 @@ class BulkAnalysisRequest(BaseModel):
     filters: Optional[Dict[str, Any]] = None
     name: Optional[str] = "Bulk AI Website Analysis"
     concurrency: int = Field(default=3, ge=1, le=20)
+    reanalyze: bool = Field(default=False)
 
 
 @router.post("/bulk/prepare")
@@ -50,7 +51,14 @@ async def prepare_bulk_analysis(
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    report = await _prepare(db, request.lead_ids, request.filters)
+    scoped_user_id = str(current_user.id) if getattr(current_user, "role", "") != "ADMIN" else None
+    report = await _prepare(
+        db,
+        request.lead_ids,
+        request.filters,
+        user_id=scoped_user_id,
+        reanalyze=request.reanalyze,
+    )
     return report
 
 
@@ -66,6 +74,7 @@ async def start_bulk_analysis(
     if db is None:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
+    scoped_user_id = str(current_user.id) if getattr(current_user, "role", "") != "ADMIN" else None
     queue, report = await create_bulk_queue(
         db,
         user_id=str(current_user.id),
@@ -73,6 +82,8 @@ async def start_bulk_analysis(
         lead_ids=request.lead_ids,
         filters=request.filters,
         concurrency=request.concurrency,
+        filter_user_id=scoped_user_id,
+        reanalyze=request.reanalyze,
     )
     if queue is None:
         raise HTTPException(
@@ -266,7 +277,8 @@ async def websocket_endpoint(websocket: WebSocket, queue_id: str, token: Optiona
                 issuer=app_settings.JWT_ISSUER
             )
             user_id = payload.get("sub")
-            logger.info(f"AUTH_SUCCESS: Token accepted for queue {queue_id} (user={user_id})")
+            user_role = (payload.get("role") or "").lower()
+            logger.info(f"AUTH_SUCCESS: Token accepted for queue {queue_id} (user={user_id}, role={user_role})")
         except JWTError as e:
             logger.error(f"AUTH_FAILED: Invalid/expired token for queue {queue_id}: {repr(e)}")
             await websocket.accept()
@@ -280,10 +292,12 @@ async def websocket_endpoint(websocket: WebSocket, queue_id: str, token: Optiona
 
     # 2. Queue lookup and ownership validation
     queue = await AIAnalysisQueueService.get_queue_status(queue_id)
-    if not queue or str(queue.get("user_id")) != str(user_id):
+    queue_owner = str(queue.get("user_id", "")) if queue else ""
+    is_owner = queue_owner == str(user_id) or queue_owner in ["system", "", "None"]
+    if not queue or (not is_owner and user_role != "admin"):
         logger.error(
             f"AUTH_FAILED: Queue {queue_id} not found or not owned by user {user_id}. "
-            f"queue_found={queue is not None}"
+            f"queue_found={queue is not None}, owner={queue_owner}, user_role={user_role}"
         )
         await websocket.accept()
         await websocket.close(code=4003)

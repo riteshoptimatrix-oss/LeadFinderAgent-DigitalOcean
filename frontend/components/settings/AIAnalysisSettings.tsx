@@ -27,7 +27,7 @@ const flowSteps = [
   {
     id: 3,
     title: 'Deep Data Mining',
-    description: 'Gemini AI scans the text to extract hidden email addresses, founder names, and social media footprints.',
+    description: 'Opti AIscans the text to extract hidden email addresses, founder names, and social media footprints.',
     icon: BrainCircuit,
     gradient: 'from-violet-500 to-purple-400',
     bg: 'bg-violet-50',
@@ -66,20 +66,20 @@ const flowSteps = [
   }
 ];
 
-export default function AIAnalysisSettings({ setHasUnsavedChanges }: { setHasUnsavedChanges?: (val: boolean) => void } = {}) {
+export default function AIAnalysisSettings() {
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10 max-w-5xl mx-auto">
       <div className="text-center sm:text-left">
         <h2 className="text-xl font-bold text-gray-900 tracking-tight">AI Analysis Architecture</h2>
         <p className="text-sm text-gray-500 mt-1 max-w-2xl mx-auto sm:mx-0">
-          Understanding our intelligence layer. This represents how raw website data is autonomously transformed into structured, scored leads using Gemini AI.
+          Understanding our intelligence layer. This represents how raw website data is autonomously transformed into structured, scored leads using Opti Matrix AI.
         </p>
       </div>
 
       <div className="relative mt-12 mb-16">
         {/* Continuous Connection Line */}
         <div className="absolute left-[39px] lg:left-1/2 top-4 bottom-4 w-1 bg-gradient-to-b from-emerald-100 via-violet-100 to-blue-100 lg:-translate-x-1/2 rounded-full hidden sm:block" />
-        
+
         <div className="space-y-8 sm:space-y-16">
           {flowSteps.map((step, index) => {
             const Icon = step.icon;
@@ -87,12 +87,12 @@ export default function AIAnalysisSettings({ setHasUnsavedChanges }: { setHasUns
 
             return (
               <div key={step.id} className="relative flex flex-col lg:flex-row items-center justify-between group">
-                
+
                 {/* Left Side Content (Desktop) */}
                 <div className={`w-full lg:w-[45%] pl-20 sm:pl-24 lg:pl-0 ${isEven ? 'lg:pr-12 lg:text-right' : 'lg:order-2 lg:pl-12 lg:text-left'}`}>
                   <div className={`bg-white rounded-2xl p-6 shadow-sm border border-gray-100 hover:border-gray-200 hover:shadow-lg hover:-translate-y-1 transition-all duration-300 relative overflow-hidden ${isEven ? 'lg:origin-right' : 'lg:origin-left'}`}>
                     <div className={`absolute top-0 ${isEven ? 'right-0' : 'left-0'} w-1 h-full bg-gradient-to-b ${step.gradient}`}></div>
-                    
+
                     <h3 className="text-base font-bold text-gray-900 mb-2 flex flex-col sm:flex-row items-start sm:items-center gap-3 lg:inline-flex lg:flex-row">
                       {!isEven && <span className={`text-[10px] font-black px-2 py-1 rounded-md ${step.bg} ${step.text} uppercase tracking-wider hidden lg:inline-block`}>Step {step.id}</span>}
                       {step.title}
@@ -128,7 +128,7 @@ export default function AIAnalysisSettings({ setHasUnsavedChanges }: { setHasUns
         <div className="relative z-10">
           <h3 className="text-lg font-bold text-gray-900">AI Logic is Active</h3>
           <p className="text-sm text-gray-500 mt-1">
-            Gemini AI models are actively configured for this workspace. No manual intervention is needed.
+            Opti AImodels are actively configured for this workspace. No manual intervention is needed.
           </p>
         </div>
         <div className="relative z-10 shrink-0">

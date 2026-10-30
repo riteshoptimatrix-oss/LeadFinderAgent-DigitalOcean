@@ -295,18 +295,18 @@ export default function CampaignHistory() {
           )}
 
           {/* Live WebSocket Logs */}
-          <div className="mt-6 bg-slate-900 rounded-xl p-4 border border-slate-800 h-48 flex flex-col">
-            <div className="flex items-center gap-2 text-slate-400 mb-3 text-xs font-bold uppercase tracking-wider">
-              <Terminal className="w-4 h-4" /> Live Terminal
+          <div className="mt-6 bg-slate-50/80 rounded-xl p-4 border border-slate-200 h-48 flex flex-col shadow-xs">
+            <div className="flex items-center gap-2 text-slate-700 mb-3 text-xs font-bold uppercase tracking-wider">
+              <Terminal className="w-4 h-4 text-slate-600" /> Live Terminal
             </div>
-            <div className="flex-1 overflow-auto font-mono text-xs space-y-1.5 scrollbar-thin scrollbar-thumb-slate-700">
+            <div className="flex-1 overflow-auto font-mono text-xs space-y-1.5 scrollbar-thin scrollbar-thumb-slate-300">
               {wsLogs.map((log, i) => (
                 <div key={i} className={cn(
-                  "opacity-90",
-                  log.includes('[Success]') ? "text-green-400" :
-                  log.includes('[Error]') ? "text-red-400" :
-                  log.includes('[Warning]') ? "text-amber-400" :
-                  log.includes('[System]') ? "text-blue-400" : "text-slate-300"
+                  "font-medium",
+                  log.includes('[Success]') ? "text-emerald-700" :
+                  log.includes('[Error]') ? "text-rose-700" :
+                  log.includes('[Warning]') ? "text-amber-700" :
+                  log.includes('[System]') ? "text-blue-700" : "text-slate-700"
                 )}>
                   {log}
                 </div>

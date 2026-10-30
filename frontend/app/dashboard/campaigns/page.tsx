@@ -44,7 +44,7 @@ export default function CampaignsPage() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
+    <div className="w-full space-y-6 pb-12">
       <div className="flex justify-between items-center">
         <PageHeader title="Campaign Engine" description="Manage all Email, WhatsApp, and SMS outreaches." />
         <Link 

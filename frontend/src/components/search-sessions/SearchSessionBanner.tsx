@@ -9,7 +9,9 @@ import {
   Target,
   CheckCircle2,
   X,
+  ExternalLink,
 } from 'lucide-react';
+import Link from 'next/link';
 import {
   SearchSession,
   formatSearchDate,
@@ -69,9 +71,16 @@ export default function SearchSessionBanner({ session, onClear }: SearchSessionB
         </div>
 
         <div className="flex items-center gap-2 lg:ml-3 shrink-0">
+          <Link
+            href={`/dashboard/search/job/detail?id=${session.job_id || session.id}`}
+            className="px-3.5 py-2.5 bg-white/15 hover:bg-white/25 text-white border border-white/20 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all"
+            title="View complete campaign details & logs"
+          >
+            <ExternalLink className="w-3.5 h-3.5" /> Campaign Details
+          </Link>
           <button
             onClick={onClear}
-            className="px-4 py-2.5 bg-white text-blue-700 hover:bg-blue-50 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95"
+            className="px-4 py-2.5 bg-white text-blue-700 hover:bg-blue-50 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
           >
             <X className="w-3.5 h-3.5" /> Back to All Leads
           </button>

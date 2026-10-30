@@ -19,16 +19,19 @@ export default function EmailErrorCenter() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-gradient-to-br from-red-500 to-rose-600 rounded-3xl p-8 text-white flex items-center justify-between shadow-lg">
+      <div className="bg-rose-50/80 border border-rose-200/80 rounded-3xl p-8 text-slate-900 flex items-center justify-between shadow-xs">
         <div>
-          <h2 className="text-3xl font-bold flex items-center gap-3">
-            <ShieldCheck className="w-8 h-8" /> Error Center
+          <h2 className="text-2xl font-bold flex items-center gap-3 text-slate-900">
+            <div className="p-2.5 rounded-2xl bg-rose-100 text-rose-600">
+              <ShieldCheck className="w-6 h-6" />
+            </div>
+            Error &amp; Deliverability Center
           </h2>
-          <p className="mt-2 text-red-100 font-medium">Centralized dashboard for tracking SMTP and validation failures.</p>
+          <p className="mt-2 text-slate-500 font-medium text-sm">Centralized dashboard for tracking SMTP handshakes, DNS issues, and validation drops.</p>
         </div>
         <div className="text-right">
-          <div className="text-5xl font-black">{totalErrors}</div>
-          <div className="text-red-100 font-semibold uppercase text-sm tracking-wider mt-1">Total Failures Logged</div>
+          <div className="text-4xl font-black text-rose-600">{totalErrors}</div>
+          <div className="text-slate-400 font-bold uppercase text-xs tracking-wider mt-1">Total Failures Logged</div>
         </div>
       </div>
 

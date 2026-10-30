@@ -46,7 +46,7 @@ export default function AdminDashboardPage() {
   if (!mounted) return null;
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
+    <div className="w-full space-y-6 pb-12">
       <div className="flex justify-between items-center">
         <PageHeader title="System Monitoring" description="Real-time infrastructure health and queue status." />
         <button 

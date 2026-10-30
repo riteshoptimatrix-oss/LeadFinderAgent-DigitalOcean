@@ -22,7 +22,7 @@ export default function AuditLogsPage() {
   const logs = responseData?.data || [];
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto">
+    <div className="w-full space-y-6 pb-12">
       <PageHeader title="Global Audit Logs" description="Track all sensitive actions across the entire enterprise system." />
 
       <div className="bg-[#FAFAF8] border border-[#E7E5E4] rounded-xl overflow-hidden">

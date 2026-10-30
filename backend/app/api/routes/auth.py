@@ -95,19 +95,6 @@ async def login_access_token(
         ip_address=ip_address,
         user_agent=device_info
     )
-
-    try:
-        from app.services.activity_logger import log_user_activity
-        await log_user_activity(
-            user_id=str(user_id),
-            activity_type="USER_LOGIN" if role == "user" else "ADMIN_LOGIN",
-            module="auth",
-            title="User Logged In",
-            description=f"Authenticated from {device_info or 'Browser'}",
-            ip_address=ip_address
-        )
-    except Exception:
-        pass
     
     # Update last login
     collection = "admins" if role == "admin" else "users"
@@ -164,19 +151,6 @@ async def register_user(
         user_email=user_in.email,
         ip_address=request.client.host if request.client else None
     )
-
-    try:
-        from app.services.activity_logger import log_user_activity
-        await log_user_activity(
-            user_id=str(result.inserted_id),
-            activity_type="ACCOUNT_CREATED",
-            module="auth",
-            title="Account Registered",
-            description=f"New user registered: {user_in.email}",
-            ip_address=request.client.host if request.client else None
-        )
-    except Exception:
-        pass
     
     return UserResponse(**created_user)
 

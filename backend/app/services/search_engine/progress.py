@@ -11,7 +11,7 @@ class Progress:
     Manages job tracking and status updates.
     """
     
-    async def create_job(self, keyword: str, area: str, city: str, state: str, country: str, limit: int, provider: str = "Google Maps", user_id: str = None) -> str:
+    async def create_job(self, keyword: str, area: str, city: str, state: str, country: str, limit: int, provider: str = "Google Maps", user_id: str = None, exhaustive: bool = False, grid_size: int = 3, target_cap: str = "ALL") -> str:
         """
         Creates a new SearchJob in the database and returns its ID.
         """
@@ -29,6 +29,9 @@ class Progress:
             "country": country,
             "provider": provider,
             "limit": limit,
+            "exhaustive": bool(exhaustive),
+            "grid_size": int(grid_size or 3),
+            "target_cap": target_cap,
             "user_id": user_id,
             "status": "QUEUED",
             "progress": 0,
@@ -39,7 +42,7 @@ class Progress:
             "completed_leads": 0,
             "duration_seconds": 0,
             "estimated_remaining_time": 0,
-            "logs": [{"stage": "CREATED", "message": "Job created", "timestamp": now}],
+            "logs": [{"stage": "CREATED", "message": f"Job created (Target Cap: {target_cap})", "timestamp": now}],
             "created_at": now,
             "updated_at": now
         }

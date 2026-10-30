@@ -4,7 +4,7 @@ import { Database, Download, Upload, AlertCircle } from 'lucide-react';
 
 export default function DataPage() {
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-24">
+    <div className="w-full space-y-6 pb-16">
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
         <div className="space-y-1">

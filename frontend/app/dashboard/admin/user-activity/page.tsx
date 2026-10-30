@@ -1,8 +1,10 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
+import { useAuthStore } from '@/src/features/auth/store';
 import { 
   Users, UserCheck, LogIn, Search, Target, Zap, Mail, MessageSquare, 
   ChevronRight, Calendar, Search as SearchIcon, Filter, Eye, Activity
@@ -10,6 +12,30 @@ import {
 import UserDetailPanel from '@/components/admin/UserDetailPanel';
 
 export default function UserActivityPage() {
+  const router = useRouter();
+  const authUser = useAuthStore((state) => state.user);
+
+  const { data: userProfile, isLoading: profileLoading } = useQuery({
+    queryKey: ['userProfile'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/users/me');
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  const userRole = (userProfile?.role || authUser?.role || '')?.toLowerCase();
+  const isAdmin = userRole === 'admin' || userProfile?.is_superuser === true;
+
+  useEffect(() => {
+    if (!profileLoading && !isAdmin) {
+      router.replace('/dashboard');
+    }
+  }, [isAdmin, profileLoading, router]);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
 
@@ -43,10 +69,13 @@ export default function UserActivityPage() {
     { label: 'AI Analyses', value: stats?.total_ai_analyses || 0, icon: Zap, color: 'text-amber-600', bg: 'bg-amber-50' },
   ];
 
+  if (profileLoading || !isAdmin) {
+    return null;
+  }
+
   return (
-    <div className="flex-1 overflow-auto bg-gray-50/50 min-h-screen">
-      <div className="p-8 max-w-[1600px] mx-auto space-y-8">
-        {/* Header */}
+    <div className="w-full space-y-6 pb-12">
+      {/* Header */}
         <div>
           <h1 className="text-2xl font-bold text-gray-900 tracking-tight">Enterprise User Activity</h1>
           <p className="text-sm text-gray-500 mt-1">Monitor all registered users, their sessions, and generated leads.</p>
@@ -158,7 +187,6 @@ export default function UserActivityPage() {
             </table>
           </div>
         </div>
-      </div>
 
       {/* Slide-over Panel */}
       {selectedUserId && (

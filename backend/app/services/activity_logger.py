@@ -1,8 +1,8 @@
 import logging
 from typing import Optional, Dict, Any
-from app.db.database import db_instance
+from app.db.database import get_db
 from app.models.activity_log import ActivityLogCreate
-from datetime import datetime, timezone
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -21,13 +21,9 @@ async def log_user_activity(
     Logs user activity to the activity_logs collection for the Enterprise Admin Module.
     """
     try:
-        db = db_instance.db
-        if db is None:
-            logger.warning("Activity logger skipped: MongoDB connection not ready")
-            return
-            
+        db = get_db()
         log_entry = ActivityLogCreate(
-            user_id=str(user_id),
+            user_id=user_id,
             activity_type=activity_type,
             module=module,
             title=title,
@@ -36,9 +32,9 @@ async def log_user_activity(
             ip_address=ip_address,
             browser=browser,
             device=device,
-            created_at=datetime.now(timezone.utc)
+            created_at=datetime.utcnow()
         )
         
         await db["activity_logs"].insert_one(log_entry.model_dump())
     except Exception as e:
-        logger.error(f"Failed to log user activity: {e}", exc_info=True)
+        logger.error(f"Failed to log user activity: {e}")

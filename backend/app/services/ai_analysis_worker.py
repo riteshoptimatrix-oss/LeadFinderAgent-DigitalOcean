@@ -29,9 +29,10 @@ Rules:
 """
 
 import asyncio
+from app.utils.website_validator import is_valid_website
 import psutil
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Union
 from enum import Enum
 from dataclasses import dataclass, field
 
@@ -189,7 +190,7 @@ class AIAnalysisWorker:
         self._background_tasks: List[asyncio.Task] = []
 
     @staticmethod
-    def _normalize_queue_id(queue_id) -> ObjectId | str:
+    def _normalize_queue_id(queue_id) -> Union[ObjectId, str]:
         if isinstance(queue_id, ObjectId):
             return queue_id
         if isinstance(queue_id, str) and len(queue_id) == 24:
@@ -301,6 +302,19 @@ class AIAnalysisWorker:
                 await db["ai_analysis_queues"].update_one(
                     {"_id": queue_id_obj},
                     {"$inc": {"failed_jobs": 1}}
+                )
+
+            # Auto-update lead document so it does not stay stuck in 'Queued' / 'Analyzing...'
+            if lead_id:
+                lead_oid = to_object_id(lead_id)
+                await db["leads"].update_one(
+                    {"_id": lead_oid},
+                    {"$set": {
+                        "ai_analysis.analysis_status": "Failed",
+                        "ai_analysis.stage": "Analysis timed out. Please retry.",
+                        "ai_analysis.progress": 0,
+                        "updated_at": now,
+                    }}
                 )
 
             # Broadcast failure event
@@ -814,29 +828,28 @@ class AIAnalysisWorker:
                 await manager.broadcast_to_job(str(queue_id), payload)
                 logger.info(f"EVENT_SENT: {legacy_type or event_type} for queue {queue_id} (job {job_id})")
 
-                # Persist ongoing progress into the lead and job documents so it survives drawer close / page reload
+                # Persist live progress into MongoDB so leads table and drawer always share truth
                 try:
-                    is_terminal = status in ("success", "failed", "completed")
-                    ai_db_status = "COMPLETED" if (is_terminal and status != "failed") else ("FAILED" if status == "failed" else "ANALYZING")
+                    lead_status_label = "Completed" if status == "success" else ("Failed" if status == "failed" else "Running")
                     await db["leads"].update_one(
                         {"_id": to_object_id(lead_id)},
                         {"$set": {
-                            "ai_analysis.status": ai_db_status,
-                            "ai_analysis.stage": stage,
                             "ai_analysis.progress": progress,
-                            "ai_analysis.analysis_status": "Completed" if (is_terminal and status != "failed") else ("Failed" if status == "failed" else "Running"),
+                            "ai_analysis.stage": stage,
+                            "ai_analysis.analysis_status": lead_status_label,
+                            "updated_at": datetime.now(timezone.utc),
                         }}
                     )
                     await db["ai_analysis_jobs"].update_one(
                         {"_id": job_id},
                         {"$set": {
+                            "progress": progress,
                             "current_stage": stage,
-                            "current_progress": progress,
-                            "updated_at": datetime.now(timezone.utc)
+                            "updated_at": datetime.now(timezone.utc),
                         }}
                     )
-                except Exception as persist_err:
-                    logger.debug(f"Progress persistence non-fatal error: {persist_err}")
+                except Exception as update_err:
+                    logger.debug(f"Progress update to DB skipped: {update_err}")
             except Exception as ws_err:
                 logger.warning(f"WebSocket broadcast failed: {repr(ws_err)}")
 
@@ -916,64 +929,21 @@ class AIAnalysisWorker:
             # ════════════════════════════════════════════
             # PHASE 0 — Website Validation
             # ════════════════════════════════════════════
-            from urllib.parse import urlparse
+            is_valid = is_valid_website(website_url)
             
-            def parse_social_from_url(url: str) -> dict:
-                if not url:
-                    return {"is_social": False}
-                domain = urlparse(url).netloc.lower()
-                if domain.startswith("www."):
-                    domain = domain[4:]
-                
-                social_domains = {
-                    "instagram.com": "instagram",
-                    "facebook.com": "facebook",
-                    "linkedin.com": "linkedin",
-                    "youtube.com": "youtube",
-                    "threads.net": "threads",
-                    "telegram.me": "telegram",
-                    "t.me": "telegram",
-                    "wa.me": "whatsapp",
-                    "whatsapp.com": "whatsapp",
-                    "linktr.ee": "linktree",
-                    "business.site": "google_business",
-                    "googleusercontent.com": "google",
-                    "drive.google.com": "google_drive",
-                    "docs.google.com": "google_docs",
-                    "sites.google.com": "google_sites",
-                    "maps.google.com": "google_maps",
-                    "goo.gl": "google",
-                    "bit.ly": "bitly",
-                    "tinyurl.com": "tinyurl"
-                }
-                
-                for key, platform in social_domains.items():
-                    if domain == key or domain.endswith("." + key):
-                        return {"is_social": True, "platform": platform, "domain": key}
-                return {"is_social": False}
-
-            val_result = parse_social_from_url(website_url)
-            
-            if val_result["is_social"] or not website_url:
-                platform = val_result.get("platform", "Unknown")
-                reason = "Business only provided a social media or profile link." if val_result["is_social"] else "No website provided."
+            if not is_valid:
+                reason = "No website provided."
                 logger.info(f"PHASE_0_SKIPPED: Job {job_id} skipped. {reason} URL: {website_url}")
                 
-                # Update DB directly since we skip standard enrichment to save time
-                social_update = {}
-                if val_result["is_social"]:
-                    social_update[f"social_media.{platform}"] = website_url
-                    
                 await db["leads"].update_one(
                     {"_id": to_object_id(lead_id)},
                     {"$set": {
                         "website_status": "NO_PROFESSIONAL_WEBSITE",
-                        "website_type": "social_only" if val_result["is_social"] else "none",
+                        "website_type": "none",
                         "professional_website": False,
-                        "social_only": val_result["is_social"],
+                        "social_only": False,
                         "analysis_skipped_reason": reason,
                         "ai_analysis.analysis_status": "Skipped",
-                        **social_update
                     }}
                 )
                 
@@ -2016,6 +1986,8 @@ class AIAnalysisWorker:
         repairs["ai_score"] = overall_ai_score
         repairs.setdefault("ai_analysis", {})["overall_ai_score"] = overall_ai_score
         repairs.setdefault("ai_analysis", {})["lead_score"] = calculated_lead_score
+        repairs.setdefault("ai_analysis", {})["analysis_status"] = "Completed"
+        repairs.setdefault("ai_analysis", {})["progress"] = 100
 
         if repairs:
             logger.warning(

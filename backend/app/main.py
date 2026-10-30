@@ -18,10 +18,37 @@ if os.getenv('DISABLE_SSL_VERIFICATION', 'false').lower() == 'true':
     print("[STARTUP] SSL verification disabled globally due to DISABLE_SSL_VERIFICATION=true")
 
 if sys.platform == 'win32':
-    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    try:
+        import asyncio.windows_events as we
+        _orig_register = we.IocpProactor._register_with_iocp
+
+        def _safe_register_with_iocp(self, obj):
+            try:
+                _orig_register(self, obj)
+            except OSError as exc:
+                # [WinError 87] The parameter is incorrect: socket handle already associated with IOCP
+                if getattr(exc, 'winerror', None) == 87 or getattr(exc, 'errno', None) == 87:
+                    if hasattr(self, '_registered'):
+                        self._registered.add(obj)
+                    return
+                raise
+
+        we.IocpProactor._register_with_iocp = _safe_register_with_iocp
+    except Exception:
+        pass
+
+    try:
+        asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
+    except Exception:
+        pass
     try:
         import uvicorn.loops.asyncio
         uvicorn.loops.asyncio.asyncio_loop_factory = lambda use_subprocess=False: asyncio.ProactorEventLoop
+    except Exception:
+        pass
+    try:
+        import uvicorn.loops.auto
+        uvicorn.loops.auto.auto_loop_factory = lambda use_subprocess=False: asyncio.ProactorEventLoop
     except Exception:
         pass
 
@@ -408,6 +435,7 @@ app.add_middleware(RequestSizeLimitMiddleware, max_size_mb=app_settings.MAX_REQU
 app.add_middleware(
     CORSMiddleware,
     allow_origins=app_settings.cors_origins_list,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
@@ -447,6 +475,9 @@ app.include_router(ai_analysis.router, prefix=f"{app_settings.API_V1_STR}/ai-ana
 app.include_router(intelligence_routes.router, prefix=f"{app_settings.API_V1_STR}/intelligence", tags=["intelligence"])
 app.include_router(reports.router, prefix=f"{app_settings.API_V1_STR}/reports", tags=["reports"])
 app.include_router(enrichment.router, prefix=f"{app_settings.API_V1_STR}/enrichment", tags=["enrichment"])
+
+from app.api.routes import notifications as notifications_routes
+app.include_router(notifications_routes.router, prefix=f"{app_settings.API_V1_STR}/notifications", tags=["notifications"])
 
 from app.api.routes import admin_activity
 app.include_router(admin_activity.router, prefix=f"{app_settings.API_V1_STR}/admin", tags=["admin"])

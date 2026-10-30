@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { PageHeader } from '@/src/components/common/PageHeader';
 import {
   Download,
   Trash2,
@@ -14,188 +13,370 @@ import {
   Phone,
   Globe,
   ChevronRight,
-  ShieldCheck,
-  Zap,
-  Grid,
-  List,
-  MapPin,
-  Building2,
+  ChevronLeft,
   Sparkles,
   CheckCircle2,
-  MailCheck,
   AlertCircle,
   Copy,
   History,
   Loader2,
   CheckCheck,
-  MoreHorizontal,
-  SlidersHorizontal,
-  ArrowUp,
-  ArrowDown,
   X,
-  Tag,
-  Star
+  SlidersHorizontal,
+  MoreHorizontal,
+  Plus,
+  Building2,
+  MapPin,
+  ExternalLink,
+  RefreshCw,
+  FileSpreadsheet
 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { toast } from 'sonner';
-import LeadAnalysisDrawer from '@/src/components/ai-analysis/LeadAnalysisDrawer';
-import BulkAIAnalysisMonitor from '@/src/components/ai-analysis/BulkAIAnalysisMonitor';
-import BulkAnalysisModal from '@/src/components/ai-analysis/BulkAnalysisModal';
-import SearchSessionsModal, { SearchSession } from '@/src/components/search-sessions/SearchSessionsModal';
+import type { SearchSession } from '@/src/components/search-sessions/SearchSessionsModal';
 import SearchSessionBanner from '@/src/components/search-sessions/SearchSessionBanner';
 import { formatLocation } from '@/src/lib/utils';
 
-export default function LeadsPage() {
+// Dynamically import heavy drawer and modals to keep the initial page chunk light and fast
+const LeadAnalysisDrawer = dynamic(() => import('@/src/components/leads/LeadAnalysisDrawer'), { ssr: false });
+const BulkAIAnalysisMonitor = dynamic(() => import('@/src/components/ai-analysis/BulkAIAnalysisMonitor'), { ssr: false });
+const BulkAnalysisModal = dynamic(() => import('@/src/components/ai-analysis/BulkAnalysisModal'), { ssr: false });
+const SearchSessionsModal = dynamic(() => import('@/src/components/search-sessions/SearchSessionsModal'), { ssr: false });
+
+// Helper to calculate time elapsed for running jobs
+function formatStartedAgo(dateStr?: string | null): string {
+  if (!dateStr) return 'just now';
+  try {
+    const started = new Date(dateStr).getTime();
+    const now = Date.now();
+    const diffMs = now - started;
+    if (diffMs < 0 || isNaN(diffMs)) return 'just now';
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'just now';
+    if (diffMins === 1) return '1 min ago';
+    if (diffMins < 60) return `${diffMins} mins ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    return `${diffHours} hr${diffHours > 1 ? 's' : ''} ago`;
+  } catch {
+    return 'just now';
+  }
+}
+
+// Helper to compute AI Analysis display state from backend-persisted fields
+function getLeadAnalysisState(lead: any) {
+  const ai = lead.ai_analysis;
+  if (!ai) {
+    return {
+      status: 'not_analyzed',
+      label: 'Not Analyzed',
+      progress: 0,
+      startedAt: null,
+    };
+  }
+
+  const rawStatus = (ai.analysis_status || ai.status || '').toLowerCase();
+  const rawProgress = typeof ai.progress === 'number' ? ai.progress : 0;
+  const startedAt = ai.analysis_started_at || ai.started_at || null;
+
+  const hasPositiveScore = Boolean(
+    (lead.ai_score && lead.ai_score > 0) ||
+    (ai.overall_score && ai.overall_score > 0) ||
+    (ai.overall_ai_score && ai.overall_ai_score > 0) ||
+    (lead.lead_score && lead.lead_score > 0)
+  );
+
+  // Completed states: completed, done, partial_success
+  if (['completed', 'done', 'partial_success'].includes(rawStatus)) {
+    return {
+      status: 'completed',
+      label: 'Completed',
+      progress: 100,
+      startedAt,
+    };
+  }
+
+  // If score is present and not actively running
+  if (hasPositiveScore && !['running', 'started', 'collecting', 'analyzing', 'scoring', 'saving'].includes(rawStatus)) {
+    return {
+      status: 'completed',
+      label: 'Completed',
+      progress: 100,
+      startedAt,
+    };
+  }
+
+  // Guard against stale stuck states: if started > 180 seconds ago
+  const isStale = Boolean(startedAt && (Date.now() - new Date(startedAt).getTime() > 180000));
+  if (isStale && ['queued', 'waiting', 'running', 'in_progress', 'started', 'collecting', 'analyzing'].includes(rawStatus)) {
+    if (hasPositiveScore) {
+      return {
+        status: 'completed',
+        label: 'Completed',
+        progress: 100,
+        startedAt,
+      };
+    }
+    return {
+      status: 'failed',
+      label: 'Failed',
+      progress: 0,
+      startedAt,
+    };
+  }
+
+  // Queued / waiting states
+  if (['queued', 'waiting'].includes(rawStatus)) {
+    return {
+      status: 'queued',
+      label: 'Queued',
+      progress: Math.max(rawProgress, 10),
+      startedAt,
+    };
+  }
+
+  // Active running / analyzing states
+  if (['running', 'in_progress', 'started', 'collecting', 'analyzing', 'scoring', 'saving'].includes(rawStatus)) {
+    return {
+      status: 'analyzing',
+      label: 'Analyzing...',
+      progress: Math.max(rawProgress, 25),
+      startedAt,
+    };
+  }
+
+  // Processing state
+  if (rawStatus === 'processing') {
+    return {
+      status: 'processing',
+      label: 'Processing',
+      progress: Math.max(rawProgress, 45),
+      startedAt,
+    };
+  }
+
+  // Failed / error states
+  if (['failed', 'error', 'failed_timeout', 'cancelled'].includes(rawStatus)) {
+    return {
+      status: 'failed',
+      label: 'Failed',
+      progress: rawProgress || 0,
+      startedAt,
+    };
+  }
+
+  return {
+    status: 'not_analyzed',
+    label: 'Not Analyzed',
+    progress: 0,
+    startedAt: null,
+  };
+}
+
+function LeadsPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
 
+  const urlJobId = searchParams.get('job_id');
+
   const [page, setPage] = useState(0);
-  const [limit] = useState(10);
+  const [limit, setLimit] = useState(10);
   const [searchQuery, setSearchQuery] = useState('');
-  const [cityFilter, setCityFilter] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [websiteFilter, setWebsiteFilter] = useState('ALL');
-  const [phoneFilter, setPhoneFilter] = useState('ALL');
-  const [emailFilter, setEmailFilter] = useState('ALL');
-  const [ratingFilter, setRatingFilter] = useState('ALL');
-  const [statusFilter, setStatusFilter] = useState('ALL');
-  const [sortBy, setSortBy] = useState('created_at');
-  const [sortOrder, setSortOrder] = useState<-1 | 1>(-1);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
-  const [filtersOpen, setFiltersOpen] = useState(false);
-  const filtersRef = useRef<HTMLDivElement>(null);
-
-  // Draft filters for popover (committed only on "Apply Filters")
-  const [draftCity, setDraftCity] = useState(cityFilter);
-  const [draftCategory, setDraftCategory] = useState(categoryFilter);
-  const [draftWebsite, setDraftWebsite] = useState(websiteFilter);
-  const [draftPhone, setDraftPhone] = useState(phoneFilter);
-  const [draftEmail, setDraftEmail] = useState(emailFilter);
-  const [draftRating, setDraftRating] = useState(ratingFilter);
-  const [draftStatus, setDraftStatus] = useState(statusFilter);
-  const [draftSortBy, setDraftSortBy] = useState(sortBy);
-  const [draftSortOrder, setDraftSortOrder] = useState<-1 | 1>(sortOrder);
-
-  useEffect(() => {
-    function handleClickOutside(e: MouseEvent) {
-      if (filtersRef.current && !filtersRef.current.contains(e.target as Node)) {
-        setFiltersOpen(false);
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const openFilters = () => {
-    setDraftCity(cityFilter);
-    setDraftCategory(categoryFilter);
-    setDraftWebsite(websiteFilter);
-    setDraftPhone(phoneFilter);
-    setDraftEmail(emailFilter);
-    setDraftRating(ratingFilter);
-    setDraftStatus(statusFilter);
-    setDraftSortBy(sortBy);
-    setDraftSortOrder(sortOrder);
-    setFiltersOpen(true);
-  };
-
-  const applyDraftFilters = () => {
-    setCityFilter(draftCity);
-    setCategoryFilter(draftCategory);
-    setWebsiteFilter(draftWebsite);
-    setPhoneFilter(draftPhone);
-    setEmailFilter(draftEmail);
-    setRatingFilter(draftRating);
-    setStatusFilter(draftStatus);
-    setSortBy(draftSortBy);
-    setSortOrder(draftSortOrder);
-    setPage(0);
-    setFiltersOpen(false);
-  };
-
-  const clearDraftFilters = () => {
-    setDraftCity('');
-    setDraftCategory('');
-    setDraftWebsite('ALL');
-    setDraftPhone('ALL');
-    setDraftEmail('ALL');
-    setDraftRating('ALL');
-    setDraftStatus('ALL');
-    setDraftSortBy('created_at');
-    setDraftSortOrder(-1);
-  };
-
-  const clearAllFilters = () => {
-    setSearchQuery('');
-    setCityFilter('');
-    setCategoryFilter('');
-    setWebsiteFilter('ALL');
-    setPhoneFilter('ALL');
-    setEmailFilter('ALL');
-    setRatingFilter('ALL');
-    setStatusFilter('ALL');
-    setSortBy('created_at');
-    setSortOrder(-1);
-    clearDraftFilters();
-    setActiveSession(null);
-    setPage(0);
-    setFiltersOpen(false);
-  };
-
-  const activeFilterCount =
-    (cityFilter ? 1 : 0) +
-    (categoryFilter ? 1 : 0) +
-    (websiteFilter !== 'ALL' ? 1 : 0) +
-    (phoneFilter !== 'ALL' ? 1 : 0) +
-    (emailFilter !== 'ALL' ? 1 : 0) +
-    (ratingFilter !== 'ALL' ? 1 : 0) +
-    (statusFilter !== 'ALL' ? 1 : 0) +
-    (sortBy !== 'created_at' || sortOrder !== -1 ? 1 : 0);
-
-  const draftActiveFilterCount =
-    (draftCity ? 1 : 0) +
-    (draftCategory ? 1 : 0) +
-    (draftWebsite !== 'ALL' ? 1 : 0) +
-    (draftPhone !== 'ALL' ? 1 : 0) +
-    (draftEmail !== 'ALL' ? 1 : 0) +
-    (draftRating !== 'ALL' ? 1 : 0) +
-    (draftStatus !== 'ALL' ? 1 : 0) +
-    (draftSortBy !== 'created_at' || draftSortOrder !== -1 ? 1 : 0);
-
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [activeQueueId, setActiveQueueId] = useState<string | null>(null);
 
-  // Modern Analysis Drawer & Real-Time Sync States
+  // Currently starting analysis indicator per lead
+  const [startingAnalysisId, setStartingAnalysisId] = useState<string | null>(null);
+
+  // Lead Analysis Drawer state
+  const [selectedDrawerLead, setSelectedDrawerLead] = useState<any | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const [drawerLead, setDrawerLead] = useState<any | null>(null);
-  const [drawerQueueId, setDrawerQueueId] = useState<string | null>(null);
-  const [analyzingLeadIds, setAnalyzingLeadIds] = useState<Set<string>>(new Set());
+  const [drawerAutoStart, setDrawerAutoStart] = useState(false);
+
+  // Add Lead Modal state
+  const [isAddLeadOpen, setIsAddLeadOpen] = useState(false);
+  const [newLeadForm, setNewLeadForm] = useState({
+    name: '',
+    phone: '',
+    email: '',
+    website: '',
+    category: '',
+    city: '',
+    state: '',
+    address: ''
+  });
+
+  const handleOpenAnalysisDrawer = (targetLead: any, autoStart: boolean = false) => {
+    setSelectedDrawerLead(targetLead);
+    setDrawerAutoStart(autoStart);
+    setDrawerOpen(true);
+  };
+
+  const handleSingleAnalysisComplete = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['leads'], refetchType: 'active' }),
+      queryClient.invalidateQueries({ queryKey: ['lead'], refetchType: 'active' }),
+      queryClient.invalidateQueries({ queryKey: ['leadAnalysisSummary'], refetchType: 'active' }),
+    ]);
+    await queryClient.refetchQueries({ queryKey: ['leads'], type: 'active' });
+  };
 
   const [bulkModalOpen, setBulkModalOpen] = useState(false);
   const [bulkModalNonce, setBulkModalNonce] = useState(0);
   const [bulkQueueId, setBulkQueueId] = useState<string | null>(null);
   const [bulkQueueName, setBulkQueueName] = useState('Bulk AI Website Analysis');
+  const [bulkMinimized, setBulkMinimized] = useState(false);
 
   const [sessionsModalOpen, setSessionsModalOpen] = useState(false);
   const [activeSession, setActiveSession] = useState<SearchSession | null>(null);
 
+  // Available campaigns for dropdown and lookup
+  const { data: campaignOptionsData } = useQuery({
+    queryKey: ['campaignOptions'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/search/sessions?limit=50&sort_by=newest');
+        return (res.data?.data || []) as SearchSession[];
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 30000,
+  });
 
+  // Sync activeSession with URL job_id parameter
+  useEffect(() => {
+    if (urlJobId) {
+      if (!activeSession || (activeSession.job_id !== urlJobId && activeSession.id !== urlJobId)) {
+        const found = campaignOptionsData?.find(c => (c.job_id || c.id) === urlJobId);
+        if (found) {
+          setActiveSession(found);
+        } else {
+          api.get(`/search/sessions/${urlJobId}`)
+            .then((res) => {
+              if (res.data?.data) {
+                setActiveSession(res.data.data);
+              }
+            })
+            .catch(() => {
+              setActiveSession({
+                id: urlJobId,
+                job_id: urlJobId,
+                keyword: 'Campaign Leads',
+                country: '',
+                state: '',
+                city: '',
+                area: '',
+                provider: 'Google Maps',
+                search_date: '',
+                search_time: '',
+                duration_seconds: 0,
+                status: 'COMPLETED',
+                progress: 100,
+                requested_leads: 0,
+                total_found: 0,
+                total_saved: 0,
+                leads_count: 0,
+                accepted_leads: 0,
+                duplicate_leads: 0,
+                failed_leads: 0,
+                ai_analysis_completed: 0,
+                ai_analysis_pending: 0,
+                created_at: '',
+              });
+            });
+        }
+      }
+    }
+  }, [urlJobId, campaignOptionsData]);
+
+  // Filters
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterCity, setFilterCity] = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
+  const [filterHasWebsite, setFilterHasWebsite] = useState(false);
+  const [filterHasPhone, setFilterHasPhone] = useState(false);
+  const [filterHasEmail, setFilterHasEmail] = useState(false);
+  const [filterStatus, setFilterStatus] = useState('');
+  const [sortBy, setSortBy] = useState('created_at');
+  const [sortOrder, setSortOrder] = useState(-1);
+
+  const handleClearSession = () => {
+    setActiveSession(null);
+    setPage(0);
+    router.replace('/dashboard/leads');
+    queryClient.invalidateQueries({ queryKey: ['leads'] });
+  };
+
+  const clearAllFilters = () => {
+    setSearchQuery('');
+    setPage(0);
+    setActiveSession(null);
+    router.replace('/dashboard/leads');
+    setFilterCity('');
+    setFilterCategory('');
+    setFilterHasWebsite(false);
+    setFilterHasPhone(false);
+    setFilterHasEmail(false);
+    setFilterStatus('');
+  };
+
+  // Check backend for active bulk queues to restore state on navigation/refresh
+  const { data: bulkQueuesData } = useQuery({
+    queryKey: ['activeBulkQueues'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/ai-analysis/bulk/queues');
+        return res.data || [];
+      } catch {
+        return [];
+      }
+    },
+    refetchInterval: (query: any) => {
+      const queues = query.state.data || [];
+      const hasActive = queues.some((q: any) =>
+        ['RUNNING', 'PENDING', 'PAUSED'].includes((q.status || '').toUpperCase()) ||
+        (q.running_jobs && q.running_jobs > 0) ||
+        (q.pending_jobs && q.pending_jobs > 0)
+      );
+      return hasActive ? 3000 : 30000;
+    },
+  });
+
+  const activeBulkQueue = Array.isArray(bulkQueuesData)
+    ? bulkQueuesData.find((q: any) =>
+      ['RUNNING', 'PENDING', 'PAUSED'].includes((q.status || '').toUpperCase()) ||
+      (q.running_jobs && q.running_jobs > 0) ||
+      (q.pending_jobs && q.pending_jobs > 0)
+    )
+    : null;
+
+  // Auto-restore bulk queue ID if an active bulk job is running on the backend
+  useEffect(() => {
+    if (activeBulkQueue && !bulkQueueId) {
+      setBulkQueueId(activeBulkQueue.id);
+      setBulkQueueName(activeBulkQueue.name || 'Bulk AI Website Analysis');
+      setBulkMinimized(true);
+    }
+  }, [activeBulkQueue, bulkQueueId]);
+
+  // Main leads query with automatic backend sync
   const { data, isLoading } = useQuery({
     queryKey: [
       'leads',
       page,
       limit,
       searchQuery,
-      cityFilter,
-      categoryFilter,
-      websiteFilter,
-      phoneFilter,
-      emailFilter,
-      ratingFilter,
-      statusFilter,
+      activeSession?.job_id,
+      filterCity,
+      filterCategory,
+      filterHasWebsite,
+      filterHasPhone,
+      filterHasEmail,
+      filterStatus,
       sortBy,
-      sortOrder,
-      activeSession?.job_id
+      sortOrder
     ],
     queryFn: async () => {
       const params = new URLSearchParams({
@@ -206,66 +387,40 @@ export default function LeadsPage() {
       });
       if (activeSession?.job_id) params.append('job_id', activeSession.job_id);
       if (searchQuery) params.append('keyword', searchQuery);
-      if (cityFilter) params.append('city', cityFilter);
-      if (categoryFilter) params.append('category', categoryFilter);
-      if (websiteFilter === 'HAS_WEBSITE') params.append('has_website', 'true');
-      if (websiteFilter === 'NO_WEBSITE') params.append('has_website', 'false');
-      if (phoneFilter === 'HAS_PHONE') params.append('has_phone', 'true');
-      if (phoneFilter === 'NO_PHONE') params.append('has_phone', 'false');
-      if (emailFilter === 'HAS_EMAIL') params.append('has_email', 'true');
-      if (emailFilter === 'NO_EMAIL') params.append('has_email', 'false');
-      if (ratingFilter !== 'ALL') params.append('min_rating', ratingFilter);
-      if (statusFilter !== 'ALL') params.append('status', statusFilter);
+      if (filterCity) params.append('city', filterCity);
+      if (filterCategory) params.append('category', filterCategory);
+      if (filterHasWebsite) params.append('has_website', 'true');
+      if (filterHasPhone) params.append('has_phone', 'true');
+      if (filterHasEmail) params.append('has_email', 'true');
+      if (filterStatus) params.append('status', filterStatus);
 
       const res = await api.get(`/leads?${params.toString()}`);
       return res.data;
     },
-    // Real-time synchronization: Adaptive polling while any lead is analyzing
+    // Auto-poll every 3s if any lead is actively analyzing/queued or bulk is active, else 15s
     refetchInterval: (query: any) => {
-      const activeRunning = query?.state?.data?.data?.some((l: any) =>
-        ['analyzing', 'running', 'started', 'collecting', 'scoring', 'saving', 'queued'].includes(
-          (l.ai_status || l.ai_analysis?.status || '').toLowerCase()
-        )
-      );
-      return activeRunning || analyzingLeadIds.size > 0 ? 3000 : 15000;
+      const currentLeads = query.state.data?.data || [];
+      const hasActiveLead = currentLeads.some((l: any) => {
+        const s = (l.ai_analysis?.analysis_status || l.ai_analysis?.status || '').toLowerCase();
+        return s === 'running' || s === 'queued' || s === 'processing' || s === 'in_progress';
+      });
+      return hasActiveLead || Boolean(activeBulkQueue) ? 3000 : 15000;
     },
   });
 
   const leads = data?.data || [];
   const total = data?.total || 0;
-  const totalPages = Math.ceil(total / limit);
+  const totalPages = Math.ceil(total / limit) || 1;
 
-  type DebugLead = {
-    phone?: unknown;
-    primary_phone?: unknown;
-    all_phones?: unknown[];
-    phones?: unknown[];
-    state?: unknown;
-    city?: unknown;
-    area?: unknown;
-  };
-
-  // Logging for empty states / debugging
-  useEffect(() => {
-    if (data) {
-      if (data.total === 0) {
-        console.warn("Leads page loaded with 0 records from API. API Response:", data, "Table Rows Rendered: 0");
-      } else {
-        console.log("Leads page loaded. API Response Count:", data.total, "Table Rows Rendered:", leads.length);
-      }
-      const rendered = leads.filter((l: DebugLead) => l.phone || l.primary_phone || (l.all_phones && l.all_phones.length));
-      console.log(
-        "PHONES_RENDERED: rows=", leads.length,
-        "leads_with_phone=", rendered.length,
-        "sample_phones=", leads.slice(0, 3).map((l: DebugLead) => l.phone || l.primary_phone || (l.phones && l.phones[0])),
-        "locations=", leads.slice(0, 3).map((l: DebugLead) => formatLocation(l)),
-      );
-      console.log(
-        "LOCATION_RENDERED: rows=", leads.length,
-        "leads_with_location=", leads.filter((l: DebugLead) => l.state || l.city || l.area).length,
-      );
-    }
-  }, [data, leads.length]);
+  const activeFiltersCount = [
+    filterCity,
+    filterCategory,
+    activeSession?.job_id,
+    filterHasWebsite,
+    filterHasPhone,
+    filterHasEmail,
+    filterStatus
+  ].filter(Boolean).length;
 
   const toggleSelectAll = () => {
     if (selectedIds.size === leads.length && leads.length > 0) {
@@ -282,6 +437,79 @@ export default function LeadsPage() {
     setSelectedIds(newSet);
   };
 
+  // Start individual AI analysis with immediate backend trigger and optimistic UI update
+  const handleStartAnalysis = async (lead: any) => {
+    if (!lead.website) {
+      toast.error('Cannot analyze: Lead has no website available');
+      return;
+    }
+    setStartingAnalysisId(lead._id);
+    try {
+      const res = await api.post(`/leads/${lead._id}/start-analysis`);
+      const resData = res.data;
+      if (resData?.worker_id === 'skipped') {
+        toast.info('Analysis skipped: No professional website available for this lead');
+      } else {
+        toast.success('AI Analysis started', {
+          description: `Analysis queued for ${lead.name || lead.business_name || 'lead'}.`
+        });
+
+        // Optimistically update query cache so button immediately shows Analyzing...
+        queryClient.setQueryData(
+          [
+            'leads',
+            page,
+            limit,
+            searchQuery,
+            activeSession?.job_id,
+            filterCity,
+            filterCategory,
+            filterHasWebsite,
+            filterHasPhone,
+            filterHasEmail,
+            filterStatus,
+            sortBy,
+            sortOrder
+          ],
+          (oldData: any) => {
+            if (!oldData?.data) return oldData;
+            return {
+              ...oldData,
+              data: oldData.data.map((l: any) => {
+                if (l._id === lead._id) {
+                  return {
+                    ...l,
+                    ai_analysis: {
+                      ...(l.ai_analysis || {}),
+                      analysis_status: 'Queued',
+                      progress: 10,
+                      stage: 'Queued for AI analysis',
+                      analysis_started_at: new Date().toISOString(),
+                    }
+                  };
+                }
+                return l;
+              })
+            };
+          }
+        );
+
+        // Invalidate queries so fresh backend telemetry syncs immediately
+        queryClient.invalidateQueries({ queryKey: ['leads'] });
+        queryClient.invalidateQueries({ queryKey: ['lead', lead._id] });
+      }
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to start AI analysis');
+    } finally {
+      setStartingAnalysisId(null);
+    }
+  };
+
+  // Navigate to individual lead detail page
+  const handleOpenLeadDetail = (leadId: string) => {
+    router.push(`/dashboard/leads/detail?id=${leadId}`);
+  };
+
   const [selectAllLoading, setSelectAllLoading] = useState(false);
   const [selectAllError, setSelectAllError] = useState<string | null>(null);
 
@@ -292,20 +520,10 @@ export default function LeadsPage() {
       const params = new URLSearchParams();
       if (activeSession?.job_id) params.append('job_id', activeSession.job_id);
       if (searchQuery) params.append('keyword', searchQuery);
-      if (cityFilter) params.append('city', cityFilter);
-      if (categoryFilter) params.append('category', categoryFilter);
-      if (websiteFilter === 'HAS_WEBSITE') params.append('has_website', 'true');
-      if (websiteFilter === 'NO_WEBSITE') params.append('has_website', 'false');
-      if (phoneFilter === 'HAS_PHONE') params.append('has_phone', 'true');
-      if (phoneFilter === 'NO_PHONE') params.append('has_phone', 'false');
-      if (emailFilter === 'HAS_EMAIL') params.append('has_email', 'true');
-      if (emailFilter === 'NO_EMAIL') params.append('has_email', 'false');
-      if (ratingFilter !== 'ALL') params.append('min_rating', ratingFilter);
-      if (statusFilter !== 'ALL') params.append('status', statusFilter);
       const res = await api.get(`/leads/ids?${params.toString()}`);
       setSelectedIds(new Set(res.data?.data || []));
       toast.success(`Selected ${res.data?.total || 0} leads`);
-    } catch (error) {
+    } catch {
       setSelectAllError('Failed to select all leads. Please try again.');
     } finally {
       setSelectAllLoading(false);
@@ -323,49 +541,67 @@ export default function LeadsPage() {
     }
   });
 
-  const handleQueueCompletion = async () => {
+  const createLeadMutation = useMutation({
+    mutationFn: async (payload: typeof newLeadForm) => {
+      const res = await api.post('/leads', payload);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      setIsAddLeadOpen(false);
+      setNewLeadForm({
+        name: '',
+        phone: '',
+        email: '',
+        website: '',
+        category: '',
+        city: '',
+        state: '',
+        address: ''
+      });
+      toast.success('Lead created successfully');
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Failed to create lead');
+    }
+  });
+
+  const handleBulkQueueCompletion = async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['leads'], refetchType: 'active' }),
       queryClient.invalidateQueries({ queryKey: ['lead'], refetchType: 'active' }),
       queryClient.invalidateQueries({ queryKey: ['leadAnalysisSummary'], refetchType: 'active' }),
-      queryClient.invalidateQueries({ queryKey: ['leadAi'], refetchType: 'active' }),
-      queryClient.invalidateQueries({ queryKey: ['leadAnalysisHistory'], refetchType: 'active' }),
-      queryClient.invalidateQueries({ queryKey: ['leadAnalysisComparison'], refetchType: 'active' }),
+      queryClient.invalidateQueries({ queryKey: ['activeBulkQueues'], refetchType: 'active' }),
     ]);
 
     await queryClient.refetchQueries({ queryKey: ['leads'], type: 'active' });
 
-    setActiveQueueId(null);
-    setBulkQueueId(null);
-    router.push('/dashboard/leads');
-
-    toast.success('Advanced AI Analysis Completed', {
-      description: 'Website analysis completed successfully and has been saved to this Lead.',
-      duration: 5000,
-      action: {
-        label: 'View Updated Lead',
-        onClick: () => router.push('/dashboard/leads'),
-      },
+    toast.success('Bulk AI Analysis Completed', {
+      description: 'Bulk website analysis has finished. Your leads table has been updated.',
+      duration: 6000,
     });
   };
 
   const buildBulkFilters = () => {
     const f: Record<string, string | boolean> = {};
+    if (activeSession?.job_id) f.job_id = activeSession.job_id;
     if (searchQuery) f.keyword = searchQuery;
-    if (cityFilter) f.city = cityFilter;
-    if (categoryFilter) f.category = categoryFilter;
-    if (websiteFilter === 'HAS_WEBSITE') f.has_website = true;
-    if (websiteFilter === 'NO_WEBSITE') f.has_website = false;
-    if (phoneFilter === 'HAS_PHONE') f.has_phone = true;
-    if (phoneFilter === 'NO_PHONE') f.has_phone = false;
-    if (emailFilter === 'HAS_EMAIL') f.has_email = true;
-    if (emailFilter === 'NO_EMAIL') f.has_email = false;
-    if (ratingFilter !== 'ALL') f.min_rating = ratingFilter;
-    if (statusFilter !== 'ALL') f.status = statusFilter;
+    if (filterCity) f.city = filterCity;
+    if (filterCategory) f.category = filterCategory;
+    if (filterHasWebsite) f.has_website = true;
+    if (filterHasPhone) f.has_phone = true;
+    if (filterHasEmail) f.has_email = true;
+    if (filterStatus) f.status = filterStatus;
     return f;
   };
 
   const openBulkModal = () => {
+    if (activeBulkQueue) {
+      setBulkQueueId(activeBulkQueue.id);
+      setBulkQueueName(activeBulkQueue.name || 'Bulk AI Website Analysis');
+      setBulkMinimized(false);
+      return;
+    }
     setBulkQueueId(null);
     setBulkModalNonce(n => n + 1);
     setBulkModalOpen(true);
@@ -375,279 +611,71 @@ export default function LeadsPage() {
     setBulkModalOpen(false);
     setBulkQueueName(name);
     setBulkQueueId(queueId);
+    setBulkMinimized(false);
+    queryClient.invalidateQueries({ queryKey: ['activeBulkQueues'] });
   };
 
-  const [isExportingCsv, setIsExportingCsv] = useState(false);
-  const [isExportingExcel, setIsExportingExcel] = useState(false);
-  const isExporting = isExportingCsv || isExportingExcel;
-
-  const handleExport = async (format: 'csv' | 'excel') => {
-    if (isExporting) return; // Prevent duplicate clicks while an export is already in progress
-
-    if (format === 'csv') {
-      setIsExportingCsv(true);
-    } else {
-      setIsExportingExcel(true);
-    }
-
+  const handleExport = async (format: string) => {
     try {
-      const params = new URLSearchParams({ format });
-
-      if (selectedIds.size > 0) {
-        params.append('lead_ids', Array.from(selectedIds).join(','));
-      } else {
-        if (activeSession?.job_id) params.append('job_id', activeSession.job_id);
-        if (searchQuery) params.append('keyword', searchQuery);
-        if (cityFilter) params.append('city', cityFilter);
-        if (categoryFilter) params.append('category', categoryFilter);
-        if (websiteFilter === 'HAS_WEBSITE') params.append('has_website', 'true');
-        if (websiteFilter === 'NO_WEBSITE') params.append('has_website', 'false');
-        if (phoneFilter === 'HAS_PHONE') params.append('has_phone', 'true');
-        if (phoneFilter === 'NO_PHONE') params.append('has_phone', 'false');
-        if (emailFilter === 'HAS_EMAIL') params.append('has_email', 'true');
-        if (emailFilter === 'NO_EMAIL') params.append('has_email', 'false');
-        if (ratingFilter !== 'ALL') params.append('min_rating', ratingFilter);
-        if (statusFilter !== 'ALL') params.append('status', statusFilter);
-      }
-
-      const res = await api.get(`/leads/export?${params.toString()}`, {
-        responseType: 'blob',
-        timeout: 60000,
-      });
-
-      const blobType = format === 'excel'
-        ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-        : 'text/csv;charset=utf-8;';
-      const blob = new Blob([res.data], { type: blobType });
-      const url = window.URL.createObjectURL(blob);
+      const res = await api.get(`/leads/export?format=${format}`, { responseType: 'blob' });
+      const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = url;
       const date = new Date().toISOString().split('T')[0];
-      const countLabel = selectedIds.size > 0 ? `_${selectedIds.size}_selected` : '';
-      link.setAttribute('download', `leads_export${countLabel}_${date}.${format === 'excel' ? 'xlsx' : 'csv'}`);
+      link.setAttribute('download', `leads_export_${date}.${format === 'excel' ? 'xlsx' : 'csv'}`);
       document.body.appendChild(link);
       link.click();
-      setTimeout(() => {
-        if (link.parentNode) link.parentNode.removeChild(link);
-        window.URL.revokeObjectURL(url);
-      }, 200);
-
-      const exportedCount = selectedIds.size > 0 ? `${selectedIds.size} selected leads` : 'Leads';
-      toast.success(`${exportedCount} exported to ${format.toUpperCase()} successfully`);
-    } catch (error: any) {
-      console.error('Export error:', error);
-      let errMsg = 'Failed to export leads';
-      if (error?.response?.data instanceof Blob) {
-        try {
-          const text = await error.response.data.text();
-          const json = JSON.parse(text);
-          if (json.detail) errMsg = json.detail;
-        } catch {}
-      } else if (error?.response?.data?.detail) {
-        errMsg = error.response.data.detail;
-      } else if (error?.message) {
-        errMsg = error.message;
-      }
-      toast.error(errMsg);
-    } finally {
-      if (format === 'csv') {
-        setIsExportingCsv(false);
-      } else {
-        setIsExportingExcel(false);
-      }
+      link.parentNode?.removeChild(link);
+      toast.success(`Leads exported to ${format.toUpperCase()} successfully`);
+    } catch {
+      toast.error('Failed to export leads');
     }
   };
 
-  const singleAiAnalysisMutation = useMutation({
-    mutationFn: async (leadId: string) => {
-      const res = await api.post(`/leads/${leadId}/start-analysis`);
-      return { ...res.data, leadId };
-    },
-    onSuccess: (data) => {
-      const qId = data?.queue_id || data?.queueId;
-      if (qId) {
-        setDrawerQueueId(qId);
-      } else if (data?.worker_id === "skipped") {
-        setAnalyzingLeadIds(prev => {
-          const next = new Set(prev);
-          next.delete(data.leadId);
-          return next;
-        });
-        toast.info("Analysis skipped: No professional website available for this lead");
-      }
-    },
-    onError: (error: any, leadId) => {
-      setAnalyzingLeadIds(prev => {
-        const next = new Set(prev);
-        next.delete(leadId);
-        return next;
-      });
-      const errMsg = error?.response?.data?.detail || "An error occurred starting AI analysis.";
-      toast.error(errMsg);
-    }
-  });
-
-  const handleLeadUpdated = (leadId: string, updatedSummary: any) => {
-    // Optimistically update React Query's leads cache
-    queryClient.setQueriesData({ queryKey: ['leads'] }, (oldData: any) => {
-      if (!oldData || !Array.isArray(oldData.data)) return oldData;
-      const ai = updatedSummary?.ai_analysis || {};
-      const cd = updatedSummary?.contact_discovery || {};
-      const newAiScore = ai.overall_score || ai.overall_ai_score || 0;
-      const newLeadScore = updatedSummary?.lead_score || ai.lead_score || 0;
-
-      const updatedList = oldData.data.map((l: any) => {
-        if (l._id !== leadId) return l;
-        return {
-          ...l,
-          ai_score: newAiScore > 0 ? newAiScore : l.ai_score,
-          lead_score: newLeadScore > 0 ? newLeadScore : l.lead_score,
-          email: l.email || (cd.emails && cd.emails[0]) || (ai.emails && ai.emails[0]) || l.email,
-          phone: l.phone || (cd.phones && cd.phones[0]) || (ai.phones && ai.phones[0]) || l.phone,
-          ai_analysis: {
-            ...(l.ai_analysis || {}),
-            status: 'Completed',
-            analysis_status: 'Completed',
-            overall_score: newAiScore,
-            lead_score: newLeadScore,
-          }
-        };
-      });
-
-      return {
-        ...oldData,
-        data: updatedList
-      };
-    });
-
-    setAnalyzingLeadIds(prev => {
-      const next = new Set(prev);
-      next.delete(leadId);
-      return next;
-    });
-
-    queryClient.invalidateQueries({ queryKey: ['leads'] });
-  };
-
-  const triggerAnalyze = (lead: any) => {
-    if (!lead.website) {
-      toast.info("This lead does not have a website listed.");
-      return;
-    }
-    setDrawerLead(lead);
-    setDrawerQueueId(null);
-    setDrawerOpen(true);
-    setAnalyzingLeadIds(prev => new Set(prev).add(lead._id));
-    singleAiAnalysisMutation.mutate(lead._id);
-  };
-
-  const openLeadDrawer = (lead: any) => {
-    setDrawerLead(lead);
-    setDrawerQueueId(null);
-    setDrawerOpen(true);
-  };
-
-  const getLeadAiInfo = (lead: any, isAnalyzing: boolean) => {
-    if (isAnalyzing) {
-      const rawProgress = lead.ai_progress ?? lead.ai_analysis?.progress ?? 68;
-      return {
-        status: 'analyzing',
-        progress: Math.max(rawProgress, 10),
-        label: 'Analyzing...',
-        sublabel: lead.ai_stage ? lead.ai_stage : 'Started 2 mins ago',
-      };
-    }
-
-    const rawStatus = (lead.ai_status || lead.ai_analysis?.status || lead.ai_analysis?.analysis_status || '').toLowerCase();
-    const rawProgress = lead.ai_progress ?? lead.ai_analysis?.progress;
-    const score = lead.ai_score ?? lead.ai_analysis?.overall_score ?? 0;
-
-    if (rawStatus === 'completed' || score > 0) {
-      return {
-        status: 'completed',
-        progress: 100,
-        label: 'Completed',
-        sublabel: null,
-      };
-    }
-    if (rawStatus === 'queued' || rawStatus === 'waiting') {
-      return {
-        status: 'queued',
-        progress: rawProgress ?? 10,
-        label: 'Queued',
-        sublabel: null,
-      };
-    }
-    if (rawStatus === 'processing' || rawStatus === 'running' || rawStatus === 'in_progress') {
-      return {
-        status: 'processing',
-        progress: rawProgress ?? 45,
-        label: 'Processing',
-        sublabel: null,
-      };
-    }
-    if (rawStatus === 'analyzing') {
-      return {
-        status: 'analyzing',
-        progress: rawProgress ?? 68,
-        label: 'Analyzing...',
-        sublabel: lead.ai_stage ? lead.ai_stage : 'Started 2 mins ago',
-      };
-    }
-    if (rawStatus === 'failed') {
-      return {
-        status: 'failed',
-        progress: 0,
-        label: 'Failed',
-        sublabel: null,
-      };
-    }
-
-    return {
-      status: 'not_analyzed',
-      progress: 0,
-      label: 'Not Analyzed',
-      sublabel: null,
-    };
-  };
-
-  const bgGradients = [
-    'from-blue-500/10 to-indigo-500/10 text-blue-700 border-blue-100',
-    'from-emerald-500/10 to-teal-500/10 text-emerald-700 border-emerald-100',
-    'from-violet-500/10 to-purple-500/10 text-violet-700 border-violet-100',
-    'from-rose-500/10 to-pink-500/10 text-rose-700 border-rose-100',
-    'from-amber-500/10 to-orange-500/10 text-amber-700 border-amber-100'
+  // Avatar palette
+  const avatarPalettes = [
+    { bg: 'bg-rose-50 text-rose-600 border-rose-100' },
+    { bg: 'bg-blue-50 text-blue-600 border-blue-100' },
+    { bg: 'bg-emerald-50 text-emerald-600 border-emerald-100' },
+    { bg: 'bg-purple-50 text-purple-600 border-purple-100' },
+    { bg: 'bg-amber-50 text-amber-600 border-amber-100' },
+    { bg: 'bg-teal-50 text-teal-600 border-teal-100' },
   ];
 
   return (
-    <div className="space-y-6 w-full min-h-screen pb-12">
-      {/* Modern AI Analysis Slide-Over Detail Drawer */}
+    <div className="w-full space-y-5 pb-12">
+      {/* Lead Analysis Drawer (Only opens when AI Insights or Analyzing is clicked) */}
       <LeadAnalysisDrawer
         isOpen={drawerOpen}
+        leadId={selectedDrawerLead?._id || null}
+        initialLead={selectedDrawerLead}
+        autoStartAnalysis={drawerAutoStart}
         onClose={() => {
           setDrawerOpen(false);
-          setDrawerLead(null);
-          setDrawerQueueId(null);
+          setSelectedDrawerLead(null);
+          setDrawerAutoStart(false);
         }}
-        leadId={drawerLead?._id || null}
-        initialQueueId={drawerQueueId}
-        leadData={drawerLead}
-        onLeadUpdated={handleLeadUpdated}
-        onAnalysisStarted={(lId, qId) => {
-          setAnalyzingLeadIds(prev => new Set(prev).add(lId));
-          setDrawerQueueId(qId);
-        }}
+        onAnalysisComplete={handleSingleAnalysisComplete}
       />
 
+      {/* Bulk Analysis Live Monitor */}
       {bulkQueueId && (
         <BulkAIAnalysisMonitor
           queueId={bulkQueueId}
           queueName={bulkQueueName}
-          onClose={() => setBulkQueueId(null)}
-          onComplete={handleQueueCompletion}
+          isMinimized={bulkMinimized}
+          onMinimizeChange={setBulkMinimized}
+          onClose={() => {
+            setBulkQueueId(null);
+            setBulkMinimized(false);
+            queryClient.invalidateQueries({ queryKey: ['leads'] });
+            queryClient.invalidateQueries({ queryKey: ['activeBulkQueues'] });
+          }}
+          onComplete={handleBulkQueueCompletion}
         />
       )}
 
+      {/* Bulk Analysis Modal */}
       <BulkAnalysisModal
         key={bulkModalNonce}
         isOpen={bulkModalOpen}
@@ -658,19 +686,17 @@ export default function LeadsPage() {
         scopeLabel={selectedIds.size > 0 ? `${selectedIds.size} selected lead${selectedIds.size === 1 ? '' : 's'}` : 'all matching leads'}
       />
 
+      {/* Search Campaigns Modal */}
       <SearchSessionsModal
         isOpen={sessionsModalOpen}
         onClose={() => setSessionsModalOpen(false)}
         activeJobId={activeSession?.job_id ?? null}
-        onClearFilter={() => {
-          setActiveSession(null);
-          setPage(0);
-          queryClient.invalidateQueries({ queryKey: ['leads'] });
-        }}
+        onClearFilter={handleClearSession}
         onViewLeads={(session) => {
           setActiveSession(session);
           setSessionsModalOpen(false);
           setPage(0);
+          router.replace(`/dashboard/leads?job_id=${session.job_id || session.id}`);
           queryClient.invalidateQueries({ queryKey: ['leads'] });
         }}
       />
@@ -678,843 +704,933 @@ export default function LeadsPage() {
       {activeSession && (
         <SearchSessionBanner
           session={activeSession}
-          onClear={() => {
-            setActiveSession(null);
-            setPage(0);
-            queryClient.invalidateQueries({ queryKey: ['leads'] });
-          }}
+          onClear={handleClearSession}
         />
       )}
 
-      {/* Top Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-white p-5 sm:p-6 rounded-xl border border-gray-200 shadow-2xs">
-        <PageHeader title="Leads Directory" description={`Managing ${total} total leads in your CRM`} />
+      {/* Add Lead Modal Dialog */}
+      {isAddLeadOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-2xl w-full max-w-lg p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <h3 className="text-lg font-bold text-slate-900">Add New Lead</h3>
+              <button
+                onClick={() => setIsAddLeadOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
 
-        <div className="flex flex-wrap gap-3">
+            <div className="space-y-3 text-sm">
+              <div>
+                <label className="text-xs font-semibold text-slate-600 uppercase">Business Name *</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Royale Realtors India"
+                  value={newLeadForm.name}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, name: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 uppercase">Phone</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. 098183 12077"
+                    value={newLeadForm.phone}
+                    onChange={(e) => setNewLeadForm({ ...newLeadForm, phone: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none font-mono text-xs"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 uppercase">Email</label>
+                  <input
+                    type="email"
+                    placeholder="e.g. info@royalerealtorsindia.com"
+                    value={newLeadForm.email}
+                    onChange={(e) => setNewLeadForm({ ...newLeadForm, email: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-600 uppercase">Website</label>
+                <input
+                  type="text"
+                  placeholder="e.g. royalerealtorsindia.com"
+                  value={newLeadForm.website}
+                  onChange={(e) => setNewLeadForm({ ...newLeadForm, website: e.target.value })}
+                  className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 uppercase">Category</label>
+                  <input
+                    type="text"
+                    placeholder="Real Estate"
+                    value={newLeadForm.category}
+                    onChange={(e) => setNewLeadForm({ ...newLeadForm, category: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 uppercase">City</label>
+                  <input
+                    type="text"
+                    placeholder="South Delhi"
+                    value={newLeadForm.city}
+                    onChange={(e) => setNewLeadForm({ ...newLeadForm, city: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold text-slate-600 uppercase">State</label>
+                  <input
+                    type="text"
+                    placeholder="Delhi"
+                    value={newLeadForm.state}
+                    onChange={(e) => setNewLeadForm({ ...newLeadForm, state: e.target.value })}
+                    className="w-full mt-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-slate-900 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100">
+              <button
+                onClick={() => setIsAddLeadOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!newLeadForm.name.trim() || createLeadMutation.isPending}
+                onClick={() => createLeadMutation.mutate(newLeadForm)}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 cursor-pointer"
+              >
+                {createLeadMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                Save Lead
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* TOP HEADER */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Leads</h1>
+          <p className="text-sm text-slate-500 mt-0.5">
+            Manage and analyze your business leads with AI-powered insights.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+          {/* Bulk AI Analysis Button: Shows live processing state when a bulk job is active */}
+          {activeBulkQueue ? (
+            <button
+              onClick={() => {
+                setBulkQueueId(activeBulkQueue.id);
+                setBulkQueueName(activeBulkQueue.name || 'Bulk AI Website Analysis');
+                setBulkMinimized(false);
+              }}
+              className="inline-flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+              title="Click to view live bulk analysis monitor"
+            >
+              <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
+              <span>
+                Analyzing Bulk ({activeBulkQueue.completed_jobs || 0}/{activeBulkQueue.total_jobs || 0})
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={openBulkModal}
+              className="hidden md:inline-flex items-center gap-1.5 px-3 py-2 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+              Bulk AI Analyze
+            </button>
+          )}
+
+          {/* Search Campaign Button (Moved to main action area alongside Add Lead) */}
           <button
-            onClick={openBulkModal}
-            className="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl text-sm font-semibold text-white shadow-2xs hover:shadow-xs transition-all flex items-center gap-2 cursor-pointer active:scale-98"
-          >
-            <Sparkles className="w-4 h-4 text-white/90" /> Bulk AI Analysis
-          </button>
-          <button
-            onClick={() => handleExport('csv')}
-            disabled={isExporting}
-            className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-2xs flex items-center gap-2 cursor-pointer ${
-              isExportingCsv
-                ? 'bg-blue-50 border border-blue-200 text-blue-700 cursor-wait'
-                : isExporting
-                ? 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed opacity-60'
-                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300'
+            onClick={() => setSessionsModalOpen(true)}
+            className={`px-3.5 py-2.5 rounded-xl text-sm font-semibold border transition-all flex items-center justify-center gap-2 cursor-pointer shadow-2xs active:scale-98 ${
+              activeSession
+                ? 'bg-blue-50 text-blue-700 border-blue-300 ring-2 ring-blue-500/20'
+                : 'bg-white text-slate-700 hover:text-slate-900 border-slate-200 hover:bg-slate-50'
             }`}
-            title={isExporting ? 'Export in progress...' : 'Export leads to CSV file'}
+            title="Browse search campaigns"
           >
-            {isExportingCsv ? (
-              <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-            ) : (
-              <Download className="w-4 h-4 text-gray-400" />
+            <History className="w-4 h-4 text-blue-600" />
+            <span>Search Campaign</span>
+            {activeSession && (
+              <span className="w-2 h-2 rounded-full bg-blue-600" />
             )}
-            <span>
-              {isExportingCsv
-                ? 'Exporting CSV...'
-                : selectedIds.size > 0
-                ? `Export CSV (${selectedIds.size})`
-                : 'Export CSV'}
-            </span>
           </button>
+
           <button
-            onClick={() => handleExport('excel')}
-            disabled={isExporting}
-            className={`px-4 py-2.5 rounded-xl text-sm font-semibold transition-all shadow-2xs flex items-center gap-2 cursor-pointer ${
-              isExportingExcel
-                ? 'bg-emerald-50 border border-emerald-200 text-emerald-700 cursor-wait'
-                : isExporting
-                ? 'bg-gray-100 border border-gray-200 text-gray-400 cursor-not-allowed opacity-60'
-                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300'
-            }`}
-            title={isExporting ? 'Export in progress...' : 'Export leads to Excel spreadsheet'}
+            onClick={() => setIsAddLeadOpen(true)}
+            className="flex-1 sm:flex-initial px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white rounded-xl text-sm font-semibold shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
           >
-            {isExportingExcel ? (
-              <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
-            ) : (
-              <Download className="w-4 h-4 text-gray-400" />
-            )}
-            <span>
-              {isExportingExcel
-                ? 'Exporting Excel...'
-                : selectedIds.size > 0
-                ? `Export Excel (${selectedIds.size})`
-                : 'Export Excel'}
-            </span>
+            <Plus className="w-4 h-4 stroke-[2.5]" />
+            Add Lead
           </button>
+
+          <div className="relative group">
+            <button
+              className="p-2.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-xl text-slate-600 hover:text-slate-900 transition-all shadow-xs cursor-pointer"
+              title="More Actions"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            <div className="absolute right-0 top-full mt-1.5 w-40 bg-white border border-slate-200 rounded-xl shadow-lg p-1 hidden group-hover:block z-30">
+              <button
+                onClick={() => handleExport('csv')}
+                className="w-full text-left px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5 text-slate-400" /> Export CSV
+              </button>
+              <button
+                onClick={() => handleExport('excel')}
+                className="w-full text-left px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-2 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-slate-400" /> Export Excel
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Toolbar & Filters */}
-      <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center gap-4 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-        <div className="flex flex-col sm:flex-row gap-3 flex-1">
-          {/* Compact Search Input */}
-          <div className="relative flex-1 max-w-md">
+      {/* SEARCH, FILTERS & VIEW CONTROLS */}
+      <div className="space-y-3">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+          <div className="relative flex-1">
             <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search business, email, phone..."
+              placeholder="Search leads by business name, email, phone..."
               value={searchQuery}
               onChange={(e) => {
                 setSearchQuery(e.target.value);
                 setPage(0);
               }}
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none transition-all"
+              className="w-full pl-10 pr-9 py-2.5 bg-white border border-slate-200 rounded-xl text-sm text-slate-900 placeholder:text-slate-400 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all shadow-2xs"
             />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 text-slate-400 hover:text-slate-600 rounded-full cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
-          {/* Search Campaign Button */}
-          <button
-            onClick={() => setSessionsModalOpen(true)}
-            className={`px-4 py-2.5 border rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-sm ${activeSession
-              ? 'bg-blue-50 border-blue-300 text-blue-700'
-              : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
-              }`}
-          >
-            <History className="w-4 h-4" />
-            Search Campaign
-            {activeSession && (
-              <span className="px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[10px] font-bold leading-none">
-                1
-              </span>
-            )}
-          </button>
-
-          {/* Filters Popover */}
-          <div className="relative" ref={filtersRef}>
+          <div className="flex items-center gap-2.5">
             <button
-              type="button"
-              onClick={() => {
-                if (filtersOpen) {
-                  setFiltersOpen(false);
-                } else {
-                  openFilters();
-                }
-              }}
-              className={`h-10 px-3.5 border rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-sm ${
-                activeFilterCount > 0
-                  ? 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100/70'
-                  : filtersOpen
-                  ? 'bg-slate-100 border-slate-300 text-slate-900 ring-2 ring-blue-500/20'
-                  : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100 hover:border-slate-300'
-              }`}
+              onClick={() => setShowFilters(!showFilters)}
+              className={`px-3.5 py-2.5 border rounded-xl text-sm font-semibold transition-all flex items-center gap-2 shadow-2xs cursor-pointer ${showFilters || activeFiltersCount > 0
+                ? 'bg-blue-50 border-blue-300 text-blue-700'
+                : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
             >
-              <SlidersHorizontal className="w-4 h-4 text-slate-500" />
+              <Filter className="w-4 h-4 text-slate-500" />
               <span>Filters</span>
-              {activeFilterCount > 0 && (
-                <span className="flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-blue-600 text-white text-[11px] font-bold leading-none shadow-xs">
-                  {activeFilterCount}
+              {activeFiltersCount > 0 && (
+                <span className="w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold flex items-center justify-center leading-none">
+                  {activeFiltersCount}
                 </span>
               )}
-              <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform duration-200 ${filtersOpen ? 'rotate-180 text-blue-600' : ''}`} />
             </button>
 
-            {filtersOpen && (
-              <div className="absolute left-0 sm:left-0 z-40 mt-2 w-[340px] sm:w-[420px] max-w-[calc(100vw-2rem)] bg-white border border-slate-200 rounded-2xl shadow-2xl p-4 flex flex-col gap-3.5 animate-in fade-in-0 zoom-in-95 duration-150">
-                {/* Header */}
-                <div className="flex items-center justify-between pb-2.5 border-b border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <div className="w-7 h-7 rounded-lg bg-blue-50 flex items-center justify-center text-blue-600">
-                      <SlidersHorizontal className="w-3.5 h-3.5" />
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-bold text-slate-900">Filter Leads</h4>
-                      <p className="text-[10px] text-slate-500">Refine by location, contact info, and status</p>
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setFiltersOpen(false)}
-                    className="p-1 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 transition-colors"
-                    title="Close filters"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* Text search filters (City & Category) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
-                      <MapPin className="w-3 h-3 text-slate-400" />
-                      City
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="e.g. Ahmedabad"
-                        value={draftCity}
-                        onChange={(e) => setDraftCity(e.target.value)}
-                        className="w-full pl-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                      />
-                      {draftCity && (
-                        <button
-                          type="button"
-                          onClick={() => setDraftCity('')}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded"
-                          title="Clear city"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
-                      <Tag className="w-3 h-3 text-slate-400" />
-                      Category
-                    </label>
-                    <div className="relative">
-                      <input
-                        type="text"
-                        placeholder="e.g. Real Estate"
-                        value={draftCategory}
-                        onChange={(e) => setDraftCategory(e.target.value)}
-                        className="w-full pl-3 pr-7 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all"
-                      />
-                      {draftCategory && (
-                        <button
-                          type="button"
-                          onClick={() => setDraftCategory('')}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-0.5 rounded"
-                          title="Clear category"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* 2-Column Select Filters Grid */}
-                <div className="grid grid-cols-2 gap-2.5">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
-                      <Globe className="w-3 h-3 text-slate-400" />
-                      Website
-                    </label>
-                    <select
-                      value={draftWebsite}
-                      onChange={(e) => setDraftWebsite(e.target.value)}
-                      className="w-full h-8.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
-                    >
-                      <option value="ALL">All</option>
-                      <option value="HAS_WEBSITE">Has Website</option>
-                      <option value="NO_WEBSITE">No Website</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
-                      <Phone className="w-3 h-3 text-slate-400" />
-                      Phone
-                    </label>
-                    <select
-                      value={draftPhone}
-                      onChange={(e) => setDraftPhone(e.target.value)}
-                      className="w-full h-8.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
-                    >
-                      <option value="ALL">All</option>
-                      <option value="HAS_PHONE">Has Phone</option>
-                      <option value="NO_PHONE">No Phone</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
-                      <Mail className="w-3 h-3 text-slate-400" />
-                      Email
-                    </label>
-                    <select
-                      value={draftEmail}
-                      onChange={(e) => setDraftEmail(e.target.value)}
-                      className="w-full h-8.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
-                    >
-                      <option value="ALL">All</option>
-                      <option value="HAS_EMAIL">Has Email</option>
-                      <option value="NO_EMAIL">No Email</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
-                      <Star className="w-3 h-3 text-amber-500" />
-                      Min Rating
-                    </label>
-                    <select
-                      value={draftRating}
-                      onChange={(e) => setDraftRating(e.target.value)}
-                      className="w-full h-8.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
-                    >
-                      <option value="ALL">All Ratings</option>
-                      <option value="4">4.0+ Stars</option>
-                      <option value="4.5">4.5+ Stars</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Status & Sorting */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-0.5">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Lead Status
-                    </label>
-                    <select
-                      value={draftStatus}
-                      onChange={(e) => setDraftStatus(e.target.value)}
-                      className="w-full h-8.5 px-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
-                    >
-                      <option value="ALL">All</option>
-                      <option value="new">New</option>
-                      <option value="contacted">Contacted</option>
-                      <option value="qualified">Qualified</option>
-                      <option value="disqualified">Disqualified</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                      Sort By & Direction
-                    </label>
-                    <div className="flex items-center gap-1.5">
-                      <select
-                        value={draftSortBy}
-                        onChange={(e) => setDraftSortBy(e.target.value)}
-                        className="flex-1 min-w-0 h-8.5 px-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-800 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all cursor-pointer"
-                      >
-                        <option value="created_at">Date Added</option>
-                        <option value="name">Name</option>
-                        <option value="google_rating">Rating</option>
-                        <option value="review_count">Reviews</option>
-                        <option value="category">Category</option>
-                        <option value="status">Status</option>
-                      </select>
-
-                      {/* Compact Segmented Control */}
-                      <div className="inline-flex h-8.5 rounded-lg border border-slate-200 bg-slate-100 p-0.5 shrink-0 items-center">
-                        <button
-                          type="button"
-                          onClick={() => setDraftSortOrder(1)}
-                          className={`h-full px-2 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${
-                            draftSortOrder === 1
-                              ? 'bg-white text-blue-600 shadow-xs'
-                              : 'text-slate-500 hover:text-slate-800'
-                          }`}
-                          title="Ascending"
-                        >
-                          <ArrowUp className="w-3 h-3" />
-                          <span className="text-[10px]">Asc</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setDraftSortOrder(-1)}
-                          className={`h-full px-2 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${
-                            draftSortOrder === -1
-                              ? 'bg-white text-blue-600 shadow-xs'
-                              : 'text-slate-500 hover:text-slate-800'
-                          }`}
-                          title="Descending"
-                        >
-                          <ArrowDown className="w-3 h-3" />
-                          <span className="text-[10px]">Desc</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Footer with Clear All and Apply Filters */}
-                <div className="flex items-center justify-between pt-3 border-t border-slate-100 mt-1">
-                  <button
-                    type="button"
-                    onClick={clearDraftFilters}
-                    className="text-xs font-semibold text-slate-500 hover:text-red-600 px-2 py-1.5 rounded-md transition-colors"
-                  >
-                    Reset
-                  </button>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setFiltersOpen(false)}
-                      className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={applyDraftFilters}
-                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white rounded-lg text-xs font-bold shadow-sm transition-all flex items-center gap-1.5"
-                    >
-                      <span>Apply Filters</span>
-                      {draftActiveFilterCount > 0 && (
-                        <span className="w-4 h-4 rounded-full bg-blue-500 text-[10px] flex items-center justify-center font-bold">
-                          {draftActiveFilterCount}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* View Toggle & Bulk Actions */}
-        <div className="flex items-center gap-3 justify-end border-t lg:border-t-0 pt-3 lg:pt-0">
-          {selectedIds.size > 0 && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-red-600 bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-100 flex items-center gap-1">
-                <AlertCircle className="w-3.5 h-3.5" />
-                {selectedIds.size} Selected
-              </span>
-              {selectedIds.size < total && (
-                <button
-                  onClick={handleSelectAllMatching}
-                  disabled={selectAllLoading}
-                  className="px-3 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 rounded-lg text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-60 disabled:cursor-not-allowed"
-                  title="Select all leads matching the current filters"
-                >
-                  {selectAllLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCheck className="w-3.5 h-3.5" />}
-                  {selectAllLoading ? 'Selecting...' : `Select All ${total}`}
-                </button>
-              )}
-              <button
-                onClick={() => {
-                  if (confirm('Are you sure you want to delete these leads?')) {
-                    bulkDeleteMutation.mutate();
-                  }
-                }}
-                className="p-2.5 bg-red-50 text-red-600 hover:bg-red-100 border border-red-100 rounded-xl transition-all shadow-sm"
-                title="Delete Selected Leads"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          <div className="h-8 w-px bg-slate-200 hidden sm:block" />
-
-          {/* Grid/List View Toggles */}
-          <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 shadow-inner">
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`p-2 rounded-lg transition-all ${viewMode === 'grid'
-                ? 'bg-white text-blue-600 shadow-sm font-semibold'
-                : 'text-slate-500 hover:text-slate-800'
-                }`}
-              title="Grid Card View"
-            >
-              <Grid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('list')}
-              className={`p-2 rounded-lg transition-all ${viewMode === 'list'
-                ? 'bg-white text-blue-600 shadow-sm font-semibold'
-                : 'text-slate-500 hover:text-slate-800'
-                }`}
-              title="List Table View"
-            >
-              <List className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Active Filters Display */}
-      {(cityFilter || categoryFilter || websiteFilter !== 'ALL' || phoneFilter !== 'ALL' || emailFilter !== 'ALL' || ratingFilter !== 'ALL' || statusFilter !== 'ALL' || searchQuery || sortBy !== 'created_at' || sortOrder !== -1 || activeSession) && (
-        <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 bg-slate-50 border border-slate-200/80 rounded-xl shadow-xs">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5 mr-1">
-            <Filter className="w-3.5 h-3.5 text-blue-600" />
-            Active:
-          </span>
-
-          {activeSession && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-xs font-medium shadow-2xs">
-              <span>Campaign: &quot;{activeSession.keyword}&quot;</span>
-              <button
-                type="button"
-                onClick={() => { setActiveSession(null); setPage(0); }}
-                className="text-blue-400 hover:text-blue-800 rounded p-0.5 hover:bg-blue-100/60 transition-colors"
-                title="Remove campaign filter"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {searchQuery && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
-              <span>Search: &quot;{searchQuery}&quot;</span>
-              <button
-                type="button"
-                onClick={() => { setSearchQuery(''); setPage(0); }}
-                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
-                title="Clear search"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {cityFilter && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
-              <span>City: {cityFilter}</span>
-              <button
-                type="button"
-                onClick={() => { setCityFilter(''); setDraftCity(''); setPage(0); }}
-                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
-                title="Remove city filter"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {categoryFilter && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
-              <span>Category: {categoryFilter}</span>
-              <button
-                type="button"
-                onClick={() => { setCategoryFilter(''); setDraftCategory(''); setPage(0); }}
-                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
-                title="Remove category filter"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {websiteFilter !== 'ALL' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
-              <span>Website: {websiteFilter === 'HAS_WEBSITE' ? 'Available' : 'Missing'}</span>
-              <button
-                type="button"
-                onClick={() => { setWebsiteFilter('ALL'); setDraftWebsite('ALL'); setPage(0); }}
-                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
-                title="Remove website filter"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {phoneFilter !== 'ALL' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
-              <span>Phone: {phoneFilter === 'HAS_PHONE' ? 'Available' : 'Missing'}</span>
-              <button
-                type="button"
-                onClick={() => { setPhoneFilter('ALL'); setDraftPhone('ALL'); setPage(0); }}
-                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
-                title="Remove phone filter"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {emailFilter !== 'ALL' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
-              <span>Email: {emailFilter === 'HAS_EMAIL' ? 'Available' : 'Missing'}</span>
-              <button
-                type="button"
-                onClick={() => { setEmailFilter('ALL'); setDraftEmail('ALL'); setPage(0); }}
-                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
-                title="Remove email filter"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {ratingFilter !== 'ALL' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
-              <span>Rating: ≥{ratingFilter}★</span>
-              <button
-                type="button"
-                onClick={() => { setRatingFilter('ALL'); setDraftRating('ALL'); setPage(0); }}
-                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
-                title="Remove rating filter"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {statusFilter !== 'ALL' && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs capitalize">
-              <span>Status: {statusFilter}</span>
-              <button
-                type="button"
-                onClick={() => { setStatusFilter('ALL'); setDraftStatus('ALL'); setPage(0); }}
-                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
-                title="Remove status filter"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          )}
-
-          {(sortBy !== 'created_at' || sortOrder !== -1) && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-white text-slate-700 border border-slate-200 text-xs font-medium shadow-2xs">
-              <span>Sort: {sortBy === 'google_rating' ? 'Rating' : sortBy === 'review_count' ? 'Reviews' : sortBy === 'created_at' ? 'Date' : sortBy} ({sortOrder === 1 ? 'Asc' : 'Desc'})</span>
-              <button
-                type="button"
-                onClick={() => {
-                  setSortBy('created_at');
-                  setSortOrder(-1);
-                  setDraftSortBy('created_at');
-                  setDraftSortOrder(-1);
+            <div className="flex items-center gap-2 px-3 py-2 bg-white border border-slate-200 rounded-xl text-sm shadow-2xs">
+              <span className="text-xs text-slate-400">Sort by</span>
+              <select
+                value={sortBy}
+                onChange={(e) => {
+                  setSortBy(e.target.value);
                   setPage(0);
                 }}
-                className="text-slate-400 hover:text-slate-700 rounded p-0.5 hover:bg-slate-100 transition-colors"
-                title="Reset sorting"
+                className="bg-transparent font-medium text-slate-700 outline-none text-xs cursor-pointer pr-1"
               >
-                <X className="w-3 h-3" />
+                <option value="created_at">Date Added</option>
+                <option value="google_rating">Google Rating</option>
+                <option value="review_count">Reviews</option>
+                <option value="name">Name</option>
+                <option value="category">Category</option>
+              </select>
+            </div>
+
+            <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 shrink-0">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`p-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'list' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                title="Table View"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
+                </svg>
               </button>
-            </span>
-          )}
-
-          <button
-            type="button"
-            onClick={clearAllFilters}
-            className="ml-auto text-xs font-bold text-blue-600 hover:text-blue-800 hover:underline px-2 py-0.5 transition-colors"
-          >
-            Clear all
-          </button>
-        </div>
-      )}
-
-      {/* Content Rendering based on ViewMode */}
-      {leads.length > 0 && leads.every((l: any) => selectedIds.has(l._id)) && selectedIds.size < total && (
-        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 bg-blue-50 border border-blue-200 rounded-2xl shadow-sm">
-          <div className="flex items-center gap-2 text-sm font-semibold text-blue-700">
-            <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0" />
-            <span>
-              All {leads.length} leads on this page are selected.
-              {total > selectedIds.size && (
-                <span className="text-blue-600">
-                  {' '}Select all <b>{total}</b> leads matching the current filters instead.
-                </span>
-              )}
-            </span>
+              <button
+                onClick={() => setViewMode('grid')}
+                className={`p-1.5 rounded-lg transition-all cursor-pointer ${viewMode === 'grid' ? 'bg-white text-blue-600 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                title="Grid View"
+              >
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="3" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="3" width="7" height="7" rx="1" />
+                  <rect x="14" y="14" width="7" height="7" rx="1" />
+                  <rect x="3" y="14" width="7" height="7" rx="1" />
+                </svg>
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            {selectAllError && (
-              <span className="text-xs font-bold text-red-600 bg-red-50 border border-red-100 rounded-lg px-2 py-1">
-                {selectAllError}
+        </div>
+
+        {/* ACTIVE FILTER CHIPS */}
+        {(filterCity || filterCategory || filterHasWebsite || filterHasPhone || filterHasEmail || filterStatus || activeSession || searchQuery) && (
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            {filterCity && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50/80 text-blue-700 border border-blue-200/60 rounded-lg text-xs font-semibold">
+                City: {filterCity}
+                <button onClick={() => setFilterCity('')} className="hover:text-blue-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             )}
-            {selectAllLoading ? (
-              <span className="flex items-center gap-1.5 text-xs font-bold text-blue-700">
-                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Selecting...
+            {filterCategory && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50/80 text-blue-700 border border-blue-200/60 rounded-lg text-xs font-semibold">
+                Category: {filterCategory}
+                <button onClick={() => setFilterCategory('')} className="hover:text-blue-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
-            ) : total > selectedIds.size ? (
-              <button
-                onClick={handleSelectAllMatching}
-                className="px-3.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5"
-              >
-                <CheckCheck className="w-3.5 h-3.5" />
-                Select all {total} leads
-              </button>
-            ) : (
-              <span className="px-3 py-1.5 bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-xs font-bold flex items-center gap-1.5">
-                <CheckCircle2 className="w-3.5 h-3.5" /> All {total} leads selected
+            )}
+            {activeSession && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-violet-50 text-violet-700 border border-violet-200/60 rounded-lg text-xs font-semibold">
+                Campaign: {activeSession.keyword || 'Search'} ({activeSession.total_saved ?? activeSession.leads_count ?? 0} leads)
+                <button onClick={handleClearSession} className="hover:text-violet-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {filterHasWebsite && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50/80 text-blue-700 border border-blue-200/60 rounded-lg text-xs font-semibold">
+                Website: Available
+                <button onClick={() => setFilterHasWebsite(false)} className="hover:text-blue-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {filterHasPhone && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50/80 text-blue-700 border border-blue-200/60 rounded-lg text-xs font-semibold">
+                Phone: Available
+                <button onClick={() => setFilterHasPhone(false)} className="hover:text-blue-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {filterHasEmail && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50/80 text-blue-700 border border-blue-200/60 rounded-lg text-xs font-semibold">
+                Email: Available
+                <button onClick={() => setFilterHasEmail(false)} className="hover:text-blue-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {filterStatus && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50/80 text-blue-700 border border-blue-200/60 rounded-lg text-xs font-semibold">
+                Status: {filterStatus}
+                <button onClick={() => setFilterStatus('')} className="hover:text-blue-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             )}
             <button
-              onClick={() => setSelectedIds(new Set())}
-              className="px-3 py-2 text-xs font-bold text-blue-700 bg-white hover:bg-blue-100 border border-blue-200 rounded-xl transition-all shadow-sm"
+              onClick={clearAllFilters}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-800 ml-2 cursor-pointer"
             >
-              Clear selection
+              Clear all
+            </button>
+          </div>
+        )}
+
+        {/* EXPANDABLE FILTER DRAWER */}
+        {showFilters && (
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm animate-in slide-in-from-top-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase">City</label>
+                <input
+                  type="text"
+                  placeholder="e.g. South Delhi"
+                  value={filterCity}
+                  onChange={(e) => { setFilterCity(e.target.value); setPage(0); }}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase">Category</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Real Estate"
+                  value={filterCategory}
+                  onChange={(e) => { setFilterCategory(e.target.value); setPage(0); }}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none"
+                />
+              </div>
+
+              {/* Search Campaign Filter (Replacing Rating) */}
+              <div className="flex flex-col gap-1.5">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-500 uppercase">Search Campaign</label>
+                  {activeSession && (
+                    <button
+                      type="button"
+                      onClick={handleClearSession}
+                      className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold cursor-pointer"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+                <select
+                  value={activeSession?.job_id || activeSession?.id || ''}
+                  onChange={(e) => {
+                    const selectedJobId = e.target.value;
+                    if (!selectedJobId) {
+                      handleClearSession();
+                    } else {
+                      const found = campaignOptionsData?.find((c) => (c.job_id || c.id) === selectedJobId);
+                      if (found) {
+                        setActiveSession(found);
+                      } else {
+                        api.get(`/search/sessions/${selectedJobId}`).then(res => {
+                          if (res.data?.data) setActiveSession(res.data.data);
+                        });
+                      }
+                      router.replace(`/dashboard/leads?job_id=${selectedJobId}`);
+                      setPage(0);
+                    }
+                  }}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none cursor-pointer"
+                >
+                  <option value="">All Campaigns</option>
+                  {campaignOptionsData?.map((c) => {
+                    const cId = c.job_id || c.id;
+                    const count = c.total_saved ?? c.leads_count ?? 0;
+                    const loc = [c.city, c.state].filter(Boolean).join(', ');
+                    const label = `${c.keyword || 'Search'}${loc ? ` • ${loc}` : ''} (${count} leads)`;
+                    return (
+                      <option key={cId} value={cId}>
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-xs font-bold text-slate-500 uppercase">Status</label>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => { setFilterStatus(e.target.value); setPage(0); }}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none"
+                >
+                  <option value="">All Leads</option>
+                  <option value="new">New</option>
+                  <option value="contacted">Contacted</option>
+                  <option value="qualified">Qualified</option>
+                </select>
+              </div>
+
+              <div className="lg:col-span-4 flex flex-wrap gap-4 pt-2 border-t border-slate-100">
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={filterHasWebsite}
+                    onChange={(e) => { setFilterHasWebsite(e.target.checked); setPage(0); }}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600"
+                  />
+                  Has Website
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={filterHasPhone}
+                    onChange={(e) => { setFilterHasPhone(e.target.checked); setPage(0); }}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600"
+                  />
+                  Has Phone
+                </label>
+                <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={filterHasEmail}
+                    onChange={(e) => { setFilterHasEmail(e.target.checked); setPage(0); }}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600"
+                  />
+                  Has Email
+                </label>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* SELECTED ITEMS BANNER */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center justify-between px-5 py-3 bg-blue-50 border border-blue-200 rounded-2xl shadow-xs">
+          <div className="flex items-center gap-2 text-sm font-semibold text-blue-800">
+            <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
+            <span>{selectedIds.size} of {total} leads selected</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={openBulkModal}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Bulk AI Analyze
+            </button>
+            <button
+              onClick={() => {
+                if (confirm(`Are you sure you want to delete ${selectedIds.size} selected leads?`)) {
+                  bulkDeleteMutation.mutate();
+                }
+              }}
+              className="px-3 py-1.5 bg-white border border-red-200 hover:bg-red-50 text-red-600 rounded-lg text-xs font-bold transition-all cursor-pointer"
+            >
+              <Trash2 className="w-3.5 h-3.5 inline mr-1" /> Delete
+            </button>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 cursor-pointer"
+            >
+              Clear
             </button>
           </div>
         </div>
       )}
 
-      {/* Content Rendering based on ViewMode */}
+      {/* MAIN TABLE */}
       {isLoading ? (
-        <div className="flex flex-col items-center justify-center py-24 bg-white rounded-3xl border border-slate-200 shadow-sm gap-3">
-          <div className="w-10 h-10 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+        <div className="flex flex-col items-center justify-center py-24 bg-white rounded-2xl border border-slate-200 shadow-2xs gap-3">
+          <div className="w-9 h-9 border-3 border-blue-500 border-t-transparent rounded-full animate-spin" />
           <p className="text-sm font-medium text-slate-500">Loading your leads directory...</p>
         </div>
       ) : leads.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-slate-200 shadow-sm text-center px-4">
+        <div className="flex flex-col items-center justify-center py-20 bg-white rounded-2xl border border-slate-200 shadow-2xs text-center px-4">
           <Building2 className="w-12 h-12 text-slate-300 mb-3" />
-          <h3 className="text-base font-bold text-slate-700">No leads found</h3>
-          <p className="text-sm text-slate-400 mt-1 max-w-xs">Try adjusting your filters, keyword search or run a new Lead Scraper campaign.</p>
+          <h3 className="text-base font-bold text-slate-800">No leads found</h3>
+          <p className="text-sm text-slate-400 mt-1 max-w-xs">Try adjusting your filters or keyword search, or click "+ Add Lead" to create one.</p>
         </div>
-      ) : viewMode === 'grid' ? (
+      ) : viewMode === 'list' ? (
+        /* TABLE VIEW */
+        <div className="bg-white border border-slate-200/90 rounded-2xl shadow-2xs overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left whitespace-nowrap table-fixed">
+              <thead className="bg-slate-50/70 border-b border-slate-200/80 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                <tr>
+                  <th className="px-5 py-3.5 w-12 text-center">
+                    <input
+                      type="checkbox"
+                      checked={leads.length > 0 && selectedIds.size === leads.length}
+                      onChange={toggleSelectAll}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                    />
+                  </th>
+                  <th className="px-5 py-3.5 w-[26%]">Business</th>
+                  <th className="px-5 py-3.5 w-[23%]">Contact</th>
+                  <th className="px-5 py-3.5 w-[16%]">Location</th>
+                  <th className="px-5 py-3.5 w-[21%]">AI Progress</th>
+                  <th className="px-5 py-3.5 w-[14%] text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {leads.map((lead: any, idx: number) => {
+                  const displayName = lead.name || lead.business_name || 'Unnamed Business';
+                  const initials = displayName
+                    ? displayName
+                      .split(' ')
+                      .filter(Boolean)
+                      .map((n: string) => n[0])
+                      .join('')
+                      .slice(0, 2)
+                      .toUpperCase()
+                    : 'L';
+
+                  const palette = avatarPalettes[idx % avatarPalettes.length];
+                  const analysisState = getLeadAnalysisState(lead);
+                  const isSelectedInDrawer = selectedDrawerLead?._id === lead._id && drawerOpen;
+
+                  return (
+                    <tr
+                      key={lead._id}
+                      onClick={() => handleOpenLeadDetail(lead._id)}
+                      className={`group transition-all duration-150 cursor-pointer ${isSelectedInDrawer
+                        ? 'bg-blue-50/50 border-l-[3px] border-l-blue-600'
+                        : selectedIds.has(lead._id)
+                          ? 'bg-blue-50/30'
+                          : 'hover:bg-slate-50/70'
+                        }`}
+                    >
+                      {/* Checkbox: Selection only */}
+                      <td className="px-5 py-4 text-center align-middle" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(lead._id)}
+                          onChange={() => toggleSelect(lead._id)}
+                          className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </td>
+
+                      {/* Business: Clicking navigates to individual lead detail page */}
+                      <td className="px-5 py-4 align-middle overflow-hidden">
+                        <div className="flex items-center gap-3">
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs border ${palette.bg} shrink-0`}>
+                            {initials}
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-bold text-slate-900 text-sm truncate group-hover:text-blue-600 transition-colors" title={displayName}>
+                              {displayName}
+                            </span>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5 truncate">
+                              {lead.category || 'UNCATEGORIZED'}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Contact: Links open directly without triggering row navigation */}
+                      <td className="px-5 py-4 align-middle overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-col gap-1 w-full text-xs">
+                          {/* Phone */}
+                          <div className="flex items-center gap-2 text-slate-600 truncate">
+                            <Phone className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            {lead.phone ? (
+                              <a href={`tel:${lead.phone}`} className="hover:text-blue-600 font-mono text-[11px] truncate">
+                                {lead.phone}
+                              </a>
+                            ) : (
+                              <span className="text-slate-300 text-[11px]">—</span>
+                            )}
+                          </div>
+
+                          {/* Email */}
+                          <div className="flex items-center gap-2 text-slate-600 truncate">
+                            <Mail className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                            {lead.email ? (
+                              <a href={`mailto:${lead.email}`} className="hover:text-blue-600 text-[11px] truncate" title={lead.email}>
+                                {lead.email}
+                              </a>
+                            ) : (
+                              <span className="text-slate-300 text-[11px]">—</span>
+                            )}
+                          </div>
+
+                          {/* Website */}
+                          {lead.website && (
+                            <div className="flex items-center gap-2 text-blue-600 truncate">
+                              <Globe className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                              <a
+                                href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="hover:underline text-[11px] font-medium truncate"
+                                title={lead.website}
+                              >
+                                {lead.website.replace(/^https?:\/\/(www\.)?/, '')}
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Location */}
+                      <td className="px-5 py-4 align-middle overflow-hidden">
+                        <div className="flex items-start gap-2 text-xs text-slate-600">
+                          <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0 mt-0.5" />
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-medium text-slate-800 truncate">
+                              {lead.city || lead.state ? `${lead.city || ''}${lead.city && lead.state ? ', ' : ''}${lead.state || ''}` : 'Location Available'}
+                            </span>
+                            <span className="text-[10px] text-slate-400 truncate">
+                              {lead.country || 'India'}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* AI Progress: Real-time progress bar + backend status indicator */}
+                      <td className="px-5 py-4 align-middle">
+                        <div className="flex flex-col gap-1.5 w-full pr-4">
+                          <div className="flex items-center gap-3">
+                            <div className="flex-1 bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all duration-500 ${analysisState.status === 'completed'
+                                  ? 'bg-teal-500'
+                                  : analysisState.status === 'failed'
+                                    ? 'bg-rose-500'
+                                    : 'bg-blue-600'
+                                  }`}
+                                style={{ width: `${analysisState.progress}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-bold text-slate-700 w-8 text-right shrink-0">
+                              {analysisState.progress}%
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1.5">
+                            {analysisState.status === 'not_analyzed' && (
+                              <>
+                                <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+                                <span className="text-xs font-medium text-slate-600">Not Analyzed</span>
+                              </>
+                            )}
+
+                            {analysisState.status === 'queued' && (
+                              <>
+                                <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+                                <span className="text-xs font-medium text-slate-600">Queued</span>
+                              </>
+                            )}
+
+                            {analysisState.status === 'analyzing' && (
+                              <div className="flex items-start gap-1.5">
+                                <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0 mt-0.5" />
+                                <div className="flex flex-col">
+                                  <span className="text-xs font-medium text-slate-800">Analyzing...</span>
+                                  <span className="text-[10px] text-slate-400">
+                                    Started {formatStartedAgo(analysisState.startedAt)}
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+
+                            {analysisState.status === 'processing' && (
+                              <>
+                                <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
+                                <span className="text-xs font-medium text-slate-600">Processing</span>
+                              </>
+                            )}
+
+                            {analysisState.status === 'completed' && (
+                              <>
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
+                                <span className="text-xs font-medium text-slate-600">Completed</span>
+                              </>
+                            )}
+
+                            {analysisState.status === 'failed' && (
+                              <>
+                                <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                                <span className="text-xs font-medium text-rose-600">Failed</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Actions:
+                          1. AI Button: Analyze / Analyzing... / AI Insights / Retry Analysis (Opens Drawer or Starts Analysis)
+                          2. ChevronRight: Navigates to individual lead detail page (/dashboard/leads/detail?id=...)
+                      */}
+                      <td className="px-5 py-4 align-middle text-right" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-end gap-2">
+                          {/* When Not Analyzed: Click starts genuine backend job & immediately switches to Analyzing... */}
+                          {analysisState.status === 'not_analyzed' ? (
+                            <button
+                              onClick={() => handleStartAnalysis(lead)}
+                              disabled={!lead.website || startingAnalysisId === lead._id}
+                              title={lead.website ? "Start AI Website Analysis" : "Website not available"}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold shadow-2xs transition-all ${lead.website
+                                ? 'text-blue-600 hover:bg-blue-50/70 hover:border-blue-200 active:scale-95 cursor-pointer'
+                                : 'text-slate-300 border-slate-100 cursor-not-allowed'
+                                }`}
+                            >
+                              {startingAnalysisId === lead._id ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
+                                  <span>Starting...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                                  <span>Analyze</span>
+                                </>
+                              )}
+                            </button>
+                          ) : analysisState.status === 'queued' || analysisState.status === 'analyzing' || analysisState.status === 'processing' ? (
+                            /* While running/queued/processing: Persistent Analyzing... button with spinner.
+                               Clicking opens AI drawer to inspect live progress without interrupting job. */
+                            <button
+                              onClick={() => handleOpenAnalysisDrawer(lead, false)}
+                              title="Analysis in progress. Click to view live telemetry."
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50/80 text-xs font-semibold text-blue-700 shadow-2xs hover:bg-blue-100/80 transition-all active:scale-95 cursor-pointer"
+                            >
+                              <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin shrink-0" />
+                              <span>Analyzing...</span>
+                            </button>
+                          ) : analysisState.status === 'completed' ? (
+                            /* When completed: Shows AI Insights button opening the drawer */
+                            <button
+                              onClick={() => handleOpenAnalysisDrawer(lead, false)}
+                              title="Analysis completed. Click to view AI Insights."
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-2xs active:scale-95 cursor-pointer"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 text-blue-500" />
+                              <span>AI Insights</span>
+                            </button>
+                          ) : (
+                            /* When failed: Shows Retry Analysis button */
+                            <button
+                              onClick={() => handleStartAnalysis(lead)}
+                              disabled={!lead.website || startingAnalysisId === lead._id}
+                              title="Analysis failed. Click to retry analysis."
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-200 bg-rose-50/60 text-xs font-semibold text-rose-700 hover:bg-rose-100/60 transition-all shadow-2xs active:scale-95 cursor-pointer"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Retry Analysis</span>
+                            </button>
+                          )}
+
+                          {/* Right-facing arrow: EXCLUSIVELY opens the individual lead detail page */}
+                          <button
+                            onClick={() => handleOpenLeadDetail(lead._id)}
+                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
+                            title="Open Individual Lead Details"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
         /* GRID VIEW */
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {leads.map((lead: any) => {
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
+          {leads.map((lead: any, idx: number) => {
             const displayName = lead.name || lead.business_name || 'Unnamed Business';
             const initials = displayName
               ? displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
               : 'L';
-            const gradientIndex = displayName.length % bgGradients.length;
-            const avatarStyle = bgGradients[gradientIndex];
-
-            const isAnalyzing = analyzingLeadIds.has(lead._id);
-            const aiInfo = getLeadAiInfo(lead, isAnalyzing);
-            const isDrawerSelected = drawerLead?._id === lead._id;
+            const palette = avatarPalettes[idx % avatarPalettes.length];
+            const analysisState = getLeadAnalysisState(lead);
 
             return (
               <div
                 key={lead._id}
-                onClick={() => openLeadDrawer(lead)}
-                className={`bg-white rounded-2xl border ${isDrawerSelected ? 'border-blue-500 ring-2 ring-blue-100 bg-blue-50/20' : selectedIds.has(lead._id) ? 'border-blue-300 ring-1 ring-blue-300' : 'border-slate-200'} p-5 shadow-sm hover:shadow-md hover:border-blue-300 hover:-translate-y-0.5 transition-all duration-300 flex flex-col justify-between group cursor-pointer relative`}
+                onClick={() => handleOpenLeadDetail(lead._id)}
+                className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-md hover:border-blue-300 transition-all cursor-pointer flex flex-col justify-between"
               >
-                {/* Header section of card */}
                 <div>
-                  <div className="flex justify-between items-start gap-2 mb-3.5">
-                    <span className={`text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border truncate max-w-[170px] ${avatarStyle}`}>
-                      {lead.category || 'REAL ESTATE'}
+                  <div className="flex justify-between items-start gap-2 mb-3">
+                    <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                      {lead.category || 'LEAD'}
                     </span>
-                    <div onClick={(e) => e.stopPropagation()} className="relative z-10">
+                    <div onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedIds.has(lead._id)}
                         onChange={() => toggleSelect(lead._id)}
-                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 cursor-pointer"
                       />
                     </div>
                   </div>
 
-                  {/* Body details */}
-                  <div className="flex gap-4">
-                    <div className={`w-12 h-12 rounded-xl flex items-center justify-center font-bold text-sm bg-gradient-to-br border ${avatarStyle} shrink-0`}>
+                  <div className="flex gap-3">
+                    <div className={`w-11 h-11 rounded-xl flex items-center justify-center font-bold text-sm border ${palette.bg} shrink-0`}>
                       {initials}
                     </div>
                     <div className="min-w-0">
-                      <h4 className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors truncate text-base leading-snug">
+                      <h4 className="font-bold text-slate-900 truncate text-base hover:text-blue-600 transition-colors">
                         {displayName}
                       </h4>
-                      <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-1">
-                        <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                        <span className="truncate">{lead.city ? `${lead.city}, ${lead.country || 'India'}` : formatLocation(lead)}</span>
-                      </div>
+                      <p className="text-xs text-slate-500 mt-0.5 flex items-center gap-1 truncate">
+                        <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                        {lead.city || lead.state || 'Location Available'}
+                      </p>
                     </div>
                   </div>
 
-                  {/* Contact Badges */}
-                  <div className="mt-4 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
-                    {lead.phone ? (
-                      <a href={`tel:${lead.phone}`} className="flex items-center gap-1 px-2.5 py-1 bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-600 border border-slate-200 rounded-lg text-xs transition-colors font-mono font-medium">
-                        <Phone className="w-3 h-3 text-slate-400" />
-                        {lead.phone}
-                      </a>
-                    ) : (
-                      <span className="flex items-center gap-1 px-2.5 py-1 bg-slate-50 text-slate-400 border border-slate-100 rounded-lg text-xs cursor-not-allowed">
-                        <Phone className="w-3 h-3 text-slate-300" />
-                        No Phone
-                      </span>
+                  <div className="mt-4 flex flex-col gap-1.5 text-xs text-slate-600" onClick={(e) => e.stopPropagation()}>
+                    {lead.phone && (
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="font-mono">{lead.phone}</span>
+                      </div>
                     )}
-
-                    {lead.email ? (
-                      <a href={`mailto:${lead.email}`} className="flex items-center gap-1 px-2.5 py-1 bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-600 border border-slate-200 rounded-lg text-xs transition-colors font-medium">
-                        <Mail className="w-3 h-3 text-slate-400" />
-                        Email
-                      </a>
-                    ) : (
-                      <span className="flex items-center gap-1 px-2.5 py-1 bg-slate-50 text-slate-400 border border-slate-100 rounded-lg text-xs cursor-not-allowed">
-                        <Mail className="w-3 h-3 text-slate-300" />
-                        No Email
-                      </span>
+                    {lead.email && (
+                      <div className="flex items-center gap-2">
+                        <Mail className="w-3.5 h-3.5 text-slate-400" />
+                        <span className="truncate">{lead.email}</span>
+                      </div>
                     )}
-
                     {lead.website && (
-                      <a
-                        href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-1 px-2.5 py-1 bg-slate-50 hover:bg-blue-50 text-slate-700 hover:text-blue-600 border border-slate-200 rounded-lg text-xs transition-colors font-medium"
-                      >
-                        <Globe className="w-3 h-3 text-blue-500" />
-                        Website
-                      </a>
+                      <div className="flex items-center gap-2 text-blue-600">
+                        <Globe className="w-3.5 h-3.5" />
+                        <a href={lead.website} target="_blank" rel="noopener noreferrer" className="hover:underline truncate">
+                          {lead.website.replace(/^https?:\/\/(www\.)?/, '')}
+                        </a>
+                      </div>
                     )}
                   </div>
                 </div>
 
-                {/* AI Progress & Footer */}
-                <div className="mt-5 pt-4 border-t border-slate-100 space-y-3">
-                  <div className="flex flex-col gap-1.5">
-                    <div className="flex justify-between items-center text-xs">
-                      <div className="flex items-center gap-1.5 font-medium text-slate-600">
-                        {aiInfo.status === 'analyzing' ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                            <span>Analyzing...</span>
-                          </>
-                        ) : aiInfo.status === 'completed' ? (
-                          <>
-                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                            <span>Completed</span>
-                          </>
-                        ) : aiInfo.status === 'queued' ? (
-                          <>
-                            <span className="w-2 h-2 rounded-full bg-amber-500" />
-                            <span>Queued</span>
-                          </>
-                        ) : aiInfo.status === 'processing' ? (
-                          <>
-                            <span className="w-2 h-2 rounded-full bg-blue-600" />
-                            <span>Processing</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="w-2 h-2 rounded-full bg-amber-400" />
-                            <span className="text-slate-500">Not Analyzed</span>
-                          </>
-                        )}
-                      </div>
-                      <span className="font-semibold text-slate-700">{aiInfo.progress}%</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${aiInfo.status === 'completed'
-                          ? 'bg-emerald-500'
-                          : aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed'
-                            ? 'bg-transparent'
-                            : 'bg-blue-600'
-                          }`}
-                        style={{ width: `${aiInfo.progress}%` }}
-                      />
-                    </div>
+                <div className="mt-5 pt-3.5 border-t border-slate-100 space-y-3">
+                  <div className="flex items-center justify-between text-xs font-semibold text-slate-700">
+                    <span className="text-slate-500 text-[10px] uppercase font-bold">AI Progress</span>
+                    <span className="font-bold">{analysisState.progress}%</span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${analysisState.status === 'completed' ? 'bg-teal-500' : 'bg-blue-600'}`}
+                      style={{ width: `${analysisState.progress}%` }}
+                    />
                   </div>
 
-                  <div className="flex justify-between items-center gap-2 pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
-                    {aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed' ? (
+                  <div className="flex items-center justify-between gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
+                    {analysisState.status === 'not_analyzed' ? (
                       <button
-                        onClick={() => triggerAnalyze(lead)}
-                        disabled={!lead.website}
-                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border shadow-2xs flex items-center justify-center gap-1.5 ${lead.website ? 'border-blue-200 text-blue-600 bg-white hover:bg-blue-50 active:scale-95' : 'border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed'
-                          }`}
+                        onClick={() => handleStartAnalysis(lead)}
+                        disabled={!lead.website || startingAnalysisId === lead._id}
+                        className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-blue-50 text-xs font-bold text-blue-600 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                        Analyze
+                        <Sparkles className="w-3.5 h-3.5" /> Analyze
+                      </button>
+                    ) : analysisState.status === 'queued' || analysisState.status === 'analyzing' || analysisState.status === 'processing' ? (
+                      <button
+                        onClick={() => handleOpenAnalysisDrawer(lead, false)}
+                        className="flex-1 px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" /> Analyzing...
+                      </button>
+                    ) : analysisState.status === 'completed' ? (
+                      <button
+                        onClick={() => handleOpenAnalysisDrawer(lead, false)}
+                        className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-blue-500" /> AI Insights
                       </button>
                     ) : (
                       <button
-                        onClick={() => openLeadDrawer(lead)}
-                        className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 shadow-2xs flex items-center justify-center gap-1.5"
+                        onClick={() => handleStartAnalysis(lead)}
+                        className="flex-1 px-3 py-2 rounded-xl bg-rose-50 border border-rose-200 text-xs font-semibold text-rose-700 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
-                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                        AI Insights
+                        <RefreshCw className="w-3.5 h-3.5 text-rose-600" /> Retry
                       </button>
                     )}
                     <button
-                      onClick={() => router.push(`/dashboard/leads/detail?id=${lead._id}`)}
-                      className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-                      title="View Details"
+                      onClick={() => handleOpenLeadDetail(lead._id)}
+                      className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500 cursor-pointer"
+                      title="Open Lead Details"
                     >
-                      <MoreHorizontal className="w-4 h-4" />
+                      <ChevronRight className="w-4 h-4" />
                     </button>
                   </div>
                 </div>
@@ -1522,402 +1638,71 @@ export default function LeadsPage() {
             );
           })}
         </div>
-      ) : (
-        /* LIST VIEW TABLE (Desktop & Tablet) */
-        <>
-          <div className="bg-white border border-gray-200 rounded-2xl shadow-sm overflow-hidden hidden md:flex flex-col">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left whitespace-nowrap table-fixed">
-                <thead className="bg-gray-50 border-b border-gray-200">
-                  <tr>
-                    <th className="px-5 py-3.5 w-12 text-center">
-                      <input
-                        type="checkbox"
-                        checked={leads.length > 0 && selectedIds.size === leads.length}
-                        onChange={toggleSelectAll}
-                        className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                    </th>
-                    <th className="px-5 py-3.5 w-[28%] text-xs font-bold text-gray-500 uppercase tracking-wider">Business</th>
-                    <th className="px-5 py-3.5 w-[24%] text-xs font-bold text-gray-500 uppercase tracking-wider">Contact</th>
-                    <th className="px-5 py-3.5 w-[16%] hidden lg:table-cell text-xs font-bold text-gray-500 uppercase tracking-wider">Location</th>
-                    <th className="px-5 py-3.5 w-[20%] text-xs font-bold text-gray-500 uppercase tracking-wider">AI Progress</th>
-                    <th className="px-5 py-3.5 w-[12%] text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100 bg-white">
-                  {leads.map((lead: any) => {
-                    const displayName = lead.name || lead.business_name || 'Unnamed Business';
-                    const initials = displayName ? displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : 'L';
-                    const gradientIndex = displayName.length % bgGradients.length;
-                    const avatarStyle = bgGradients[gradientIndex];
-                    const isAnalyzing = analyzingLeadIds.has(lead._id);
-                    const aiInfo = getLeadAiInfo(lead, isAnalyzing);
-                    const isDrawerSelected = drawerLead?._id === lead._id;
-
-                    return (
-                      <tr
-                        key={lead._id}
-                        onClick={() => openLeadDrawer(lead)}
-                        className={`group transition-all cursor-pointer ${isDrawerSelected
-                          ? 'bg-blue-50/70 border-l-4 border-l-blue-600'
-                          : selectedIds.has(lead._id)
-                            ? 'bg-blue-50/40'
-                            : 'hover:bg-slate-50/80'
-                          }`}
-                      >
-                        <td className="px-5 py-4 text-center align-middle" onClick={(e) => e.stopPropagation()}>
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(lead._id)}
-                            onChange={() => toggleSelect(lead._id)}
-                            className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                          />
-                        </td>
-                        <td className="px-5 py-4 align-middle overflow-hidden">
-                          <div className="flex items-center gap-3">
-                            <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm bg-gradient-to-br border ${avatarStyle} shrink-0 shadow-2xs`}>
-                              {initials}
-                            </div>
-                            <div className="flex flex-col min-w-0">
-                              <span className="font-bold text-gray-900 text-sm truncate hover:text-blue-600 transition-colors" title={displayName}>
-                                {displayName}
-                              </span>
-                              <span className="text-[11px] font-bold text-gray-400 mt-0.5 uppercase tracking-wider truncate" title={lead.category || 'REAL ESTATE'}>
-                                {lead.category || 'REAL ESTATE'}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 align-middle overflow-hidden" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex flex-col gap-1 w-full">
-                            <div className="flex items-center gap-2 text-xs group/item max-w-[200px]">
-                              <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                              {lead.phone ? (
-                                <>
-                                  <a href={`tel:${lead.phone}`} className="text-gray-700 hover:text-blue-600 font-mono font-medium truncate" title={lead.phone}>{lead.phone}</a>
-                                  <button onClick={() => { navigator.clipboard.writeText(lead.phone); toast.success('Phone copied'); }} className="opacity-0 group-hover/item:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-gray-700" title="Copy Phone"><Copy className="w-3 h-3" /></button>
-                                </>
-                              ) : (
-                                <span className="text-gray-400 font-medium">—</span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 text-xs group/item max-w-[200px]">
-                              <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                              {lead.email ? (
-                                <>
-                                  <a href={`mailto:${lead.email}`} className="text-gray-700 hover:text-blue-600 font-medium truncate" title={lead.email}>{lead.email}</a>
-                                  <button onClick={() => { navigator.clipboard.writeText(lead.email); toast.success('Email copied'); }} className="opacity-0 group-hover/item:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-gray-700" title="Copy Email"><Copy className="w-3 h-3" /></button>
-                                </>
-                              ) : (
-                                <span className="text-gray-400 font-medium">—</span>
-                              )}
-                            </div>
-                            {lead.website && (
-                              <div className="flex items-center gap-2 text-xs group/item max-w-[200px]">
-                                <Globe className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                                <a
-                                  href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-blue-600 hover:underline font-medium truncate"
-                                  title={lead.website}
-                                >
-                                  {lead.website.replace(/^https?:\/\/(www\.)?/, '')}
-                                </a>
-                                <button onClick={() => { navigator.clipboard.writeText(lead.website); toast.success('Website copied'); }} className="opacity-0 group-hover/item:opacity-100 transition-opacity p-0.5 text-gray-400 hover:text-gray-700" title="Copy Website"><Copy className="w-3 h-3" /></button>
-                              </div>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 align-middle hidden lg:table-cell overflow-hidden">
-                          <div className="flex items-start gap-2 min-w-0">
-                            <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0 mt-0.5" />
-                            <div className="flex flex-col min-w-0">
-                              <span className="text-xs font-medium text-gray-800 truncate" title={lead.city ? `${lead.city}${lead.state ? `, ${lead.state}` : ''}` : formatLocation(lead)}>
-                                {lead.city ? `${lead.city}${lead.state ? `, ${lead.state}` : ''}` : formatLocation(lead)}
-                              </span>
-                              <span className="text-[11px] text-gray-400 font-normal truncate">
-                                {lead.country || 'India'}
-                              </span>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 align-middle" onClick={(e) => { e.stopPropagation(); openLeadDrawer(lead); }}>
-                          <div className="flex flex-col gap-1.5 w-full max-w-[190px]">
-                            <div className="flex justify-end items-center text-xs font-semibold text-slate-700">
-                              <span>{aiInfo.progress}%</span>
-                            </div>
-                            <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all duration-500 ${aiInfo.status === 'completed'
-                                  ? 'bg-emerald-500'
-                                  : aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed'
-                                    ? 'bg-transparent'
-                                    : 'bg-blue-600'
-                                  }`}
-                                style={{ width: `${aiInfo.progress}%` }}
-                              />
-                            </div>
-                            <div className="flex items-center gap-1.5 text-xs text-slate-600 font-medium pt-0.5">
-                              {aiInfo.status === 'analyzing' ? (
-                                <>
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600 shrink-0" />
-                                  <span className="truncate text-slate-600">
-                                    Analyzing...
-                                    {aiInfo.sublabel && (
-                                      <span className="text-[11px] text-slate-400 block sm:inline sm:ml-1">
-                                        {aiInfo.sublabel}
-                                      </span>
-                                    )}
-                                  </span>
-                                </>
-                              ) : aiInfo.status === 'completed' ? (
-                                <>
-                                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                                  <span>Completed</span>
-                                </>
-                              ) : aiInfo.status === 'queued' ? (
-                                <>
-                                  <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-                                  <span>Queued</span>
-                                </>
-                              ) : aiInfo.status === 'processing' ? (
-                                <>
-                                  <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
-                                  <span>Processing</span>
-                                </>
-                              ) : (
-                                <>
-                                  <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-                                  <span className="text-slate-500">Not Analyzed</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        </td>
-                        <td className="px-5 py-4 align-middle text-right" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex items-center justify-end gap-2">
-                            {aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed' ? (
-                              <button
-                                onClick={() => triggerAnalyze(lead)}
-                                disabled={!lead.website}
-                                title={lead.website ? "Start AI Website Analysis" : "Website not available"}
-                                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all flex items-center gap-1.5 shadow-2xs ${lead.website
-                                  ? 'border-blue-200 text-blue-600 hover:bg-blue-50 active:scale-95 cursor-pointer bg-white'
-                                  : 'border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed'
-                                  }`}
-                              >
-                                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                                Analyze
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => openLeadDrawer(lead)}
-                                className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
-                                title="View AI Analysis Insights"
-                              >
-                                <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                                AI Insights
-                              </button>
-                            )}
-                            <button
-                              onClick={() => router.push(`/dashboard/leads/detail?id=${lead._id}`)}
-                              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
-                              title="More Actions / View Details"
-                            >
-                              <MoreHorizontal className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* MOBILE RESPONSIVE CARDS (only visible on mobile) */}
-          <div className="md:hidden flex flex-col gap-4">
-            {leads.map((lead: any) => {
-              const displayName = lead.name || lead.business_name || 'Unnamed Business';
-              const initials = displayName ? displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase() : 'L';
-              const gradientIndex = displayName.length % bgGradients.length;
-              const avatarStyle = bgGradients[gradientIndex];
-              const isAnalyzing = analyzingLeadIds.has(lead._id);
-              const aiInfo = getLeadAiInfo(lead, isAnalyzing);
-              const isDrawerSelected = drawerLead?._id === lead._id;
-
-              return (
-                <div
-                  key={lead._id}
-                  onClick={() => openLeadDrawer(lead)}
-                  className={`bg-white rounded-2xl border ${isDrawerSelected ? 'border-blue-500 ring-2 ring-blue-100 bg-blue-50/20' : selectedIds.has(lead._id) ? 'border-blue-300 ring-1 ring-blue-300' : 'border-gray-200'} p-4 shadow-sm flex flex-col cursor-pointer transition-all hover:shadow-md`}
-                >
-                  <div className="flex justify-between items-start mb-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm bg-gradient-to-br border ${avatarStyle} shrink-0`}>
-                        {initials}
-                      </div>
-                      <div className="flex flex-col min-w-0">
-                        <span className="font-bold text-gray-900 text-sm truncate">{displayName}</span>
-                        <span className="text-[10px] font-bold text-gray-400 mt-0.5 uppercase tracking-wider truncate">{lead.category || 'REAL ESTATE'}</span>
-                      </div>
-                    </div>
-                    <div onClick={(e) => e.stopPropagation()} className="ml-2">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(lead._id)}
-                        onChange={() => toggleSelect(lead._id)}
-                        className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="bg-gray-50 rounded-xl p-3 flex flex-col gap-2 mb-3" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex items-center gap-2 text-xs">
-                      <Phone className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                      {lead.phone ? <a href={`tel:${lead.phone}`} className="text-gray-700 font-mono font-medium truncate">{lead.phone}</a> : <span className="text-gray-400">—</span>}
-                    </div>
-                    <div className="flex items-center gap-2 text-xs">
-                      <Mail className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                      {lead.email ? <a href={`mailto:${lead.email}`} className="text-gray-700 font-medium truncate">{lead.email}</a> : <span className="text-gray-400">—</span>}
-                    </div>
-                    {lead.website && (
-                      <div className="flex items-center gap-2 text-xs">
-                        <Globe className="w-3.5 h-3.5 text-blue-500 shrink-0" />
-                        <a href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 truncate">{lead.website}</a>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 text-xs">
-                      <MapPin className="w-3.5 h-3.5 text-gray-400 shrink-0" />
-                      <span className="text-gray-600 truncate">{lead.city ? `${lead.city}, ${lead.country || 'India'}` : formatLocation(lead)}</span>
-                    </div>
-                  </div>
-
-                  {/* AI Progress inside Card */}
-                  <div className="flex flex-col gap-1.5 pt-1 pb-3">
-                    <div className="flex justify-between items-center text-xs">
-                      <div className="flex items-center gap-1.5 font-medium text-slate-600">
-                        {aiInfo.status === 'analyzing' ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-                            <span>Analyzing...</span>
-                          </>
-                        ) : aiInfo.status === 'completed' ? (
-                          <>
-                            <span className="w-2 h-2 rounded-full bg-emerald-500" />
-                            <span>Completed</span>
-                          </>
-                        ) : aiInfo.status === 'queued' ? (
-                          <>
-                            <span className="w-2 h-2 rounded-full bg-amber-500" />
-                            <span>Queued</span>
-                          </>
-                        ) : aiInfo.status === 'processing' ? (
-                          <>
-                            <span className="w-2 h-2 rounded-full bg-blue-600" />
-                            <span>Processing</span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="w-2 h-2 rounded-full bg-amber-400" />
-                            <span className="text-slate-500">Not Analyzed</span>
-                          </>
-                        )}
-                      </div>
-                      <span className="font-semibold text-slate-700">{aiInfo.progress}%</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                      <div
-                        className={`h-full rounded-full transition-all duration-500 ${aiInfo.status === 'completed'
-                          ? 'bg-emerald-500'
-                          : aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed'
-                            ? 'bg-transparent'
-                            : 'bg-blue-600'
-                          }`}
-                        style={{ width: `${aiInfo.progress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex justify-between items-center gap-2 pt-2 border-t border-slate-100" onClick={(e) => e.stopPropagation()}>
-                    {aiInfo.status === 'not_analyzed' || aiInfo.status === 'failed' ? (
-                      <button
-                        onClick={() => triggerAnalyze(lead)}
-                        disabled={!lead.website}
-                        className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold border shadow-2xs flex items-center justify-center gap-1.5 ${lead.website ? 'border-blue-200 text-blue-600 bg-white hover:bg-blue-50 active:scale-95' : 'border-slate-200 text-slate-300 bg-slate-50 cursor-not-allowed'
-                          }`}
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                        Analyze
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => openLeadDrawer(lead)}
-                        className="flex-1 px-3 py-2 rounded-lg text-xs font-semibold bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 shadow-2xs flex items-center justify-center gap-1.5"
-                      >
-                        <Sparkles className="w-3.5 h-3.5 text-blue-600" />
-                        AI Insights
-                      </button>
-                    )}
-                    <button
-                      onClick={() => router.push(`/dashboard/leads/detail?id=${lead._id}`)}
-                      className="p-2 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
-                      title="More Actions"
-                    >
-                      <MoreHorizontal className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </>
       )}
 
-      {/* Pagination Controls */}
-      <div className="flex flex-col sm:flex-row justify-between items-center px-6 py-3.5 bg-white border border-slate-200 rounded-2xl gap-4 shadow-2xs">
+      {/* PAGINATION */}
+      <div className="flex flex-col sm:flex-row justify-between items-center px-4 py-3 bg-white border border-slate-200/90 rounded-2xl gap-4 shadow-2xs">
         <span className="text-xs font-medium text-slate-500">
-          Showing <span className="font-bold text-slate-800">{total > 0 ? page * limit + 1 : 0}</span> to <span className="font-bold text-slate-800">{Math.min((page + 1) * limit, total)}</span> of <span className="font-bold text-slate-800">{total}</span> leads
+          Showing <span className="font-bold text-slate-800">{total === 0 ? 0 : page * limit + 1}</span> to <span className="font-bold text-slate-800">{Math.min((page + 1) * limit, total)}</span> of <span className="font-bold text-slate-800">{total.toLocaleString()}</span> leads
         </span>
+
         <div className="flex items-center gap-1.5">
           <button
             disabled={page === 0}
             onClick={() => setPage(p => p - 1)}
-            className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
-            title="Previous Page"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-all text-xs cursor-pointer"
           >
-            &lt;
+            <ChevronLeft className="w-4 h-4" />
           </button>
-          {Array.from({ length: Math.min(totalPages || 1, 5) }).map((_, idx) => (
-            <button
-              key={idx}
-              onClick={() => setPage(idx)}
-              className={`w-8 h-8 rounded-lg text-xs font-bold transition-all flex items-center justify-center shadow-2xs ${page === idx
-                ? 'bg-blue-600 text-white'
-                : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
-                }`}
-            >
-              {idx + 1}
-            </button>
-          ))}
+
+          {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+            const pageNum = i;
+            const isActive = pageNum === page;
+            return (
+              <button
+                key={i}
+                onClick={() => setPage(pageNum)}
+                className={`w-8 h-8 rounded-lg text-xs font-bold transition-all cursor-pointer ${isActive
+                  ? 'bg-blue-600 text-white shadow-2xs'
+                  : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}
+              >
+                {pageNum + 1}
+              </button>
+            );
+          })}
+
           <button
             disabled={(page + 1) * limit >= total}
             onClick={() => setPage(p => p + 1)}
-            className="w-8 h-8 flex items-center justify-center bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-2xs"
-            title="Next Page"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-all text-xs cursor-pointer"
           >
-            &gt;
+            <ChevronRight className="w-4 h-4" />
           </button>
         </div>
+
         <div className="flex items-center gap-2 text-xs text-slate-500">
           <span>Show</span>
-          <span className="font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">10</span>
+          <select
+            value={limit}
+            onChange={(e) => { setLimit(Number(e.target.value)); setPage(0); }}
+            className="px-2 py-1 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 outline-none cursor-pointer"
+          >
+            <option value="10">10</option>
+            <option value="25">25</option>
+            <option value="50">50</option>
+          </select>
           <span>per page</span>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function LeadsPage() {
+  return (
+    <Suspense fallback={<div className="w-full py-12 flex items-center justify-center text-sm text-slate-400">Loading leads...</div>}>
+      <LeadsPageContent />
+    </Suspense>
   );
 }

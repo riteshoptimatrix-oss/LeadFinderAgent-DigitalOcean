@@ -114,19 +114,7 @@ export default function SearchProgressPage() {
     socket.onerror = () => setWsConnected(false);
     socket.onclose = () => setWsConnected(false);
 
-    return () => {
-      socket.onopen = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      socket.onclose = null;
-      if (socket.readyState === 0) {
-        socket.onopen = () => {
-          try { socket?.close(); } catch (_) {}
-        };
-      } else {
-        try { socket.close(); } catch (_) {}
-      }
-    };
+    return () => socket.close();
   }, [jobId]);
 
   useEffect(() => {
@@ -174,7 +162,7 @@ export default function SearchProgressPage() {
   const discoveredCount = currentJob.total_leads ?? currentJob.total_saved ?? currentJob.collected_urls ?? 0;
 
   return (
-    <div className="max-w-4xl space-y-8">
+    <div className="w-full max-w-5xl space-y-8 pb-12">
       <div className="flex items-center gap-4 mb-4">
         <button 
           onClick={() => router.push('/dashboard/search')}

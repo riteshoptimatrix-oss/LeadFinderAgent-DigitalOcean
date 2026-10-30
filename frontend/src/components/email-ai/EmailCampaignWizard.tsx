@@ -756,10 +756,9 @@ export default function EmailCampaignWizard() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   {/* Big Stats */}
                   <div className="md:col-span-3 grid grid-cols-3 gap-4">
-                    <div className="bg-slate-900 text-white p-5 rounded-2xl relative overflow-hidden">
-                      <div className="absolute -right-4 -top-4 w-24 h-24 bg-white/10 rounded-full blur-2xl"></div>
-                      <div className="text-slate-400 text-sm font-semibold mb-1">Target Audience</div>
-                      <div className="text-4xl font-black">{selectedLeadIds.length.toLocaleString()}</div>
+                    <div className="bg-white border border-slate-200 text-slate-900 p-5 rounded-2xl relative overflow-hidden shadow-xs">
+                      <div className="text-slate-500 text-sm font-semibold mb-1">Target Audience</div>
+                      <div className="text-4xl font-black text-slate-900">{selectedLeadIds.length.toLocaleString()}</div>
                       <div className="text-slate-400 text-xs mt-2">Leads prepared</div>
                     </div>
                     <div className="bg-blue-600 text-white p-5 rounded-2xl relative overflow-hidden">
@@ -836,7 +835,7 @@ export default function EmailCampaignWizard() {
             {currentStep < 6 ? (
               <button
                 onClick={handleNext}
-                className="group flex items-center gap-2 px-8 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl font-bold transition-all"
+                className="group flex items-center gap-2 px-8 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold transition-all shadow-sm"
               >
                 Next Step
                 <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />

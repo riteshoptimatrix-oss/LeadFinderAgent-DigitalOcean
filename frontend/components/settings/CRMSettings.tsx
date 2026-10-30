@@ -191,10 +191,10 @@ export default function CRMSettings({ setHasUnsavedChanges }: { setHasUnsavedCha
           </div>
           
           <div className="border-t border-gray-100 bg-gray-50/50 px-6 py-4 flex justify-end">
-             <button
+              <button
               type="submit"
               disabled={updateMutation.isPending || (originalSettings && JSON.stringify(settings) === JSON.stringify(originalSettings))}
-              className="w-full sm:w-auto rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white transition-all hover:bg-gray-800 disabled:opacity-50 focus:outline-none focus:ring-4 focus:ring-gray-200 flex items-center gap-2 justify-center"
+              className="w-full sm:w-auto rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-blue-700 disabled:opacity-50 shadow-sm active:scale-95 flex items-center gap-2 justify-center"
             >
               {updateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Save CRM Config

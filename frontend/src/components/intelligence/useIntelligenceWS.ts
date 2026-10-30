@@ -49,9 +49,11 @@ export function useIntelligenceWS(onUpdate?: (event: IntelligenceWSEvent) => voi
       };
 
       ws.onmessage = (event) => {
-        if (event.data === 'pong' || event.data === 'ping') return;
+        if (!event.data || typeof event.data !== 'string') return;
+        const trimmed = event.data.trim();
+        if (!trimmed || trimmed === 'pong' || trimmed === 'ping') return;
         try {
-          const data: IntelligenceWSEvent = JSON.parse(event.data);
+          const data: IntelligenceWSEvent = JSON.parse(trimmed);
           if (data.type === 'INTELLIGENCE_KPI_UPDATE') {
             invalidateQueries();
             onUpdate?.(data);

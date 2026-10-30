@@ -441,7 +441,11 @@ def get_db():
             detail="Database connection is missing. Please ensure your local MongoDB service is running and restart the server.",
         )
     
-    from app.core.context import get_current_user_id
+    from app.core.context import get_current_user_id, get_current_user_role
+    role = get_current_user_role()
+    if role and str(role).upper() in ["ADMIN", "SUPERADMIN"]:
+        return db_instance.db
+
     user_id = get_current_user_id()
     if user_id:
         from app.db.tenant import TenantDatabase

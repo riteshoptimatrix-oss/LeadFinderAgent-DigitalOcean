@@ -25,12 +25,20 @@ class SearchEngineAPI:
         country = query.get("country", "")
         limit = query.get("limit", 50)
         provider = query.get("provider") or "Google Maps"
+        exhaustive = bool(query.get("exhaustive", False))
+        grid_size = int(query.get("grid_size", 3) or 3)
+        target_cap = str(query.get("target_cap") or "ALL")
         
         if not keyword:
             raise ValueError("Keyword is required")
             
         # Create job in database
-        job_id = await self.progress.create_job(keyword, area, city, state, country, limit, provider=provider, user_id=user_id)
+        job_id = await self.progress.create_job(
+            keyword, area, city, state, country, limit,
+            provider=provider, user_id=user_id,
+            exhaustive=exhaustive, grid_size=grid_size,
+            target_cap=target_cap
+        )
         
         # Enqueue background task
         await search_queue.enqueue(
@@ -43,7 +51,10 @@ class SearchEngineAPI:
             country=country,
             limit=limit,
             provider=provider,
-            user_id=user_id
+            user_id=user_id,
+            exhaustive=exhaustive,
+            grid_size=grid_size,
+            target_cap=target_cap
         )
         
         return {
@@ -62,7 +73,8 @@ class SearchEngineAPI:
             
         job_dict = dict(job)
         if "_id" in job_dict:
-            job_dict["job_id"] = str(job_dict.pop("_id"))
+            job_dict["_id"] = str(job_dict["_id"])
+            job_dict["job_id"] = job_dict["_id"]
         return job_dict
 
     async def stop_job(self, job_id: str) -> Dict[str, Any]:

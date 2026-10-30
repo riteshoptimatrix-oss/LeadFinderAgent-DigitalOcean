@@ -80,10 +80,44 @@ class Storage:
         core_string = f"{data.get('name', '')}|{data.get('address', '')}|{data.get('phone_digits', '')}".lower()
         return hashlib.sha256(core_string.encode('utf-8')).hexdigest()
 
-    async def save_lead(self, job_id: str, raw_data: dict, area: str = None, city: str = None, state: str = None, country: str = None, user_id: str = None) -> str:
+    def classify_business_cap(self, data: dict) -> str:
+        """
+        Classifies a lead as 'Small Cap', 'Medium Cap', or 'Large Cap'.
+        Based on review counts, rating counts, and company naming patterns.
+        """
+        review_count = 0
+        for k in ("reviews_count", "review_count", "user_ratings_total", "reviews", "rating_count"):
+            val = data.get(k)
+            if val is not None:
+                try:
+                    review_count = int(val)
+                    break
+                except (ValueError, TypeError):
+                    pass
+        
+        name = str(data.get("name", "")).strip().lower()
+        
+        # Check for major corporate chains or national brand indicators
+        large_corp_indicators = [
+            "starbucks", "mcdonald", "domino", "subway", "kfc", "walmart",
+            "tata", "reliance", "infosys", "wipro", "tcs", "microsoft", "google",
+            "amazon", "apple", "ibm", "accenture", "hcl", "cognizant", "deloitte",
+            "pwc", "kpmg", "ey", "bank of america", "hdfc", "icici", "sbi", "citibank"
+        ]
+        if any(corp in name for corp in large_corp_indicators):
+            return "Large Cap"
+
+        if review_count > 1000:
+            return "Large Cap"
+        elif review_count >= 150:
+            return "Medium Cap"
+        else:
+            return "Small Cap"
+
+    async def save_lead(self, job_id: str, raw_data: dict, area: str = None, city: str = None, state: str = None, country: str = None, user_id: str = None, target_cap: str = "ALL") -> str:
         """
         Saves an extracted business lead to the database.
-        Returns one of: "INSERTED", "DUPLICATE", "ERROR".
+        Returns one of: "INSERTED", "DUPLICATE", "REJECTED_CAP", "ERROR".
         Uses MongoDB transactions if available.
         """
         db = get_db()
@@ -94,6 +128,24 @@ class Storage:
         try:
             data = self._normalize_data(raw_data)
             fingerprint = self._generate_fingerprint(data)
+
+            # Business Scale / Cap Classification & Filtering
+            business_cap = self.classify_business_cap(data)
+            data["business_cap"] = business_cap
+
+            if target_cap and target_cap != "ALL":
+                if target_cap == "SMALL_CAP" and business_cap != "Small Cap":
+                    logger.info(f"[STORAGE] Rejected lead '{data.get('name')}' - Cap '{business_cap}' doesn't match target 'Small Cap'")
+                    return "REJECTED_CAP"
+                elif target_cap == "MEDIUM_CAP" and business_cap != "Medium Cap":
+                    logger.info(f"[STORAGE] Rejected lead '{data.get('name')}' - Cap '{business_cap}' doesn't match target 'Medium Cap'")
+                    return "REJECTED_CAP"
+                elif target_cap == "SMALL_MEDIUM_CAP" and business_cap == "Large Cap":
+                    logger.info(f"[STORAGE] Rejected lead '{data.get('name')}' - Cap '{business_cap}' (Large Cap chain) filtered out for Small/Medium target")
+                    return "REJECTED_CAP"
+                elif target_cap == "LARGE_CAP" and business_cap != "Large Cap":
+                    logger.info(f"[STORAGE] Rejected lead '{data.get('name')}' - Cap '{business_cap}' doesn't match target 'Large Cap'")
+                    return "REJECTED_CAP"
 
             # Collect ALL discovered phone numbers into the standard `phones` array.
             phones = _collect_phones(data)
@@ -133,6 +185,7 @@ class Storage:
                 "category": data.get("category"),
                 "rating": data.get("rating"),
                 "reviews_count": data.get("reviews_count"),
+                "business_cap": business_cap,
                 "website": data.get("website"),
                 "phone": phone,
                 "phones": phones,

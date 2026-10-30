@@ -265,9 +265,9 @@ function SessionCard({
       <div className="flex items-center gap-2">
         <button
           onClick={() => onViewLeads(session)}
-          className="flex-1 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95"
+          className="flex-1 px-3 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95 cursor-pointer"
         >
-          <Eye className="w-3.5 h-3.5" /> View Leads
+          <Eye className="w-3.5 h-3.5" /> View Leads ({session.total_saved ?? session.leads_count ?? 0})
         </button>
         {active && onBackToAllLeads && (
           <button

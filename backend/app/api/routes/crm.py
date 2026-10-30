@@ -13,8 +13,20 @@ from app.core.websocket import manager
 
 router = APIRouter()
 
+def _is_admin(user: Any) -> bool:
+    role = getattr(user, "role", "")
+    role_str = (role.value if hasattr(role, "value") else str(role)).upper()
+    return role_str in ["ADMIN", "SUPERADMIN"]
+
+def _crm_lead_filter(lead_id: str, current_user: Any) -> dict:
+    if not ObjectId.is_valid(lead_id):
+        raise HTTPException(status_code=400, detail="Invalid lead ID format")
+    if _is_admin(current_user):
+        return {"_id": ObjectId(lead_id)}
+    return {"_id": ObjectId(lead_id), "user_id": str(current_user.id)}
+
 # -----------------
-# CRM Pipelineeeeeeeeeeeeeeeeeeeeeee
+# CRM Pipeline
 # -----------------
 
 @router.get("/leads/pipeline")
@@ -27,7 +39,9 @@ async def get_pipeline_leads(
     db: AsyncIOMotorDatabase = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user)
 ):
-    query = {"user_id": str(current_user.id)}
+    query: dict = {}
+    if not _is_admin(current_user):
+        query["user_id"] = str(current_user.id)
     if pipeline_stage:
         query["pipeline_stage"] = pipeline_stage
     if priority:
@@ -58,8 +72,9 @@ async def update_pipeline_stage(
     db: AsyncIOMotorDatabase = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user)
 ):
+    query = _crm_lead_filter(lead_id, current_user)
     result = await db.leads.update_one(
-        {"_id": ObjectId(lead_id), "user_id": str(current_user.id)},
+        query,
         {"$set": {"pipeline_stage": stage}}
     )
     if result.matched_count == 0:
@@ -92,8 +107,9 @@ async def update_lead_owner(
     db: AsyncIOMotorDatabase = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user)
 ):
+    query = _crm_lead_filter(lead_id, current_user)
     result = await db.leads.update_one(
-        {"_id": ObjectId(lead_id), "user_id": str(current_user.id)},
+        query,
         {"$set": {"owner_id": owner_id}}
     )
     if result.matched_count == 0:
@@ -122,7 +138,7 @@ async def create_activity(
     current_user: UserResponse = Depends(get_current_user)
 ):
     # Verify lead ownership
-    lead = await db.leads.find_one({"_id": ObjectId(activity.lead_id), "user_id": str(current_user.id)})
+    lead = await db.leads.find_one(_crm_lead_filter(activity.lead_id, current_user))
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
         
@@ -156,13 +172,13 @@ async def get_lead_activities(
     frontend never shows an error for a lead that simply has no activity.
     """
     try:
-        lead_oid = ObjectId(lead_id)
+        query = _crm_lead_filter(lead_id, current_user)
     except Exception:
         # Malformed id — treat as "no activities", not a 404.
         return {"activities": [], "count": 0}
 
     # Verify lead ownership; if missing, still return 200 with empty list.
-    lead = await db.leads.find_one({"_id": lead_oid, "user_id": str(current_user.id)})
+    lead = await db.leads.find_one(query)
     if not lead:
         return {"activities": [], "count": 0}
 
@@ -185,7 +201,7 @@ async def create_task(
     current_user: UserResponse = Depends(get_current_user)
 ):
     # Verify lead ownership
-    lead = await db.leads.find_one({"_id": ObjectId(task.lead_id), "user_id": str(current_user.id)})
+    lead = await db.leads.find_one(_crm_lead_filter(task.lead_id, current_user))
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
         
@@ -218,7 +234,9 @@ async def get_tasks(
     db: AsyncIOMotorDatabase = Depends(get_db),
     current_user: UserResponse = Depends(get_current_user)
 ):
-    query = {"user_id": str(current_user.id)}
+    query: dict = {}
+    if not _is_admin(current_user):
+        query["user_id"] = str(current_user.id)
     if status:
         query["status"] = status
     if lead_id:
@@ -245,8 +263,12 @@ async def update_task_status(
     if status == "Completed":
         update_data["completed_at"] = datetime.utcnow()
         
+    task_query = {"_id": ObjectId(task_id)}
+    if not _is_admin(current_user):
+        task_query["user_id"] = str(current_user.id)
+
     result = await db.crm_tasks.update_one(
-        {"_id": ObjectId(task_id), "user_id": str(current_user.id)},
+        task_query,
         {"$set": update_data}
     )
     if result.matched_count == 0:

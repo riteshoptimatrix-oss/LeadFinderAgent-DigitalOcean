@@ -11,6 +11,10 @@ class TenantCollection:
             filter_query = {}
         else:
             filter_query = dict(filter_query)
+        from app.core.context import get_current_user_role
+        role = get_current_user_role()
+        if role and str(role).upper() in ["ADMIN", "SUPERADMIN"]:
+            return filter_query
         filter_query["user_id"] = self.user_id
         return filter_query
 
@@ -20,6 +24,10 @@ class TenantCollection:
         return doc
         
     def _inject_pipeline(self, pipeline: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        from app.core.context import get_current_user_role
+        role = get_current_user_role()
+        if role and str(role).upper() in ["ADMIN", "SUPERADMIN"]:
+            return pipeline
         # Inject $match as the first stage
         if pipeline and "$match" in pipeline[0]:
             pipeline[0]["$match"]["user_id"] = self.user_id

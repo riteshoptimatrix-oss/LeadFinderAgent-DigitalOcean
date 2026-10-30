@@ -1,13 +1,59 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useMemo } from 'react';
 import { useSearchParams, useRouter, useParams } from 'next/navigation';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { toast } from 'sonner';
-import { Loader2, ArrowLeft, StopCircle, Clock, CheckCircle2, XCircle, AlertTriangle, Download, ArrowRight, Save, LayoutDashboard, Globe, AlertCircle, FileText, DownloadCloud, ShieldCheck, ShieldAlert, Search, X, Target } from 'lucide-react';
+import {
+  Loader2,
+  ArrowLeft,
+  StopCircle,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  Download,
+  ArrowRight,
+  Save,
+  LayoutDashboard,
+  Globe,
+  AlertCircle,
+  FileText,
+  DownloadCloud,
+  ShieldCheck,
+  ShieldAlert,
+  Search,
+  X,
+  Target,
+  Terminal,
+  Copy,
+  Check,
+  MapPin,
+  SlidersHorizontal,
+  ExternalLink,
+  Phone,
+  Mail,
+  RefreshCw,
+  Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Maximize2,
+  Filter,
+  Eye,
+  Activity,
+  Zap,
+  List,
+  LayoutGrid,
+  Building2,
+  Star,
+  Compass,
+  Radio,
+  Lock,
+  Unlock,
+  Trash2
+} from 'lucide-react';
 import Link from 'next/link';
-import { PageHeader } from '@/src/components/common/PageHeader';
 
 const formatTime = (seconds?: number) => {
   if (seconds === undefined || seconds === null || isNaN(Number(seconds))) return '--';
@@ -32,6 +78,15 @@ export default function JobProgressPage() {
   const [liveLeads, setLiveLeads] = useState<any[]>([]);
   const [showCompletedModal, setShowCompletedModal] = useState(true);
 
+  // UX state enhancements
+  const [leadSearchQuery, setLeadSearchQuery] = useState('');
+  const [logFilter, setLogFilter] = useState<'all' | 'discoveries' | 'warnings' | 'errors'>('all');
+  const [autoScrollLogs, setAutoScrollLogs] = useState(true);
+  const [copiedLogs, setCopiedLogs] = useState(false);
+  const [showConfigDrawer, setShowConfigDrawer] = useState(false);
+  const [viewMode, setViewMode] = useState<'cards' | 'table'>('cards');
+  const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
+
   const { data: initialJob, isLoading } = useQuery({
     queryKey: ['searchJob', id],
     queryFn: async () => {
@@ -50,6 +105,20 @@ export default function JobProgressPage() {
 
   const job = liveData || initialJob;
 
+  // Authoritative saved leads count and records for this search campaign
+  const { data: jobLeadsData } = useQuery({
+    queryKey: ['jobSavedLeads', id],
+    queryFn: async () => {
+      if (!id) return { data: [], total: 0 };
+      const res = await api.get(`/leads?job_id=${id}&limit=100`);
+      return res.data || { data: [], total: 0 };
+    },
+    enabled: Boolean(id),
+    staleTime: 5000,
+  });
+
+  const totalCampaignLeads = jobLeadsData?.total ?? job?.completed_leads ?? job?.total_saved ?? 0;
+
   const handleExport = async (format: 'csv' | 'excel') => {
     try {
       const jobId = job?._id || id;
@@ -62,9 +131,10 @@ export default function JobProgressPage() {
       document.body.appendChild(link);
       link.click();
       link.parentNode?.removeChild(link);
+      toast.success(`Exported leads to ${format.toUpperCase()}`);
     } catch (err) {
       console.error(err);
-      alert('Failed to export leads');
+      toast.error('Failed to export leads');
     }
   };
 
@@ -96,8 +166,7 @@ export default function JobProgressPage() {
     }
   }, [initialJob]);
 
-  // Once true, the job is terminal: WebSocket stops reconnecting, polling stops,
-  // and no delayed update is allowed to flip the state back to RUNNING.
+  // Once true, the job is terminal: WebSocket stops reconnecting, polling stops
   const terminalRef = useRef(false);
 
   useEffect(() => {
@@ -146,51 +215,44 @@ export default function JobProgressPage() {
 
   useEffect(() => {
     if (!id) return;
-    const currentStatus = (liveData || initialJob)?.status;
-    if (terminalRef.current || (currentStatus && TERMINAL_STATUSES.includes(currentStatus))) {
-      return;
-    }
 
-    const wsUrl = (process.env.NEXT_PUBLIC_API_URL
-      ? process.env.NEXT_PUBLIC_API_URL.replace('http', 'ws') + `/ws/search/${id}`
-      : `ws://127.0.0.1:8000/ws/search/${id}`).replace('localhost', '127.0.0.1');
+    const rawApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
+    const wsBase = rawApiUrl.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '').replace('localhost', '127.0.0.1');
+    const wsUrl = `${wsBase}/ws/search/${id}`;
 
     let ws: WebSocket | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
+    let reconnectTimer: any;
+    let connectTimeout: any;
     let isComponentMounted = true;
     let reconnectAttempts = 0;
     let hasConnected = false;
-    let websocketUnavailable = false;
 
     const connectWs = () => {
-      if (!isComponentMounted || websocketUnavailable || terminalRef.current) return;
+      if (!isComponentMounted || terminalRef.current) return;
       if (ws) {
         ws.onopen = null;
         ws.onmessage = null;
         ws.onerror = null;
         ws.onclose = null;
-        if (ws.readyState === 0) {
-          ws.onopen = () => {
-            try { ws?.close(); } catch (_) {}
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close();
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          const prevWs = ws;
+          prevWs.onopen = () => {
+            try { prevWs.close(); } catch {}
           };
-        } else {
-          try { ws.close(); } catch (_) {}
         }
+        ws = null;
       }
 
       const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
       const finalWsUrl = token ? `${wsUrl}?token=${token}` : wsUrl;
 
       ws = new WebSocket(finalWsUrl);
-      const connectTimeout = window.setTimeout(() => {
-        if (!isComponentMounted) return;
+      connectTimeout = window.setTimeout(() => {
         if (ws && ws.readyState !== WebSocket.OPEN) {
-          websocketUnavailable = true;
           setWsConnected(false);
-          console.info('Search job WebSocket unavailable; continuing without live updates.');
-          try {
-            ws.close();
-          } catch (_) {}
+          // Let onclose or polling handle continuity without crashing
         }
       }, 15000);
 
@@ -198,7 +260,6 @@ export default function JobProgressPage() {
         if (isComponentMounted) {
           clearTimeout(connectTimeout);
           hasConnected = true;
-          websocketUnavailable = false;
           setWsConnected(true);
           reconnectAttempts = 0;
         }
@@ -238,7 +299,7 @@ export default function JobProgressPage() {
             queryClient.invalidateQueries({ queryKey: ['dashboardCharts'] });
           }
 
-          // 1. Format log message for timeline display
+          // Format log message
           let logMsg = null;
           let eventTimestamp = new Date();
           if (payload.timestamp) {
@@ -263,7 +324,6 @@ export default function JobProgressPage() {
             logMsg = typeof logEntry === 'string' ? logEntry : logEntry?.message;
           }
 
-          // Handle Phase 3 extraction events - display detailed info in logs
           if (['BUSINESS_OPENED', 'DETAILS_LOADING', 'PHONE_FOUND', 'WEBSITE_FOUND',
             'ADDRESS_FOUND', 'SOCIAL_FOUND', 'EMAIL_FOUND', 'LEAD_CREATED',
             'VALIDATION_PENDING', 'EXTRACTION_COMPLETED'].includes(payload.event_type)) {
@@ -284,7 +344,7 @@ export default function JobProgressPage() {
             }
           }
 
-          // 2. Handle liveLeads for the table display
+          // Handle liveLeads for display
           if (payload.type === 'new_lead') {
             if (terminalRef.current) {
               queryClient.invalidateQueries({ queryKey: ['leads'] });
@@ -308,11 +368,9 @@ export default function JobProgressPage() {
             }
           }
 
-          // 3. Construct updates from payload
+          // Construct updates
           const updates: Record<string, any> = {};
 
-          // Immediate stop handling: switch UI to STOPPED, freeze progress,
-          // and stop the WebSocket so no further discovery rows arrive.
           if (payload.event_type === 'job_stopped') {
             terminalRef.current = true;
             updates.status = 'STOPPED';
@@ -321,7 +379,6 @@ export default function JobProgressPage() {
             if (ws) ws.close();
           }
 
-          // Raw root updates
           if (payload.status !== undefined) updates.status = payload.status;
           if (payload.progress !== undefined) updates.progress = payload.progress;
           if (payload.current_step !== undefined) updates.current_step = payload.current_step;
@@ -347,21 +404,16 @@ export default function JobProgressPage() {
           if (payload.target_reached !== undefined) updates.target_reached = payload.target_reached;
           if (payload.source_exhausted !== undefined) updates.source_exhausted = payload.source_exhausted;
 
-          // recalculate_stats properties map
           if (payload.processed !== undefined) updates.businesses_processed = payload.processed;
-          if (payload.saved !== undefined) {
-            updates.completed_leads = payload.saved;
-          }
+          if (payload.saved !== undefined) updates.completed_leads = payload.saved;
           if (payload.failed !== undefined) updates.failed_leads = payload.failed;
           if (payload.duplicates !== undefined) updates.duplicates_removed = payload.duplicates;
 
-          // new_lead properties map
           if (payload.type === 'new_lead' && payload.total_saved !== undefined) {
             updates.completed_leads = payload.total_saved;
             updates.total_leads = payload.total_saved;
           }
 
-          // Structured event data extraction (e.g., telemetry)
           if (payload.type === 'event') {
             if (payload.event_type === 'SEARCH_STARTED') {
               updates.status = 'RUNNING';
@@ -397,9 +449,7 @@ export default function JobProgressPage() {
               if (d.elapsed_time !== undefined) updates.duration_seconds = Math.floor(d.elapsed_time);
               if (d.worker_status !== undefined) {
                 const workerId = d.worker_id || 'default_worker';
-                updates.worker_states = {
-                  [workerId]: d
-                };
+                updates.worker_states = { [workerId]: d };
               }
             } else if ((payload.event_type === 'LEAD_SAVED' || payload.event_type === 'LEAD_INSERTED') && payload.data) {
               const d = payload.data;
@@ -412,13 +462,8 @@ export default function JobProgressPage() {
             }
           }
 
-          // 4. Single setLiveData call to apply all updates & logs atomically
           setLiveData((prev: any) => {
             const current = prev || initialJobRef.current || {};
-
-            // STOPPED (and every terminal state) is final: once the job is
-            // stopped, ignore any delayed RUNNING / progress updates so the
-            // UI never flips back. Logs are still appended for visibility.
             let incoming = updates;
             if (current.status && TERMINAL_STATUSES.includes(current.status)) {
               incoming = { ...updates };
@@ -439,7 +484,6 @@ export default function JobProgressPage() {
               delete incoming.estimated_remaining_time;
             }
 
-            // Merge worker states dictionary correctly
             const mergedWorkerStates = {
               ...(current.worker_states || {}),
               ...(incoming.worker_states || {})
@@ -462,21 +506,19 @@ export default function JobProgressPage() {
 
       ws.onclose = () => {
         clearTimeout(connectTimeout);
-        if (isComponentMounted && hasConnected && !websocketUnavailable && !terminalRef.current) {
+        if (isComponentMounted && !terminalRef.current) {
           setWsConnected(false);
-          // Exponential backoff reconnect
-          const delay = Math.min(1000 * (2 ** reconnectAttempts), 10000);
-          reconnectAttempts++;
-          reconnectTimer = setTimeout(connectWs, delay);
+          if (reconnectAttempts < 8) {
+            const delay = Math.min(1000 * (1.5 ** reconnectAttempts), 8000);
+            reconnectAttempts++;
+            reconnectTimer = setTimeout(connectWs, delay);
+          }
         }
       };
 
       ws.onerror = () => {
-        if (!isComponentMounted) return;
-        if (!hasConnected && !websocketUnavailable) {
-          websocketUnavailable = true;
+        if (!hasConnected) {
           setWsConnected(false);
-          console.info('Search job WebSocket unavailable; continuing without live updates.');
         }
       };
     };
@@ -486,36 +528,45 @@ export default function JobProgressPage() {
     return () => {
       isComponentMounted = false;
       clearTimeout(reconnectTimer);
+      clearTimeout(connectTimeout);
       if (ws) {
         ws.onopen = null;
         ws.onmessage = null;
         ws.onerror = null;
         ws.onclose = null;
-        if (ws.readyState === 0) {
-          ws.onopen = () => {
-            try { ws?.close(); } catch (_) {}
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.close(1000, 'Component unmounted');
+        } else if (ws.readyState === WebSocket.CONNECTING) {
+          const socketToClose = ws;
+          socketToClose.onopen = () => {
+            try {
+              socketToClose.close(1000, 'Component unmounted');
+            } catch {}
           };
-        } else {
-          try { ws.close(); } catch (_) {}
         }
+        ws = null;
       }
     };
-  }, [id, queryClient, liveData?.status, initialJob?.status]);
+  }, [id]);
+
+  // Auto-scroll logs to bottom if enabled
+  useEffect(() => {
+    if (autoScrollLogs && logsEndRef.current) {
+      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [job?.logs, autoScrollLogs]);
 
   const isTerminalStatus = job && ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'].includes(job.status);
   const displayDuration = job?.duration_seconds || 0;
 
-  const getStatusIcon = () => {
-    if (!job) return <Loader2 className="w-6 h-6 animate-spin" />;
-    switch (job.status) {
-      case 'COMPLETED': return <CheckCircle2 className="w-6 h-6" />;
-      case 'FAILED': return <XCircle className="w-6 h-6" />;
-      case 'CANCELLED':
-      case 'STOPPED': return <StopCircle className="w-6 h-6" />;
-      case 'TIMEOUT': return <AlertTriangle className="w-6 h-6" />;
-      default: return <Loader2 className="w-6 h-6 animate-spin" />;
-    }
-  };
+  const targetLeads = job?.requested_target ?? job?.limit ?? 100;
+  const completedLeads = job?.completed_leads || 0;
+  const progressPercent = Math.min(100, Math.max(0, job?.progress ?? Math.round((completedLeads / (targetLeads || 1)) * 100)));
+
+  // Velocity calculation
+  const leadsPerMin = displayDuration > 5 && completedLeads > 0
+    ? ((completedLeads / displayDuration) * 60).toFixed(1)
+    : null;
 
   const stopMutation = useMutation({
     mutationFn: async () => {
@@ -537,10 +588,63 @@ export default function JobProgressPage() {
     }
   });
 
+  const copyAllLogs = () => {
+    if (!job?.logs?.length) return;
+    const text = job.logs
+      .map((l: any) => typeof l === 'string' ? l : (l?.message || JSON.stringify(l)))
+      .join('\n');
+    navigator.clipboard.writeText(text);
+    setCopiedLogs(true);
+    toast.success('Terminal logs copied to clipboard');
+    setTimeout(() => setCopiedLogs(false), 2000);
+  };
+
+  const copyPhoneNumber = (phone: string, leadId: string) => {
+    navigator.clipboard.writeText(phone);
+    setCopiedPhoneId(leadId);
+    toast.success(`Copied: ${phone}`);
+    setTimeout(() => setCopiedPhoneId(null), 1800);
+  };
+
+  // Combined leads list (prioritizing live stream during active search, falling back to saved records on reload)
+  const allLeadsList = useMemo<any[]>(() => {
+    if (liveLeads.length > 0) return liveLeads;
+    return (jobLeadsData?.data || []) as any[];
+  }, [liveLeads, jobLeadsData]);
+
+  // Filtered discoveries
+  const filteredLeads = useMemo<any[]>(() => {
+    if (!leadSearchQuery.trim()) return allLeadsList;
+    const q = leadSearchQuery.toLowerCase();
+    return allLeadsList.filter((lead: any) => {
+      const name = (lead.name || lead.business_name || '').toLowerCase();
+      const phone = (lead.phone || '').toLowerCase();
+      const cat = (lead.category || '').toLowerCase();
+      const loc = (lead.city || lead.location || lead.address || '').toLowerCase();
+      return name.includes(q) || phone.includes(q) || cat.includes(q) || loc.includes(q);
+    });
+  }, [allLeadsList, leadSearchQuery]);
+
+  // Filtered logs
+  const filteredLogs = useMemo(() => {
+    const rawLogs = job?.logs || [];
+    return rawLogs.filter((log: any) => {
+      const msg = typeof log === 'string' ? log : (log?.message || JSON.stringify(log));
+      if (logFilter === 'all') return true;
+      if (logFilter === 'discoveries') return msg.includes('Found') || msg.includes('✅') || msg.includes('Lead created');
+      if (logFilter === 'warnings') return msg.includes('Rejected') || msg.toLowerCase().includes('warning') || msg.includes('duplicate');
+      if (logFilter === 'errors') return msg.toLowerCase().includes('error') || msg.toLowerCase().includes('failed');
+      return true;
+    });
+  }, [job?.logs, logFilter]);
+
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <Loader2 className="w-10 h-10 animate-spin text-blue-500" />
+      <div className="flex flex-col items-center justify-center min-h-[65vh] gap-3">
+        <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-sm animate-pulse">
+          <Loader2 className="w-6 h-6 animate-spin" />
+        </div>
+        <p className="text-sm font-medium text-slate-500">Loading search engine session...</p>
       </div>
     );
   }
@@ -548,494 +652,961 @@ export default function JobProgressPage() {
   if (!job) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-500 gap-4">
-        <XCircle className="w-12 h-12 text-red-400" />
-        <p className="text-lg font-semibold">Job not found</p>
-        <Link href="/dashboard/search" className="text-blue-500 hover:underline">
-          Back to Search
+        <div className="w-14 h-14 rounded-2xl bg-red-50 border border-red-100 flex items-center justify-center text-red-500 shadow-sm">
+          <XCircle className="w-7 h-7" />
+        </div>
+        <div className="text-center space-y-1">
+          <p className="text-lg font-bold text-slate-800">Job Not Found</p>
+          <p className="text-sm text-slate-400">The requested search execution record does not exist or has expired.</p>
+        </div>
+        <Link
+          href="/dashboard/search"
+          className="mt-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-semibold transition-all shadow-sm shadow-blue-500/20"
+        >
+          Return to Search
         </Link>
       </div>
     );
   }
 
   return (
-    <div className="w-full px-4 lg:px-8 space-y-8 pb-12 animate-in fade-in duration-500">
-      <div className="flex items-center gap-4">
-        <Link href="/dashboard/search" className="p-2.5 bg-white/50 hover:bg-white backdrop-blur-md border border-slate-200/60 rounded-xl text-slate-500 hover:text-slate-900 transition-all shadow-sm hover:shadow">
-          <ArrowLeft className="w-5 h-5" />
-        </Link>
-        <div className="flex-1">
-          <PageHeader
-            title={
-              <span className="bg-clip-text text-transparent bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 font-black tracking-tight">
-                Search Execution Engine
-              </span>
-            }
-            description={
-              <div className="flex items-center gap-2 mt-1">
-                <span className="px-2.5 py-0.5 rounded-md bg-slate-100 text-slate-600 font-mono text-xs border border-slate-200 shadow-sm">ID: {job._id}</span>
-                <span className="text-slate-500 text-sm font-medium">{job.keyword} <span className="text-slate-300 mx-1">•</span> {job.location || job.city || ''}</span>
-              </div>
-            }
-          />
-        </div>
-
-        {job && (job._id || job.job_id || id) && !isTerminalStatus && (
-          <button
-            onClick={() => stopMutation.mutate()}
-            disabled={stopMutation.isPending}
-            className="group px-5 py-2.5 text-sm font-semibold rounded-xl text-red-600 bg-red-50/80 hover:bg-red-100 backdrop-blur-md border border-red-200 transition-all flex items-center gap-2 disabled:opacity-50 hover:shadow-sm hover:shadow-red-500/10"
-          >
-            {stopMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <StopCircle className="w-4 h-4 group-hover:scale-110 transition-transform" />}
-            Stop Job
-          </button>
-        )}
-      </div>
-
-      {job.status === 'COMPLETED' && showCompletedModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xl transition-all">
-          <div className="bg-white rounded-[2rem] p-10 max-w-2xl w-full shadow-2xl animate-in fade-in zoom-in-95 duration-500 border border-white/20 relative overflow-hidden">
-            {/* Close button */}
-            <button
-              onClick={() => setShowCompletedModal(false)}
-              className="absolute top-4 right-4 z-20 p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-900 transition-all"
-              aria-label="Close"
+    <div className="w-full space-y-6 animate-in fade-in duration-300">
+      {/* Top Header & Context Bar */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-5 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          {/* Breadcrumb + Title */}
+          <div className="flex items-center gap-3.5">
+            <Link
+              href="/dashboard/search"
+              className="p-2.5 bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-600 hover:text-slate-900 rounded-xl transition-all shadow-2xs group"
+              title="Back to Search"
             >
-              <X className="w-5 h-5" />
-            </button>
-            {/* Decorative background glows */}
-            <div className="absolute -top-24 -right-24 w-48 h-48 bg-emerald-400/20 rounded-full blur-3xl"></div>
-            <div className="absolute -bottom-24 -left-24 w-48 h-48 bg-blue-400/20 rounded-full blur-3xl"></div>
+              <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+            </Link>
 
-            <div className="relative flex flex-col items-center text-center mb-10">
-              <div className="w-24 h-24 bg-gradient-to-br from-emerald-400 to-emerald-600 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-emerald-500/30 rotate-3 hover:rotate-0 transition-transform duration-500">
-                <CheckCircle2 className="w-12 h-12 text-white" />
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-xl lg:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
+                  Search Execution Engine
+                </h1>
+
+                {/* Status Pill Badge */}
+                {job.status === 'RUNNING' ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200 shadow-2xs">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-blue-600"></span>
+                    </span>
+                    RUNNING
+                  </span>
+                ) : job.status === 'COMPLETED' ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    COMPLETED
+                  </span>
+                ) : job.status === 'STOPPED' ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
+                    <StopCircle className="w-3.5 h-3.5 text-amber-600" />
+                    STOPPED
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
+                    <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                    {job.status}
+                  </span>
+                )}
+
+                {/* Connection Status Pill */}
+                {wsConnected ? (
+                  <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/80">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                    WS Live
+                  </span>
+                ) : !isTerminalStatus && (
+                  <span className="hidden sm:inline-flex items-center gap-1 px-2.5 py-0.5 rounded-md text-[11px] font-semibold bg-amber-50 text-amber-700 border border-amber-200/80">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    Polling
+                  </span>
+                )}
               </div>
-              <h2 className="text-3xl font-black text-slate-900 mb-3 tracking-tight">Search Completed!</h2>
-              <p className="text-slate-500 text-lg">
-                {job.source_exhausted
-                  ? `Google Maps ran out of unique results — collected ${job.actual_collected ?? job.completed_leads ?? 0} of ${job.requested_target ?? job.limit ?? 0} requested leads.`
-                  : 'Your leads have been successfully extracted and saved.'}
-              </p>
-              {job.source_exhausted && (
-                <div className="mt-4 flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 border border-amber-200 text-amber-700 text-sm font-semibold">
-                  <AlertTriangle className="w-4 h-4" />
-                  Target not fully reached — source exhausted
-                </div>
-              )}
-              <div className="mt-4 px-4 py-1.5 bg-slate-100 rounded-full text-sm font-medium text-slate-600 animate-pulse">
-                Redirecting to Leads in 10s...
+
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span className="font-mono text-slate-400">ID: {job._id ? String(job._id).slice(-8) : 'Session'}</span>
+                <span>•</span>
+                <span>Created {new Date().toLocaleDateString()}</span>
               </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10 relative">
-              {[
-                { label: 'Requested', value: job.requested_target ?? job.limit ?? 0, color: 'text-blue-600' },
-                { label: 'Collected', value: job.actual_collected ?? job.completed_leads ?? 0, color: 'text-emerald-600' },
-                { label: 'Duplicates', value: job.duplicates_removed || 0, color: 'text-amber-500' },
-                { label: 'Duration', value: formatTime(job.duration_seconds), color: 'text-blue-600' }
-              ].map((stat, idx) => (
-                <div key={idx} className="bg-slate-50/80 rounded-2xl p-5 border border-slate-100 text-center hover:bg-slate-50 transition-colors">
-                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mb-2">{stat.label}</p>
-                  <p className={`text-2xl font-black ${stat.color}`}>{stat.value}</p>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex gap-4 relative">
-              <Link href="/dashboard/leads" className="flex-1 px-6 py-4 bg-slate-900 hover:bg-slate-800 text-white rounded-2xl font-semibold text-center transition-all flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20 hover:shadow-xl hover:-translate-y-0.5">
-                <LayoutDashboard className="w-5 h-5" /> View Results
-              </Link>
-              <Link href="/dashboard/search" className="flex-1 px-6 py-4 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-2xl font-semibold text-center transition-all shadow-sm hover:shadow hover:-translate-y-0.5">
-                New Search
-              </Link>
-            </div>
-
-            <div className="mt-8 flex justify-center gap-6 relative">
-              <button onClick={() => handleExport('csv')} className="group text-sm font-medium text-slate-500 hover:text-blue-600 flex items-center gap-2 transition-colors border-none bg-transparent cursor-pointer">
-                <div className="p-2 bg-slate-100 rounded-lg group-hover:bg-blue-50 transition-colors">
-                  <DownloadCloud className="w-4 h-4" />
-                </div>
-                Export CSV
-              </button>
-              <button onClick={() => handleExport('excel')} className="group text-sm font-medium text-slate-500 hover:text-emerald-600 flex items-center gap-2 transition-colors border-none bg-transparent cursor-pointer">
-                <div className="p-2 bg-slate-100 rounded-lg group-hover:bg-emerald-50 transition-colors">
-                  <FileText className="w-4 h-4" />
-                </div>
-                Export Excel
-              </button>
             </div>
           </div>
-        </div>
-      )}
 
+          {/* Action Toolbar */}
+          <div className="flex items-center gap-2.5">
+            {/* Drawer Toggle */}
+            <button
+              onClick={() => setShowConfigDrawer(true)}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all flex items-center gap-2 hover:shadow-2xs"
+            >
+              <SlidersHorizontal className="w-3.5 h-3.5 text-slate-500" />
+              <span>Job Info</span>
+              {consistencyReport && (
+                <span className={`w-2 h-2 rounded-full ${consistencyReport.is_consistent ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+              )}
+            </button>
+
+            {/* Quick Export Button */}
+            <button
+              onClick={() => handleExport('csv')}
+              className="px-3.5 py-2 text-xs font-bold rounded-xl text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-all flex items-center gap-2 hover:shadow-2xs"
+              title="Download CSV"
+            >
+              <DownloadCloud className="w-3.5 h-3.5 text-slate-500" />
+              <span className="hidden sm:inline">Export CSV</span>
+            </button>
+
+            {/* Stop Job Button */}
+            {!isTerminalStatus && (
+              <button
+                onClick={() => stopMutation.mutate()}
+                disabled={stopMutation.isPending}
+                className="px-4 py-2 text-xs font-bold rounded-xl text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 transition-all flex items-center gap-2 disabled:opacity-50 hover:shadow-2xs"
+              >
+                {stopMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <StopCircle className="w-3.5 h-3.5" />
+                )}
+                Stop Job
+              </button>
+            )}
+
+            {/* View Leads Link */}
+            <Link
+              href={`/dashboard/leads?job_id=${id || job?._id}`}
+              className="px-4 py-2 text-xs font-bold rounded-xl text-white bg-blue-600 hover:bg-blue-700 transition-all flex items-center gap-1.5 shadow-sm shadow-blue-500/20"
+              title={`View ${totalCampaignLeads} leads generated by this campaign`}
+            >
+              <span>View Leads ({totalCampaignLeads})</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        </div>
+
+        {/* Compact Search Query Parameter Strip (Replaces the huge 33% empty card!) */}
+        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 text-xs">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80 text-slate-700 font-medium">
+            <Radio className="w-3.5 h-3.5 text-blue-600" />
+            <span className="text-slate-400 font-normal">Provider:</span>
+            <span className="font-semibold text-slate-900">{job.provider || 'Google Maps'}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80 text-slate-700 font-medium">
+            <Search className="w-3.5 h-3.5 text-blue-600" />
+            <span className="text-slate-400 font-normal">Query:</span>
+            <span className="font-semibold text-slate-900">{job.keyword || '--'}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80 text-slate-700 font-medium">
+            <MapPin className="w-3.5 h-3.5 text-blue-600" />
+            <span className="text-slate-400 font-normal">Location:</span>
+            <span className="font-semibold text-slate-900">{job.location || job.city || '--'}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80 text-slate-700 font-medium">
+            <Target className="w-3.5 h-3.5 text-blue-600" />
+            <span className="text-slate-400 font-normal">Target:</span>
+            <span className="font-semibold text-slate-900">
+              {job.exhaustive ? 'Exhaustive Area Scrape' : `${targetLeads} Leads`}
+            </span>
+          </div>
+
+          {leadsPerMin && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-50/70 border border-blue-200/60 text-blue-700 font-medium ml-auto">
+              <Zap className="w-3.5 h-3.5 text-blue-600" />
+              <span>Velocity: <strong>{leadsPerMin}</strong> leads/min</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Warning banner if source exhausted */}
       {job.source_exhausted && job.status === 'COMPLETED' && (
-        <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 shadow-sm">
-          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
-          <div>
-            <p className="font-semibold text-sm">Source exhausted — target not fully reached</p>
-            <p className="text-xs mt-0.5">
-              Google Maps ran out of unique usable results for this query. Collected{' '}
-              {job.actual_collected ?? job.completed_leads ?? 0} of {job.requested_target ?? job.limit ?? 0} requested leads.
+        <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 shadow-2xs">
+          <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
+          <div className="space-y-0.5">
+            <p className="font-bold text-sm">Source exhausted — Target not fully reached</p>
+            <p className="text-xs text-amber-700">
+              Google Maps ran out of unique usable results for this search area. Extracted{' '}
+              <strong>{job.actual_collected ?? completedLeads}</strong> of requested{' '}
+              <strong>{targetLeads}</strong> leads.
             </p>
           </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
-        <div className="xl:col-span-2 space-y-8">
-          {/* Main Progress Card */}
-          <div className="bg-white border border-slate-200 shadow-sm hover:shadow transition-shadow rounded-2xl p-8 relative overflow-hidden group">
-            <div className="absolute top-0 left-0 w-full h-1.5 bg-slate-100">
-              <div
-                className={`h-full transition-all duration-700 ease-out relative ${job.status === 'FAILED' ? 'bg-red-500' : 'bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500'}`}
-                style={{ width: `${job.progress || 0}%` }}
-              >
+      {/* Progress & 4-Card KPI Funnel (Zero Truncation!) */}
+      <div className="bg-white border border-slate-200/80 rounded-2xl p-6 shadow-sm space-y-6">
+        {/* Progress Bar & Current Activity Header */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Current Phase</span>
                 {!isTerminalStatus && (
-                  <div className="absolute inset-0 overflow-hidden">
-                    <div className="absolute inset-0 bg-white/30 translate-x-[-100%] animate-[shimmer_2s_infinite]"></div>
-                  </div>
-                )}
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] opacity-0 group-hover:opacity-100 transition-opacity"></div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between mt-4 mb-10">
-              <div className="flex items-center gap-5">
-                <div className={`p-4 rounded-2xl flex items-center justify-center shadow-inner ${job.status === 'COMPLETED' ? 'bg-emerald-50 text-emerald-500' :
-                  job.status === 'FAILED' ? 'bg-red-50 text-red-500' :
-                    job.status === 'STOPPED' ? 'bg-red-50 text-red-500' :
-                      job.status === 'CANCELLED' ? 'bg-slate-100 text-slate-500' :
-                        'bg-blue-50 text-blue-600'
-                  }`}>
-                  {getStatusIcon()}
-                </div>
-                <div>
-                  <h3 className={`text-2xl font-black tracking-tight ${job.status === 'COMPLETED' ? 'text-emerald-600' :
-                    job.status === 'FAILED' ? 'text-red-600' :
-                      job.status === 'STOPPED' ? 'text-red-600' :
-                        job.status === 'CANCELLED' ? 'text-slate-600' :
-                          'text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-indigo-600'
-                    }`}>
-                    {job.status}
-                  </h3>
-                  <p className="text-sm font-medium text-slate-500 mt-1 flex items-center gap-2">
-                    {!isTerminalStatus && <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>}
-                    {job.current_step || job.current_action || 'Initializing Engine...'}
-                  </p>
-                </div>
-              </div>
-              <div className="text-right flex flex-col items-end">
-                <div className="text-5xl font-black tracking-tighter text-slate-900 drop-shadow-sm">
-                  {job.progress || 0}<span className="text-3xl text-slate-400 ml-1">%</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-              {[
-                { icon: Globe, label: 'Found', value: job.total_found || 0, color: 'blue', secondary: null },
-                { icon: ShieldCheck, label: 'Accepted', value: job.accepted_leads || 0, color: 'indigo', secondary: null },
-                { icon: ShieldAlert, label: 'Rejected', value: job.rejected_leads || 0, color: 'red', secondary: null },
-                { icon: AlertCircle, label: 'Duplicates', value: job.duplicates_removed || 0, color: 'amber', secondary: null },
-                { icon: Target, label: 'Target', value: job.requested_target ?? job.limit ?? 0, color: 'blue', secondary: null },
-                { icon: Save, label: 'Saved', value: job.completed_leads || 0, color: 'emerald', secondary: `/ ${job.requested_target ?? job.limit ?? 0}` },
-                { icon: Clock, label: 'Remaining', value: Math.max(0, (job.requested_target ?? job.limit ?? 0) - (job.completed_leads || 0)), color: 'purple', secondary: null },
-              ].map((stat, idx) => {
-                const Icon = stat.icon;
-                return (
-                  <div key={idx} className="bg-white rounded-2xl p-5 border border-slate-100 shadow-sm hover:shadow transition-all duration-300 group/stat relative overflow-hidden">
-                    <div className={`absolute -right-4 -top-4 w-16 h-16 rounded-full opacity-0 group-hover/stat:opacity-5 transition-opacity bg-${stat.color}-500 blur-2xl`}></div>
-                    <div className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2 mb-3">
-                      <div className={`p-1.5 rounded-lg bg-${stat.color}-50 text-${stat.color}-500`}>
-                        <Icon className="w-3.5 h-3.5" />
-                      </div>
-                      {stat.label}
-                    </div>
-                    <p className="text-3xl font-black text-slate-800 tracking-tight flex items-baseline gap-1">
-                      {stat.value}
-                      {stat.secondary && <span className="text-sm font-medium text-slate-400">{stat.secondary}</span>}
-                    </p>
-                  </div>
-                );
-              })}
-            </div>
-
-            {job.worker_states && Object.keys(job.worker_states).length > 0 && (
-              <div className="mt-8 pt-6 border-t border-slate-100">
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm font-bold text-slate-600 flex items-center gap-2">
-                    <span className="relative flex h-3 w-3">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
-                    </span>
-                    Active Workers <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-xs">{Object.keys(job.worker_states).length}</span>
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {Object.entries(job.worker_states).map(([workerId, state]) => (
-                    <div key={workerId} className="bg-slate-50/80 p-3.5 rounded-xl border border-slate-200/60 flex flex-col justify-center hover:bg-white transition-colors hover:shadow-sm">
-                      <span className="text-xs font-bold text-blue-600 mb-1.5 flex items-center gap-1.5">
-                        <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
-                        {workerId}
-                      </span>
-                      <span className="text-[11px] text-slate-600 font-mono truncate px-2 py-1 bg-white rounded border border-slate-100" title={typeof state === 'object' ? JSON.stringify(state) : String(state)}>
-                        {typeof state === 'object'
-                          ? `${(state as any)?.status || (state as any)?.worker_status || 'Active'} [${(state as any)?.progress || 0}%]`
-                          : String(state)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[500px]">
-            {/* Live Logs Panel */}
-            <div className="bg-white rounded-2xl overflow-hidden flex flex-col shadow-sm hover:shadow transition-shadow border border-slate-200 relative group">
-              <div className="absolute inset-0 bg-gradient-to-b from-transparent to-white/50 pointer-events-none z-10 h-24 bottom-0"></div>
-              <div className="px-6 py-5 border-b border-slate-200/60 bg-white/50 backdrop-blur-md flex justify-between items-center z-20 sticky top-0">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]"></div>
-                  <h3 className="text-sm font-bold tracking-widest text-slate-800 uppercase">Terminal Logs</h3>
-                </div>
-                {wsConnected ? (
-                  <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-100">WS LIVE</span>
-                ) : !isTerminalStatus && (
-                  <span className="px-2.5 py-1 rounded-md text-[10px] font-bold bg-amber-50 text-amber-600 border border-amber-100">POLLING</span>
+                  <span className="flex items-center gap-1 text-[11px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">
+                    <Activity className="w-3 h-3 animate-pulse" />
+                    Executing Scraper
+                  </span>
                 )}
               </div>
-              <div className="flex-1 p-6 overflow-y-auto font-mono text-[11px] text-slate-700 space-y-2.5 custom-scrollbar bg-slate-50/30">
-                {job.logs?.length > 0 ? (
-                  job.logs.map((log: any, i: number) => {
-                    let msg = "";
-                    let ts = "";
-                    if (typeof log === 'string') {
-                      msg = log;
-                    } else if (log) {
-                      msg = log.message || JSON.stringify(log);
-                      let logDate: Date | null = null;
-                      if (log.timestamp) {
-                        const parsed = new Date(
-                          typeof log.timestamp === 'number' || !isNaN(Number(log.timestamp))
-                            ? Number(log.timestamp) * 1000
-                            : log.timestamp
-                        );
-                        if (!isNaN(parsed.getTime())) {
-                          logDate = parsed;
-                        }
-                      }
-                      ts = logDate ? logDate.toISOString().split('T')[1].split('.')[0] : "";
-                    }
-
-                    const isLifecycle = msg.includes("LIFECYCLE_LOG");
-                    const isError = msg.toLowerCase().includes("error") || msg.toLowerCase().includes("failed");
-                    const isRejected = msg.includes("Rejected");
-                    const isSuccess = msg.includes("✅");
-
-                    return (
-                      <div key={i} className={`flex gap-3 transition-opacity ${isLifecycle ? 'text-blue-600 font-semibold bg-blue-50 px-2 py-1 rounded' :
-                        isError ? 'text-red-600 bg-red-50 px-2 py-1 rounded' :
-                          isRejected ? 'text-amber-600 bg-amber-50 px-2 py-1 rounded' :
-                            isSuccess ? 'text-emerald-600 font-semibold' : 'opacity-80 hover:opacity-100'
-                        }`}>
-                        {ts && <span className="text-slate-400 shrink-0 select-none">[{ts}]</span>}
-                        <span className="break-all leading-relaxed">{msg}</span>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="text-slate-600 h-full flex items-center justify-center flex-col gap-3">
-                    <Loader2 className="w-5 h-5 animate-spin opacity-50" />
-                    Waiting for output stream...
-                  </div>
-                )}
-                <div ref={logsEndRef} className="h-4" />
-              </div>
-            </div>
-
-            {/* Live Businesses Panel */}
-            <div className="bg-white rounded-2xl overflow-hidden flex flex-col shadow-sm hover:shadow transition-shadow border border-slate-200">
-              <div className="px-6 py-5 border-b border-slate-200/60 bg-white/50 backdrop-blur-md flex justify-between items-center z-10 sticky top-0">
-                <div className="flex items-center gap-3">
-                  <div className="p-1.5 bg-blue-100 text-blue-600 rounded-lg">
-                    <Globe className="w-4 h-4" />
-                  </div>
-                  <h3 className="text-sm font-bold tracking-widest text-slate-800 uppercase">Live Discoveries</h3>
-                </div>
-                <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-blue-50 text-blue-600 border border-blue-100 shadow-sm flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                  {liveLeads.length} NEW
-                </span>
-              </div>
-              <div className="flex-1 p-0 overflow-y-auto custom-scrollbar bg-slate-50/30">
-                {liveLeads.length > 0 ? (
-                  <table className="w-full text-sm text-left">
-                    <thead className="text-[10px] text-slate-400 font-bold uppercase tracking-wider sticky top-0 bg-white/90 backdrop-blur-md z-10 border-b border-slate-200/60 shadow-sm">
-                      <tr>
-                        <th className="px-6 py-4">Business Info</th>
-                        <th className="px-6 py-4">Contact</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {liveLeads.map((lead, i) => (
-                        <tr key={lead._id || i} className="hover:bg-white/80 transition-colors group">
-                          <td className="px-6 py-4">
-                            <div className="font-bold text-slate-800 group-hover:text-blue-600 transition-colors">{lead.name || lead.business_name}</div>
-                            <div className="text-[11px] font-medium text-slate-500 mt-1 flex items-center gap-1.5">
-                              {lead.city || lead.location}
-                              {lead.category && <><span className="text-slate-300">•</span> <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-600">{lead.category}</span></>}
-                            </div>
-                            {lead.google_rating && (
-                              <div className="text-[11px] font-bold text-amber-500 flex items-center gap-1 mt-1.5">
-                                ★ {lead.google_rating}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-6 py-4">
-                            <div className="space-y-1.5">
-                              {lead.phone ? (
-                                <div className="text-[12px] font-medium text-slate-700 flex items-center gap-1.5"><div className="w-4 text-center">📞</div>{lead.phone}</div>
-                              ) : (
-                                <div className="text-[12px] text-slate-400 flex items-center gap-1.5"><div className="w-4 text-center opacity-50">📞</div>--</div>
-                              )}
-                              {lead.website ? (
-                                <a href={lead.website} target="_blank" rel="noopener noreferrer" className="text-[12px] font-medium text-blue-500 hover:text-blue-700 hover:underline flex items-center gap-1.5 truncate max-w-[140px]">
-                                  <div className="w-4 text-center">🌐</div>Website
-                                </a>
-                              ) : null}
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                ) : (
-                  <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-4 p-8 text-center">
-                    <div className="w-16 h-16 rounded-2xl bg-white shadow-sm border border-slate-100 flex items-center justify-center mb-2">
-                      <Globe className="w-8 h-8 text-slate-300" />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="font-semibold text-slate-700">Awaiting Discoveries</p>
-                      <p className="text-xs text-slate-400 max-w-[200px]">The engine is searching the web. New businesses will appear here instantly.</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-8">
-          {/* Search Configuration Card */}
-          <div className="bg-white border border-slate-200 shadow-sm hover:shadow transition-shadow rounded-2xl p-6 lg:p-8 relative overflow-hidden group">
-            <div className="flex items-center gap-3 mb-6">
-              <div className="p-2 rounded-xl bg-blue-50 text-blue-600">
-                <Search className="w-5 h-5" />
-              </div>
-              <h3 className="text-sm font-bold tracking-widest text-slate-800 uppercase">What I'm searching for</h3>
-            </div>
-
-            <div className="space-y-5">
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Provider</span>
-                <span className="text-sm font-semibold text-slate-900">{job.provider || 'Google Maps'}</span>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Keyword / Industry</span>
-                <span className="text-sm font-semibold text-slate-900">{job.keyword || '--'}</span>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Target Location</span>
-                <span className="text-sm font-semibold text-slate-900">{job.location || job.city || '--'}</span>
-              </div>
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Extraction Limit</span>
-                <span className="text-sm font-semibold text-slate-900">
-                  {job.exhaustive ? 'Exhaustive scrape (Full area)' : `${job.limit || job.max_leads || 100} Leads`}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Pipeline Consistency Report Sidebar */}
-          {consistencyReport && (
-            <div className="bg-white border border-slate-200 shadow-sm hover:shadow transition-shadow rounded-2xl p-6 lg:p-8 relative overflow-hidden group">
-              <div className={`absolute top-0 left-0 w-full h-1.5 ${consistencyReport.is_consistent ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
-
-              <div className="flex items-center gap-3 mb-6">
-                <div className={`p-2 rounded-xl ${consistencyReport.is_consistent ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
-                  {consistencyReport.is_consistent ? <ShieldCheck className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
-                </div>
-                <h3 className="text-sm font-bold tracking-widest text-slate-800 uppercase">Data Integrity</h3>
-              </div>
-
-              <div className={`p-4 rounded-2xl border mb-6 relative overflow-hidden ${consistencyReport.is_consistent
-                ? 'bg-emerald-50/50 border-emerald-200 shadow-inner'
-                : 'bg-red-50/50 border-red-200 shadow-inner'
-                }`}>
-                <div className={`absolute -right-4 -top-4 w-16 h-16 rounded-full opacity-20 blur-xl ${consistencyReport.is_consistent ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
-                <p className={`text-sm font-bold relative z-10 ${consistencyReport.is_consistent ? 'text-emerald-700' : 'text-red-700'
-                  }`}>
-                  {consistencyReport.verdict}
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                {[
-                  { label: 'Discovered', value: consistencyReport.summary?.businesses_discovered, color: 'bg-blue-500' },
-                  { label: 'Processed', value: consistencyReport.summary?.businesses_processed, color: 'bg-purple-500' },
-                  { label: 'MongoDB Docs', value: consistencyReport.summary?.mongo_lead_documents, icon: consistencyReport.summary?.mongo_lead_documents === consistencyReport.summary?.job_total_leads ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <XCircle className="w-3.5 h-3.5 text-red-500" />, highlight: 'text-emerald-600' },
-                  { label: 'Job Stats (Saved)', value: consistencyReport.summary?.job_total_leads, icon: consistencyReport.summary?.job_total_leads === consistencyReport.summary?.mongo_lead_documents ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <XCircle className="w-3.5 h-3.5 text-red-500" />, highlight: 'text-blue-600' },
-                  { label: 'Failed Leads', value: consistencyReport.summary?.failed_leads, color: 'bg-red-500', highlight: 'text-red-500' },
-                  { label: 'Duplicates', value: consistencyReport.summary?.duplicates, color: 'bg-amber-500', highlight: 'text-amber-500' }
-                ].map((item, idx) => (
-                  <div key={idx} className="flex justify-between items-center group">
-                    <div className="flex items-center gap-2.5">
-                      {item.icon ? item.icon : <span className={`w-2 h-2 rounded-full ${item.color}`}></span>}
-                      <p className="text-sm font-medium text-slate-500">{item.label}</p>
-                    </div>
-                    <p className={`text-sm font-bold ${item.highlight || 'text-slate-800'}`}>{item.value ?? '--'}</p>
-                  </div>
-                ))}
-
-                {(consistencyReport.summary?.orphan_queued ?? 0) > 0 && (
-                  <div className="flex justify-between items-center mt-2 p-3 bg-amber-50 rounded-xl border border-amber-100">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-500" />
-                      <p className="text-sm font-medium text-amber-700">Orphan Queued</p>
-                    </div>
-                    <p className="text-sm font-bold text-amber-600">{consistencyReport.summary?.orphan_queued}</p>
-                  </div>
-                )}
-              </div>
-
-              {consistencyReport.mismatches?.length > 0 && (
-                <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
-                  <p className="text-[10px] font-bold tracking-widest text-red-500 uppercase flex items-center gap-1.5"><AlertCircle className="w-3 h-3" /> Mismatches Found</p>
-                  {consistencyReport.mismatches.map((m: any, i: number) => (
-                    <div key={i} className="p-4 bg-white border border-red-100 shadow-sm shadow-red-100/50 rounded-xl">
-                      <p className="text-xs font-bold text-slate-800 mb-1">{m.broken_stage}</p>
-                      <p className="text-xs font-medium text-slate-500 mb-2">{m.description}</p>
-                      <div className="flex flex-wrap gap-2 text-[10px] font-mono">
-                        <span className="px-2 py-1 bg-slate-50 rounded text-slate-600 border border-slate-100">Exp: {m.expected}</span>
-                        <span className="px-2 py-1 bg-red-50 rounded text-red-600 border border-red-100">Act: {m.actual}</span>
-                        <span className={`px-2 py-1 rounded border ${m.delta > 0 ? 'bg-red-50 text-red-600 border-red-100' : 'bg-amber-50 text-amber-600 border-amber-100'}`}>
-                          Δ: {m.delta > 0 ? `+${m.delta}` : m.delta}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <p className="text-[10px] font-medium text-slate-400 mt-6 text-center bg-slate-50 py-1.5 rounded-lg border border-slate-100">
-                Validated in <span className="font-mono">{consistencyReport.validation_duration_seconds}s</span>
+              <p className="text-base font-bold text-slate-800 flex items-center gap-2">
+                {!isTerminalStatus && <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />}
+                {job.current_step || job.current_action || 'Initializing Scraper & Browser Engine...'}
               </p>
             </div>
-          )}
+
+            {/* Big Progress Percentage */}
+            <div className="text-right">
+              <div className="text-4xl lg:text-5xl font-black text-slate-900 tracking-tight flex items-baseline justify-end">
+                {progressPercent}
+                <span className="text-xl lg:text-2xl font-bold text-slate-400 ml-1">%</span>
+              </div>
+              <p className="text-xs font-semibold text-slate-500 mt-0.5">
+                {completedLeads} of {targetLeads} leads collected
+              </p>
+            </div>
+          </div>
+
+          {/* Smooth High-Definition Progress Bar */}
+          <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden p-0.5 border border-slate-200/60 shadow-inner">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ease-out relative ${
+                job.status === 'FAILED'
+                  ? 'bg-red-500'
+                  : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500'
+              }`}
+              style={{ width: `${progressPercent}%` }}
+            >
+              {!isTerminalStatus && (
+                <div className="absolute inset-0 bg-white/25 animate-[shimmer_2s_infinite] -skew-x-12"></div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* 4 Spacious KPI Cards (Zero Truncation, Full Context!) */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-2">
+          {/* 1. Saved Leads */}
+          <div className="bg-slate-50/70 hover:bg-slate-50 border border-slate-200/70 rounded-xl p-4.5 transition-all shadow-2xs group">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Saved Leads</span>
+              <div className="p-2 rounded-lg bg-emerald-50 text-emerald-600 border border-emerald-100 group-hover:scale-105 transition-transform">
+                <CheckCircle2 className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight">
+                {completedLeads}
+              </span>
+              <span className="text-xs font-semibold text-slate-500">
+                / {targetLeads} target
+              </span>
+            </div>
+            <div className="mt-2.5 w-full bg-slate-200/70 rounded-full h-1.5 overflow-hidden">
+              <div
+                className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                style={{ width: `${Math.min(100, Math.round((completedLeads / (targetLeads || 1)) * 100))}%` }}
+              ></div>
+            </div>
+          </div>
+
+          {/* 2. Discovered Leads */}
+          <div className="bg-slate-50/70 hover:bg-slate-50 border border-slate-200/70 rounded-xl p-4.5 transition-all shadow-2xs group">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Discovered</span>
+              <div className="p-2 rounded-lg bg-blue-50 text-blue-600 border border-blue-100 group-hover:scale-105 transition-transform">
+                <Globe className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight">
+                {job.total_found || 0}
+              </span>
+              <span className="text-xs font-medium text-slate-500">found</span>
+            </div>
+            <p className="text-xs font-medium text-slate-500 mt-2">
+              <span className="text-blue-600 font-bold">{job.accepted_leads || 0}</span> passed validation
+            </p>
+          </div>
+
+          {/* 3. Filtered & Deduplicated */}
+          <div className="bg-slate-50/70 hover:bg-slate-50 border border-slate-200/70 rounded-xl p-4.5 transition-all shadow-2xs group">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filtered Out</span>
+              <div className="p-2 rounded-lg bg-amber-50 text-amber-600 border border-amber-100 group-hover:scale-105 transition-transform">
+                <ShieldAlert className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight">
+                {(job.duplicates_removed || 0) + (job.rejected_leads || 0)}
+              </span>
+              <span className="text-xs font-medium text-slate-500">skipped</span>
+            </div>
+            <p className="text-xs font-medium text-slate-500 mt-2">
+              <span className="text-amber-600 font-bold">{job.duplicates_removed || 0}</span> dupes • <span className="text-red-500 font-bold">{job.rejected_leads || 0}</span> rejected
+            </p>
+          </div>
+
+          {/* 4. Execution Time */}
+          <div className="bg-slate-50/70 hover:bg-slate-50 border border-slate-200/70 rounded-xl p-4.5 transition-all shadow-2xs group">
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Elapsed Time</span>
+              <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600 border border-indigo-100 group-hover:scale-105 transition-transform">
+                <Clock className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="flex items-baseline gap-1.5">
+              <span className="text-2xl lg:text-3xl font-black text-slate-900 tracking-tight font-mono">
+                {formatTime(displayDuration)}
+              </span>
+            </div>
+            <p className="text-xs font-medium text-slate-500 mt-2">
+              {isTerminalStatus ? 'Completed run' : 'Real-time scraper'}
+            </p>
+          </div>
+        </div>
+
+        {/* Concurrency Worker Strip (if active) */}
+        {job.worker_states && Object.keys(job.worker_states).length > 0 && (
+          <div className="pt-4 border-t border-slate-100">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                Active Pipeline Workers ({Object.keys(job.worker_states).length})
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+              {Object.entries(job.worker_states).map(([workerId, state]) => (
+                <div key={workerId} className="p-3 rounded-xl bg-slate-50 border border-slate-200/70 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>
+                    <span className="font-bold text-slate-800 truncate">{workerId}</span>
+                  </div>
+                  <span className="font-mono text-[11px] font-semibold text-blue-600 bg-white px-2 py-0.5 rounded border border-slate-200 shrink-0 ml-2">
+                    {typeof state === 'object'
+                      ? `${(state as any)?.status || (state as any)?.worker_status || 'Active'} [${(state as any)?.progress || 0}%]`
+                      : String(state)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Main Workspace: Balanced 60/40 Split */}
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6 items-start">
+        {/* Left Column (60%): Live Discoveries Stream */}
+        <div className="xl:col-span-7 space-y-4">
+          <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden flex flex-col h-[640px]">
+            {/* Discoveries Header */}
+            <div className="p-4 lg:p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-white sticky top-0 z-10">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+                  <Building2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                      Live Discoveries
+                    </h2>
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                      {totalCampaignLeads} leads generated
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">Real-time extracted business records</p>
+                </div>
+              </div>
+
+              {/* Controls: Search filter & view toggle */}
+              <div className="flex items-center gap-2">
+                <div className="relative">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Filter discoveries..."
+                    value={leadSearchQuery}
+                    onChange={(e) => setLeadSearchQuery(e.target.value)}
+                    className="pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-800 placeholder:text-slate-400 w-36 sm:w-48 transition-all"
+                  />
+                  {leadSearchQuery && (
+                    <button
+                      onClick={() => setLeadSearchQuery('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center p-1 bg-slate-100 rounded-xl border border-slate-200/60">
+                  <button
+                    onClick={() => setViewMode('cards')}
+                    className={`p-1.5 rounded-lg text-xs transition-all ${
+                      viewMode === 'cards'
+                        ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="Card View"
+                  >
+                    <LayoutGrid className="w-3.5 h-3.5" />
+                  </button>
+                  <button
+                    onClick={() => setViewMode('table')}
+                    className={`p-1.5 rounded-lg text-xs transition-all ${
+                      viewMode === 'table'
+                        ? 'bg-white text-slate-900 shadow-2xs font-semibold'
+                        : 'text-slate-500 hover:text-slate-800'
+                    }`}
+                    title="Table View"
+                  >
+                    <List className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Discoveries Body */}
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-50/40">
+              {filteredLeads.length > 0 ? (
+                viewMode === 'cards' ? (
+                  /* Cards View */
+                  <div className="space-y-3">
+                    {filteredLeads.map((lead: any, idx: number) => {
+                      const businessName = lead.name || lead.business_name || 'Business Name';
+                      const category = lead.category || job.keyword || 'Company';
+                      const location = lead.city || lead.location || lead.address || job.location;
+                      const leadId = lead._id || String(idx);
+
+                      return (
+                        <div
+                          key={leadId}
+                          className="bg-white border border-slate-200/80 hover:border-blue-200 rounded-xl p-4 transition-all shadow-2xs hover:shadow-sm space-y-3 group"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex items-start gap-3">
+                              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-100 flex items-center justify-center font-black text-blue-700 text-sm shadow-2xs shrink-0">
+                                {businessName.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="space-y-0.5">
+                                <h3 className="font-bold text-slate-900 text-sm group-hover:text-blue-600 transition-colors line-clamp-1">
+                                  {businessName}
+                                </h3>
+                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+                                  <span className="px-2 py-0.5 rounded-md bg-slate-100 font-medium text-slate-600 text-[11px]">
+                                    {category}
+                                  </span>
+                                  {location && (
+                                    <span className="flex items-center gap-1 text-slate-500 text-[11px]">
+                                      <MapPin className="w-3 h-3 text-slate-400" />
+                                      {location}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {lead.google_rating && (
+                              <div className="flex items-center gap-1 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200/80 text-amber-700 text-xs font-bold shrink-0">
+                                <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
+                                <span>{lead.google_rating}</span>
+                                {lead.reviews_count && (
+                                  <span className="text-[10px] text-amber-600/80 font-normal">({lead.reviews_count})</span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Contact Action Chips */}
+                          <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-100 text-xs">
+                            {lead.phone ? (
+                              <button
+                                onClick={() => copyPhoneNumber(lead.phone, leadId)}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 font-medium transition-colors"
+                                title="Click to copy phone number"
+                              >
+                                {copiedPhoneId === leadId ? (
+                                  <Check className="w-3 h-3 text-emerald-600" />
+                                ) : (
+                                  <Phone className="w-3 h-3 text-emerald-600" />
+                                )}
+                                <span>{lead.phone}</span>
+                              </button>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-100 text-slate-400 text-[11px]">
+                                <Phone className="w-3 h-3 opacity-40" />
+                                No phone
+                              </span>
+                            )}
+
+                            {lead.website ? (
+                              <a
+                                href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-50/60 hover:bg-blue-100/60 border border-blue-200/60 text-blue-700 font-medium transition-colors"
+                              >
+                                <Globe className="w-3 h-3 text-blue-600" />
+                                <span className="truncate max-w-[140px]">Visit Website</span>
+                                <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+                              </a>
+                            ) : null}
+
+                            {lead.email && (
+                              <a
+                                href={`mailto:${lead.email}`}
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-50/60 hover:bg-indigo-100/60 border border-indigo-200/60 text-indigo-700 font-medium transition-colors"
+                              >
+                                <Mail className="w-3 h-3 text-indigo-600" />
+                                <span className="truncate max-w-[120px]">{lead.email}</span>
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* Compact Table View */
+                  <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-2xs">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-200">
+                        <tr>
+                          <th className="px-4 py-3">Business</th>
+                          <th className="px-4 py-3">Location</th>
+                          <th className="px-4 py-3">Phone</th>
+                          <th className="px-4 py-3 text-right">Links</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredLeads.map((lead: any, idx: number) => (
+                          <tr key={lead._id || idx} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="px-4 py-3">
+                              <p className="font-bold text-slate-900">{lead.name || lead.business_name}</p>
+                              <p className="text-[11px] text-slate-400">{lead.category || job.keyword}</p>
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {lead.city || lead.location || '--'}
+                            </td>
+                            <td className="px-4 py-3">
+                              {lead.phone ? (
+                                <button
+                                  onClick={() => copyPhoneNumber(lead.phone, lead._id || String(idx))}
+                                  className="font-mono text-slate-700 hover:text-blue-600 flex items-center gap-1"
+                                >
+                                  {lead.phone}
+                                  {copiedPhoneId === (lead._id || String(idx)) ? (
+                                    <Check className="w-3 h-3 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="w-2.5 h-2.5 text-slate-400" />
+                                  )}
+                                </button>
+                              ) : (
+                                <span className="text-slate-400">--</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-right">
+                              {lead.website ? (
+                                <a
+                                  href={lead.website.startsWith('http') ? lead.website : `https://${lead.website}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-blue-600 hover:underline font-semibold inline-flex items-center gap-1"
+                                >
+                                  Site <ExternalLink className="w-3 h-3" />
+                                </a>
+                              ) : (
+                                <span className="text-slate-300">--</span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              ) : (
+                /* Empty / Awaiting State */
+                <div className="flex flex-col items-center justify-center h-full text-center p-8 space-y-4">
+                  <div className="w-16 h-16 rounded-2xl bg-white border border-slate-200/80 shadow-sm flex items-center justify-center relative">
+                    {!isTerminalStatus ? (
+                      <>
+                        <div className="absolute inset-0 rounded-2xl border-2 border-blue-500/20 animate-ping"></div>
+                        <Compass className="w-8 h-8 text-blue-600 animate-spin" style={{ animationDuration: '6s' }} />
+                      </>
+                    ) : (
+                      <Globe className="w-8 h-8 text-slate-300" />
+                    )}
+                  </div>
+                  <div className="space-y-1.5 max-w-sm">
+                    <h3 className="font-bold text-slate-800 text-sm">
+                      {isTerminalStatus ? 'No Live Discoveries Recorded' : 'Awaiting Live Discoveries'}
+                    </h3>
+                    <p className="text-xs text-slate-400 leading-relaxed">
+                      {isTerminalStatus
+                        ? 'This session has finished. You can view all saved leads in the leads dashboard.'
+                        : 'The scraper is querying Google Maps and loading business profiles. Verified results will stream into this feed live.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Column (40%): Live Engine Console & Terminal */}
+        <div className="xl:col-span-5 space-y-4">
+          <div className="bg-white border border-slate-200/80 rounded-2xl shadow-sm overflow-hidden flex flex-col h-[640px]">
+            {/* Terminal Header */}
+            <div className="p-4 lg:p-5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 bg-white sticky top-0 z-10">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-slate-100 text-slate-700 border border-slate-200">
+                  <Terminal className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-slate-900 uppercase tracking-wider">
+                      Terminal Logs
+                    </h2>
+                    <span className="text-[11px] font-mono text-slate-400">
+                      ({filteredLogs.length})
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-0.5">Live execution telemetry stream</p>
+                </div>
+              </div>
+
+              {/* Terminal Action Tools */}
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => setAutoScrollLogs(!autoScrollLogs)}
+                  className={`p-1.5 rounded-lg text-xs border transition-all ${
+                    autoScrollLogs
+                      ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
+                      : 'bg-slate-50 text-slate-500 border-slate-200 hover:text-slate-800'
+                  }`}
+                  title={autoScrollLogs ? 'Auto-scroll: ON' : 'Auto-scroll: OFF'}
+                >
+                  {autoScrollLogs ? <Lock className="w-3.5 h-3.5" /> : <Unlock className="w-3.5 h-3.5" />}
+                </button>
+
+                <button
+                  onClick={copyAllLogs}
+                  className="p-1.5 rounded-lg text-xs bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100 transition-all"
+                  title="Copy All Logs"
+                >
+                  {copiedLogs ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Pills for Logs */}
+            <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/50 flex items-center gap-1.5 text-[11px] overflow-x-auto">
+              {(['all', 'discoveries', 'warnings', 'errors'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setLogFilter(tab)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold uppercase tracking-wider transition-all ${
+                    logFilter === tab
+                      ? 'bg-white text-slate-900 shadow-2xs border border-slate-200'
+                      : 'text-slate-400 hover:text-slate-700'
+                  }`}
+                >
+                  {tab}
+                </button>
+              ))}
+            </div>
+
+            {/* Terminal Body */}
+            <div className="flex-1 p-4 overflow-y-auto font-mono text-[11px] space-y-2 custom-scrollbar bg-slate-50/80 border-t border-slate-100 text-slate-800">
+              {filteredLogs.length > 0 ? (
+                filteredLogs.map((log: any, i: number) => {
+                  let msg = "";
+                  let ts = "";
+                  if (typeof log === 'string') {
+                    msg = log;
+                  } else if (log) {
+                    msg = log.message || JSON.stringify(log);
+                    let logDate: Date | null = null;
+                    if (log.timestamp) {
+                      const parsed = new Date(
+                        typeof log.timestamp === 'number' || !isNaN(Number(log.timestamp))
+                          ? Number(log.timestamp) * 1000
+                          : log.timestamp
+                      );
+                      if (!isNaN(parsed.getTime())) {
+                        logDate = parsed;
+                      }
+                    }
+                    ts = logDate ? logDate.toISOString().split('T')[1].split('.')[0] : "";
+                  }
+
+                  const isLifecycle = msg.includes("LIFECYCLE_LOG");
+                  const isError = msg.toLowerCase().includes("error") || msg.toLowerCase().includes("failed");
+                  const isRejected = msg.includes("Rejected");
+                  const isSuccess = msg.includes("✅") || msg.includes("Found");
+
+                  return (
+                    <div
+                      key={i}
+                      className={`flex items-start gap-2.5 leading-relaxed rounded px-2.5 py-1.5 transition-colors ${
+                        isLifecycle
+                          ? 'text-sky-900 bg-sky-50 border border-sky-200 font-semibold'
+                          : isError
+                          ? 'text-rose-900 bg-rose-50 border border-rose-200 font-semibold'
+                          : isRejected
+                          ? 'text-amber-900 bg-amber-50 border border-amber-200'
+                          : isSuccess
+                          ? 'text-emerald-900 bg-emerald-50 border border-emerald-200 font-semibold'
+                          : 'text-slate-700 bg-white border border-slate-200/60 hover:bg-slate-100/70'
+                      }`}
+                    >
+                      {ts && (
+                        <span className="text-slate-400 shrink-0 select-none text-[10px] mt-0.5 font-bold">
+                          [{ts}]
+                        </span>
+                      )}
+                      <span className="break-all">{msg}</span>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-2.5">
+                  <Loader2 className="w-5 h-5 animate-spin opacity-40 text-blue-400" />
+                  <span className="text-xs">Waiting for engine output stream...</span>
+                </div>
+              )}
+              <div ref={logsEndRef} className="h-4" />
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* Slide-over Drawer: Search Configuration & Data Integrity Audit */}
+      {showConfigDrawer && (
+        <div className="fixed inset-0 z-50 overflow-hidden bg-slate-900/40 backdrop-blur-xs flex justify-end animate-in fade-in duration-200">
+          <div className="w-full max-w-lg bg-white h-full shadow-2xl flex flex-col border-l border-slate-200 animate-in slide-in-from-right duration-300">
+            {/* Drawer Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/60">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-50 text-blue-600 border border-blue-100">
+                  <SlidersHorizontal className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Job Info & Integrity Audit</h3>
+                  <p className="text-xs text-slate-400">Technical parameters and referential integrity</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowConfigDrawer(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Drawer Content */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Configuration Parameters Card */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Search Parameters</h4>
+                <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3 text-xs">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Search Engine Provider</span>
+                    <span className="font-bold text-slate-900">{job.provider || 'Google Maps'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Keyword / Industry</span>
+                    <span className="font-bold text-slate-900">{job.keyword || '--'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Target Location</span>
+                    <span className="font-bold text-slate-900">{job.location || job.city || '--'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Extraction Target</span>
+                    <span className="font-bold text-slate-900">{targetLeads} Leads</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Exhaustive Mode</span>
+                    <span className="font-bold text-slate-900">{job.exhaustive ? 'Enabled (Full scrape)' : 'Disabled'}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Job Identifier</span>
+                    <span className="font-mono text-slate-700 font-semibold">{String(job._id || id)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Data Integrity Report (if available) */}
+              {consistencyReport ? (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Pipeline Data Integrity</h4>
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                      consistencyReport.is_consistent
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : 'bg-red-50 text-red-700 border border-red-200'
+                    }`}>
+                      {consistencyReport.is_consistent ? 'VERIFIED' : 'MISMATCH'}
+                    </span>
+                  </div>
+
+                  <div className={`p-4 rounded-xl border ${
+                    consistencyReport.is_consistent
+                      ? 'bg-emerald-50/60 border-emerald-200/80 text-emerald-800'
+                      : 'bg-red-50/60 border-red-200/80 text-red-800'
+                  }`}>
+                    <p className="text-xs font-bold">{consistencyReport.verdict}</p>
+                  </div>
+
+                  <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3 text-xs">
+                    {[
+                      { label: 'Discovered Businesses', value: consistencyReport.summary?.businesses_discovered },
+                      { label: 'Processed Profiles', value: consistencyReport.summary?.businesses_processed },
+                      { label: 'MongoDB Saved Documents', value: consistencyReport.summary?.mongo_lead_documents },
+                      { label: 'Job Report Total Leads', value: consistencyReport.summary?.job_total_leads },
+                      { label: 'Failed Leads', value: consistencyReport.summary?.failed_leads },
+                      { label: 'Duplicates Removed', value: consistencyReport.summary?.duplicates },
+                    ].map((row, idx) => (
+                      <div key={idx} className="flex justify-between items-center">
+                        <span className="text-slate-500">{row.label}</span>
+                        <span className="font-bold text-slate-900">{row.value ?? '--'}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {consistencyReport.mismatches?.length > 0 && (
+                    <div className="space-y-2">
+                      <p className="text-xs font-bold text-red-600 flex items-center gap-1.5">
+                        <AlertCircle className="w-3.5 h-3.5" /> Mismatches Found
+                      </p>
+                      {consistencyReport.mismatches.map((m: any, i: number) => (
+                        <div key={i} className="p-3 bg-red-50/60 border border-red-200 rounded-xl text-xs space-y-1">
+                          <p className="font-bold text-red-800">{m.broken_stage}</p>
+                          <p className="text-red-700">{m.description}</p>
+                          <div className="flex gap-2 text-[10px] font-mono pt-1">
+                            <span className="bg-white px-2 py-0.5 rounded border border-red-100 text-slate-700">Exp: {m.expected}</span>
+                            <span className="bg-white px-2 py-0.5 rounded border border-red-100 text-red-600">Act: {m.actual}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="text-[11px] text-slate-400 text-center">
+                    Validation computed in {consistencyReport.validation_duration_seconds}s
+                  </p>
+                </div>
+              ) : (
+                <div className="p-4 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-500 text-center space-y-1">
+                  <ShieldCheck className="w-6 h-6 text-slate-400 mx-auto" />
+                  <p className="font-semibold text-slate-700">Data Integrity Validation</p>
+                  <p className="text-[11px] text-slate-400">Referential consistency check will execute when the job reaches a terminal status.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Drawer Footer */}
+            <div className="p-4 border-t border-slate-100 bg-slate-50/60 flex gap-2">
+              <button
+                onClick={() => setShowConfigDrawer(false)}
+                className="w-full py-2.5 text-xs font-bold text-slate-700 bg-white hover:bg-slate-100 border border-slate-200 rounded-xl transition-colors text-center"
+              >
+                Close Drawer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Search Completed Modal */}
+      {job.status === 'COMPLETED' && showCompletedModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-all">
+          <div className="bg-white rounded-3xl p-8 max-w-xl w-full shadow-2xl border border-slate-200 relative overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+            {/* Close Button */}
+            <button
+              onClick={() => setShowCompletedModal(false)}
+              className="absolute top-5 right-5 z-20 p-2 rounded-xl bg-slate-50 hover:bg-slate-100 text-slate-500 hover:text-slate-900 transition-all border border-slate-200"
+              aria-label="Close"
+            >
+              <X className="w-4 h-4" />
+            </button>
+
+            {/* Header / Celebration */}
+            <div className="text-center space-y-3 mb-8">
+              <div className="w-16 h-16 mx-auto rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center shadow-sm">
+                <CheckCircle2 className="w-8 h-8" />
+              </div>
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Search Completed!</h2>
+              <p className="text-sm text-slate-500 max-w-md mx-auto">
+                {job.source_exhausted
+                  ? `Google Maps ran out of unique results — collected ${job.actual_collected ?? completedLeads} of ${targetLeads} requested leads.`
+                  : 'All qualified leads have been extracted, validated, and saved to your database.'}
+              </p>
+            </div>
+
+            {/* Stats Summary Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-8">
+              {[
+                { label: 'Target', value: targetLeads, color: 'text-blue-600' },
+                { label: 'Collected', value: job.actual_collected ?? completedLeads, color: 'text-emerald-600' },
+                { label: 'Duplicates', value: job.duplicates_removed || 0, color: 'text-amber-600' },
+                { label: 'Duration', value: formatTime(displayDuration), color: 'text-indigo-600' }
+              ].map((stat, idx) => (
+                <div key={idx} className="bg-slate-50 rounded-xl p-3.5 border border-slate-200/80 text-center">
+                  <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider mb-1">{stat.label}</p>
+                  <p className={`text-xl font-black ${stat.color}`}>{stat.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Primary Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <Link
+                href={`/dashboard/leads?job_id=${id || job?._id}`}
+                className="flex-1 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-center text-sm transition-all flex items-center justify-center gap-2 shadow-sm shadow-blue-500/20"
+              >
+                <LayoutDashboard className="w-4 h-4" /> View Campaign Leads ({totalCampaignLeads})
+              </Link>
+              <Link
+                href="/dashboard/search"
+                className="flex-1 px-5 py-3 bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl font-bold text-center text-sm transition-all"
+              >
+                New Search
+              </Link>
+            </div>
+
+            {/* Quick Export Links */}
+            <div className="mt-6 pt-6 border-t border-slate-100 flex justify-center gap-6 text-xs font-semibold text-slate-500">
+              <button
+                onClick={() => handleExport('csv')}
+                className="hover:text-blue-600 flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <DownloadCloud className="w-4 h-4" /> Export CSV
+              </button>
+              <button
+                onClick={() => handleExport('excel')}
+                className="hover:text-emerald-600 flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <FileText className="w-4 h-4" /> Export Excel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

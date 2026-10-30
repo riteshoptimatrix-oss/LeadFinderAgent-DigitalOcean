@@ -372,27 +372,26 @@ export default function EmailLiveDashboard() {
 
           {/* Current Status Panels */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="bg-slate-900 text-white p-5 rounded-2xl shadow-sm relative overflow-hidden">
-              <div className="absolute right-0 top-0 w-32 h-32 bg-blue-500/10 rounded-full blur-3xl" />
+            <div className="bg-white border border-slate-200 text-slate-900 p-5 rounded-2xl shadow-sm relative overflow-hidden">
               <div className="flex items-center gap-2 mb-4">
-                <Activity className="w-5 h-5 text-blue-400" />
-                <h3 className="font-bold text-lg">Live Execution</h3>
+                <Activity className="w-5 h-5 text-blue-600" />
+                <h3 className="font-bold text-lg text-slate-900">Live Execution</h3>
               </div>
               {currentEmail ? (
                 <div className="space-y-3">
                   <div>
-                    <div className="text-slate-400 text-xs font-semibold mb-0.5">Target</div>
-                    <div className="font-medium truncate">{currentEmail.email}</div>
+                    <div className="text-slate-500 text-xs font-semibold mb-0.5">Target</div>
+                    <div className="font-bold text-slate-800 truncate">{currentEmail.email}</div>
                   </div>
                   <div>
-                    <div className="text-slate-400 text-xs font-semibold mb-0.5">Current Status</div>
-                    <div className="flex items-center gap-2 font-bold text-blue-400">
+                    <div className="text-slate-500 text-xs font-semibold mb-0.5">Current Status</div>
+                    <div className="flex items-center gap-2 font-bold text-blue-600">
                       <Loader2 className="w-3.5 h-3.5 animate-spin" /> {currentEmail.status}
                     </div>
                   </div>
                 </div>
               ) : (
-                <div className="text-slate-500 text-sm italic mt-4">Waiting for next job...</div>
+                <div className="text-slate-400 text-sm italic mt-4">Waiting for next job...</div>
               )}
             </div>
 
@@ -417,31 +416,31 @@ export default function EmailLiveDashboard() {
         </div>
 
         {/* Right Column: Live Logs */}
-        <div className="w-1/3 flex flex-col bg-slate-950 rounded-2xl shadow-xl overflow-hidden border border-slate-800">
-          <div className="flex-none p-4 border-b border-slate-800 flex items-center justify-between bg-slate-900/50">
-            <h3 className="font-bold text-white flex items-center gap-2">
-              <Zap className="w-4 h-4 text-yellow-500" /> Live Terminal
+        <div className="w-1/3 flex flex-col bg-slate-50 rounded-2xl shadow-sm overflow-hidden border border-slate-200">
+          <div className="flex-none p-4 border-b border-slate-200 flex items-center justify-between bg-white">
+            <h3 className="font-bold text-slate-900 flex items-center gap-2 text-sm">
+              <Zap className="w-4 h-4 text-amber-500" /> Live Terminal Feed
             </h3>
-            <button className="text-slate-400 hover:text-white transition-colors" title="Export Logs">
+            <button className="text-slate-400 hover:text-slate-600 transition-colors" title="Export Logs">
               <Download className="w-4 h-4" />
             </button>
           </div>
           
-          <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed custom-scrollbar">
+          <div className="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed custom-scrollbar bg-slate-50">
             {logs.length === 0 ? (
-              <div className="text-slate-600 italic">Waiting for events...</div>
+              <div className="text-slate-400 italic">Waiting for events...</div>
             ) : (
               [...logs].reverse().map((log, i) => (
-                <div key={i} className="mb-2 hover:bg-slate-800/50 p-1 -mx-1 rounded transition-colors break-words">
-                  <span className="text-slate-500 mr-2">[{new Date(log.updated_at).toLocaleTimeString()}]</span>
+                <div key={i} className="mb-2 hover:bg-slate-200/50 p-1 -mx-1 rounded transition-colors break-words">
+                  <span className="text-slate-400 mr-2">[{new Date(log.updated_at).toLocaleTimeString()}]</span>
                   <span className={cn(
                     "font-bold mr-2",
-                    log.status === 'Delivered' ? "text-green-400" :
-                    log.status === 'Failed' ? "text-red-400" :
-                    log.status === 'Skipped' ? "text-amber-400" :
-                    "text-blue-400"
+                    log.status === 'Delivered' ? "text-emerald-600" :
+                    log.status === 'Failed' ? "text-rose-600" :
+                    log.status === 'Skipped' ? "text-amber-600" :
+                    "text-blue-600"
                   )}>[{log.status.toUpperCase()}]</span>
-                  <span className="text-slate-300">Lead {log.lead_id?.substring(0,6)}: {log.last_message || 'Processing'}</span>
+                  <span className="text-slate-700">Lead {log.lead_id?.substring(0,6)}: {log.last_message || 'Processing'}</span>
                 </div>
               ))
             )}

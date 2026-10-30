@@ -236,10 +236,34 @@ def build_lead_filter(filters: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     """Translate request filters into a MongoDB query (mirrors GET /leads)."""
     filters = filters or {}
     query: Dict[str, Any] = {}
+    filter_clauses = []
 
     keyword = filters.get("keyword") or filters.get("search")
     if keyword:
-        query["name"] = {"$regex": re.escape(str(keyword)), "$options": "i"}
+        filter_clauses.append({
+            "$or": [
+                {"name": {"$regex": re.escape(str(keyword)), "$options": "i"}},
+                {"address": {"$regex": re.escape(str(keyword)), "$options": "i"}},
+                {"phone": {"$regex": re.escape(str(keyword)), "$options": "i"}},
+                {"email": {"$regex": re.escape(str(keyword)), "$options": "i"}},
+            ]
+        })
+
+    job_id = filters.get("job_id") or filters.get("source_job_id") or filters.get("search_job_id")
+    if job_id:
+        filter_clauses.append({
+            "$or": [
+                {"source_job_id": job_id},
+                {"job_id": job_id},
+                {"search_job_id": job_id},
+            ]
+        })
+
+    if filter_clauses:
+        if len(filter_clauses) == 1:
+            query["$or"] = filter_clauses[0]["$or"]
+        else:
+            query["$and"] = filter_clauses
 
     if filters.get("has_website") in (True, "true", "True"):
         query["website"] = {"$nin": ["", None]}
@@ -276,6 +300,7 @@ async def resolve_lead_docs(
     db,
     lead_ids: Optional[List[str]],
     filters: Optional[Dict[str, Any]],
+    user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     """
     Resolve the lead documents that should be considered for bulk analysis.
@@ -291,11 +316,16 @@ async def resolve_lead_docs(
         for lid in cleaned:
             oid = to_object_id(lid)
             oids.append(oid)
-        docs = await db["leads"].find({"_id": {"$in": oids}}).to_list(length=20000)
+        find_query: Dict[str, Any] = {"_id": {"$in": oids}}
+        if user_id:
+            find_query["user_id"] = user_id
+        docs = await db["leads"].find(find_query).to_list(length=20000)
         by_id = {str(d["_id"]): d for d in docs}
         return [by_id[l] for l in cleaned if l in by_id]
 
     query = build_lead_filter(filters)
+    if user_id and "user_id" not in query:
+        query["user_id"] = user_id
     docs = await db["leads"].find(query).to_list(length=20000)
     return docs
 
@@ -304,7 +334,7 @@ async def resolve_lead_docs(
 # Eligibility
 # ─────────────────────────────────────────────────────────────────────────────
 
-async def classify_leads(db, lead_docs: List[Dict[str, Any]]) -> Dict[str, Any]:
+async def classify_leads(db, lead_docs: List[Dict[str, Any]], reanalyze: bool = False) -> Dict[str, Any]:
     """
     Classify every lead into eligible jobs (de-duplicated by website) or a
     skipped record with a reason.
@@ -334,7 +364,7 @@ async def classify_leads(db, lead_docs: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "lead_id": lead_id,
                 "name": doc.get("name"),
                 "website": website or None,
-                "reason": WEBSITE_REASON.get(classification, "Website not eligible for analysis."),
+                "reason": "Website not eligible for analysis.",
                 "category": classification,
             })
             continue
@@ -358,7 +388,7 @@ async def classify_leads(db, lead_docs: List[Dict[str, Any]]) -> Dict[str, Any]:
         ai = doc.get("ai_analysis") or {}
         analysis_status = (ai.get("analysis_status") or "").strip()
 
-        if analysis_status in SUCCESS_LEAD_STATUSES:
+        if not reanalyze and analysis_status in SUCCESS_LEAD_STATUSES:
             skipped.append({
                 "lead_id": lead_id,
                 "name": doc.get("name"),
@@ -485,30 +515,34 @@ def build_prepare_report(classification: Dict[str, Any]) -> Dict[str, Any]:
 
 async def prepare_bulk_analysis(
     db,
-    lead_ids: Optional[List[str]],
-    filters: Optional[Dict[str, Any]],
+    lead_ids: Optional[List[str]] = None,
+    filters: Optional[Dict[str, Any]] = None,
+    user_id: Optional[str] = None,
+    reanalyze: bool = False,
 ) -> Dict[str, Any]:
     """Compute the eligibility report without creating a queue."""
-    lead_docs = await resolve_lead_docs(db, lead_ids, filters)
-    classification = await classify_leads(db, lead_docs)
+    lead_docs = await resolve_lead_docs(db, lead_ids, filters, user_id=user_id)
+    classification = await classify_leads(db, lead_docs, reanalyze=reanalyze)
     return build_prepare_report(classification)
 
 
 async def create_bulk_queue(
     db,
     user_id: str,
-    name: Optional[str],
-    lead_ids: Optional[List[str]],
-    filters: Optional[Dict[str, Any]],
-    concurrency: int,
+    name: Optional[str] = "Bulk AI Website Analysis",
+    lead_ids: Optional[List[str]] = None,
+    filters: Optional[Dict[str, Any]] = None,
+    concurrency: int = 3,
+    filter_user_id: Optional[str] = None,
+    reanalyze: bool = False,
 ) -> Tuple[Optional[AIAnalysisQueueInDB], Dict[str, Any]]:
     """
     Persist a bulk queue: one job per unique website, linked-lead dedup and a
     skipped-leads ledger. Returns (queue, report); queue is None when there is
     nothing eligible to analyze.
     """
-    lead_docs = await resolve_lead_docs(db, lead_ids, filters)
-    classification = await classify_leads(db, lead_docs)
+    lead_docs = await resolve_lead_docs(db, lead_ids, filters, user_id=filter_user_id)
+    classification = await classify_leads(db, lead_docs, reanalyze=reanalyze)
     report = build_prepare_report(classification)
 
     job_specs = classification["job_specs"]

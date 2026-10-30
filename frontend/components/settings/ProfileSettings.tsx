@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { Loader2, Camera, Upload, Building2, Phone, Mail, User as UserIcon, ShieldAlert, Lock } from 'lucide-react';
+import { Loader2, Camera, Upload, Building2, Phone, Mail, User as UserIcon, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/src/features/auth/store';
 
@@ -25,7 +25,6 @@ type ProfileFormValues = z.infer<typeof profileSchema>;
 export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsavedChanges: (val: boolean) => void }) {
   const queryClient = useQueryClient();
   const authUser = useAuthStore((state) => state.user);
-  const isAdmin = authUser?.role === 'admin' || authUser?.role === 'ADMIN';
 
   const { data: user, isLoading } = useQuery({
     queryKey: ['userProfile'],
@@ -35,6 +34,9 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
     }
   });
 
+  const userRole = (user?.role || authUser?.role || '')?.toLowerCase();
+  const isAdmin = userRole === 'admin' || user?.is_superuser === true;
+
   const { register, handleSubmit, setValue, watch, formState: { errors, isDirty } } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     values: {
@@ -43,7 +45,7 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
       mobile_number: user?.mobile_number || '',
       country: user?.country || '',
       state: user?.state || '',
-      role: user?.role || 'ADMIN', 
+      role: user?.role || 'USER', 
       avatar: user?.avatar || '',
     }
   });
@@ -89,7 +91,11 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
   });
 
   const onSubmit = (data: ProfileFormValues) => {
-    mutation.mutate(data);
+    const payload = { ...data };
+    if (!isAdmin) {
+      delete payload.role;
+    }
+    mutation.mutate(payload);
   };
 
   if (isLoading) {
@@ -203,12 +209,11 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
             </div>
             
             <div className="grid grid-cols-1 gap-6">
-               <div>
+              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Account Role</label>
                 <div className="relative">
                   <ShieldAlert className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   {isAdmin ? (
-                    /* Admins can change role */
                     <select
                       {...register('role')}
                       className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 outline-none transition-all focus:border-gray-300 focus:ring-4 focus:ring-gray-100 appearance-none"
@@ -219,19 +224,22 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
                       <option value="USER">User</option>
                     </select>
                   ) : (
-                    /* Normal users see a read-only badge — cannot change their own role */
-                    <>
-                      <div className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-500 cursor-not-allowed flex items-center justify-between">
-                        <span className="capitalize">{(user?.role || 'User').charAt(0).toUpperCase() + (user?.role || 'User').slice(1).toLowerCase()}</span>
-                        <Lock className="h-3.5 w-3.5 text-gray-400 mr-1" />
-                      </div>
-                    </>
+                    <input
+                      type="text"
+                      disabled
+                      value={
+                        user?.role
+                          ? user.role.charAt(0).toUpperCase() + user.role.slice(1).toLowerCase()
+                          : 'User'
+                      }
+                      className="w-full rounded-xl border border-gray-200 bg-gray-50 py-2.5 pl-10 pr-4 text-sm text-gray-500 cursor-not-allowed outline-none font-medium"
+                    />
                   )}
                 </div>
                 <p className="mt-1.5 text-xs text-gray-400">
                   {isAdmin
-                    ? 'Determines access level and permissions within the workspace.'
-                    : 'Your role is assigned by an administrator and cannot be changed.'}
+                    ? 'Determines your access level and permissions within the workspace.'
+                    : 'Account role is managed by administrators and cannot be changed.'}
                 </p>
               </div>
             </div>
@@ -242,7 +250,7 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
             <button
               type="submit"
               disabled={!isDirty || mutation.isPending}
-              className="rounded-lg bg-gray-900 px-5 py-2 text-sm font-medium text-white transition-all hover:bg-gray-800 disabled:opacity-50 focus:outline-none focus:ring-4 focus:ring-gray-200"
+              className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-bold text-white transition-all hover:bg-blue-700 disabled:opacity-50 shadow-sm active:scale-95"
             >
               {mutation.isPending ? 'Saving...' : 'Save Profile'}
             </button>

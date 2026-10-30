@@ -25,6 +25,10 @@ async def update_user_me(
     if not update_data:
         return UserResponse(**current_user.model_dump(by_alias=True))
 
+    # Prevent non-admin users from changing their role
+    if current_user.role != UserRole.ADMIN and "role" in update_data:
+        del update_data["role"]
+
     collection_name = "admins" if current_user.role == UserRole.ADMIN else "users"
     await db[collection_name].update_one(
         {"_id": ObjectId(current_user.id)},

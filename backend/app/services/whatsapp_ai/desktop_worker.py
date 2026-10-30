@@ -6,7 +6,10 @@ import re
 import urllib.parse
 from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
-import pyautogui
+try:
+    import pyautogui
+except Exception as _pyautogui_err:
+    pyautogui = None
 import pyperclip
 from bson import ObjectId
 from app.core.websocket import manager as ws_manager
@@ -26,8 +29,12 @@ class WADesktopQueueWorker:
         self.active_campaign_id = None
         
         # Configure pyautogui safety features
-        pyautogui.FAILSAFE = False
-        pyautogui.PAUSE = 0.1
+        if pyautogui:
+            try:
+                pyautogui.FAILSAFE = False
+                pyautogui.PAUSE = 0.1
+            except Exception:
+                pass
 
     async def start(self):
         if self.is_running:

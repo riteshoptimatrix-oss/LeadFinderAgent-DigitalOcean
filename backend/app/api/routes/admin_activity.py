@@ -1,81 +1,84 @@
+import logging
 from typing import Any, List, Optional, Dict
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Query
 from motor.motor_asyncio import AsyncIOMotorDatabase
-from datetime import datetime, timezone
 from bson.objectid import ObjectId
 
-from app.db.database import get_db
+from app.db.database import get_db, db_instance
 from app.models.user import UserInDB
-from app.api.dependencies import get_current_user, RequireRole
+from app.api.dependencies import RequireRole
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
-require_admin = RequireRole(["admin"])
+require_admin = RequireRole(["admin", "ADMIN"])
 
-def build_user_filter(user_id: str) -> dict:
-    """Builds a query filter matching user_id as both string and ObjectId."""
-    conds = [{"user_id": str(user_id)}]
-    if ObjectId.is_valid(user_id):
-        conds.append({"user_id": ObjectId(user_id)})
-    return {"$or": conds}
+def get_raw_db() -> AsyncIOMotorDatabase:
+    """Ensure admin queries bypass tenant isolation and access full database."""
+    if db_instance.db is not None:
+        return db_instance.db
+    db = get_db()
+    if hasattr(db, "_db"):
+        return db._db
+    return db
 
-def serialize_doc(doc: Any) -> Any:
-    """Recursively converts ObjectIds and Datetimes for 100% safe JSON serialization."""
+def sanitize_doc(doc: Any) -> Any:
+    """Recursively convert ObjectIds to strings and datetimes to ISO strings for safe JSON serialization."""
     if isinstance(doc, dict):
-        return {k: serialize_doc(v) for k, v in doc.items()}
+        cleaned = {}
+        for k, v in doc.items():
+            if isinstance(v, ObjectId):
+                cleaned[k] = str(v)
+            elif isinstance(v, datetime):
+                cleaned[k] = v.isoformat()
+            elif isinstance(v, (dict, list)):
+                cleaned[k] = sanitize_doc(v)
+            else:
+                cleaned[k] = v
+        return cleaned
     elif isinstance(doc, list):
-        return [serialize_doc(v) for v in doc]
+        return [sanitize_doc(item) for item in doc]
     elif isinstance(doc, ObjectId):
         return str(doc)
     elif isinstance(doc, datetime):
         return doc.isoformat()
     return doc
 
+def build_user_filter(user_id: str) -> Dict[str, Any]:
+    """Match user_id whether stored as string or ObjectId in Mongo documents."""
+    conditions = [{"user_id": user_id}]
+    if ObjectId.is_valid(user_id):
+        conditions.append({"user_id": ObjectId(user_id)})
+        conditions.append({"created_by": user_id})
+        conditions.append({"created_by": ObjectId(user_id)})
+    return {"$or": conditions}
+
 @router.get("/dashboard-stats")
 async def get_dashboard_stats(
-    db: AsyncIOMotorDatabase = Depends(get_db),
     current_admin: UserInDB = Depends(require_admin)
 ) -> Any:
+    raw_db = get_raw_db()
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     
-    total_users = await db["users"].count_documents({})
-    today_new_users = await db["users"].count_documents({"created_at": {"$gte": today}})
+    total_users = await raw_db["users"].count_documents({})
+    today_new_users = await raw_db["users"].count_documents({"created_at": {"$gte": today}})
     
-    total_searches = await db["search_jobs"].count_documents({})
-    today_searches = await db["search_jobs"].count_documents({"created_at": {"$gte": today}})
+    total_searches = await raw_db["search_jobs"].count_documents({})
+    today_searches = await raw_db["search_jobs"].count_documents({"created_at": {"$gte": today}})
     
-    total_leads = await db["leads"].count_documents({})
+    total_leads = await raw_db["leads"].count_documents({})
+    total_ai_analyses = await raw_db["ai_analysis_jobs"].count_documents({})
+    total_emails = (await raw_db["email_ai_campaigns"].count_documents({})) + (await raw_db["email_campaigns"].count_documents({}))
+    total_whatsapp = (await raw_db["wa_ai_campaigns"].count_documents({})) + (await raw_db["wa_campaigns"].count_documents({}))
     
-    # Accurate AI analysis count
-    total_ai_analyses = max(
-        await db["ai_analysis_jobs"].count_documents({}),
-        await db["ai_analysis"].count_documents({}),
-        await db["leads"].count_documents({"ai_score": {"$gt": 0}})
-    )
+    active_users_today = len(await raw_db["audit_logs"].distinct("user_id", {"created_at": {"$gte": today}}))
+    logged_in_users = len(await raw_db["sessions"].distinct("user_id", {"is_active": True}))
     
-    # Total emails across collections
-    total_emails = (
-        await db["campaigns"].count_documents({}) +
-        await db["email_ai_campaigns"].count_documents({}) +
-        await db["email_queue"].count_documents({})
-    )
-    
-    # Total WhatsApp across collections
-    total_whatsapp = (
-        await db["wa_campaigns"].count_documents({}) +
-        await db["wa_message_logs"].count_documents({}) +
-        await db["whatsapp_queue"].count_documents({})
-    )
-    
-    active_users_today = len(await db["activity_logs"].distinct("user_id", {"created_at": {"$gte": today}}))
-    if active_users_today == 0:
-        active_users_today = len(await db["search_jobs"].distinct("user_id", {"created_at": {"$gte": today}}))
-    
-    logged_in_users = len(await db["sessions"].distinct("user_id", {"is_active": True, "expires_at": {"$gt": datetime.utcnow()}}))
-    
-    return serialize_doc({
+    return sanitize_doc({
         "total_users": total_users,
-        "active_users_today": max(active_users_today, 1 if total_users > 0 else 0),
-        "logged_in_users": max(logged_in_users, 1 if total_users > 0 else 0),
+        "active_users_today": active_users_today,
+        "logged_in_users": logged_in_users,
         "total_searches": total_searches,
         "total_leads": total_leads,
         "total_ai_analyses": total_ai_analyses,
@@ -87,13 +90,13 @@ async def get_dashboard_stats(
 
 @router.get("/users")
 async def list_users(
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     search: Optional[str] = None,
-    db: AsyncIOMotorDatabase = Depends(get_db),
     current_admin: UserInDB = Depends(require_admin)
 ) -> Any:
-    query = {}
+    raw_db = get_raw_db()
+    query: Dict[str, Any] = {}
     if search:
         query = {
             "$or": [
@@ -103,16 +106,19 @@ async def list_users(
             ]
         }
     
-    cursor = db["users"].find(query).sort("created_at", -1).skip(skip).limit(limit)
+    cursor = raw_db["users"].find(query).sort("created_at", -1).skip(skip).limit(limit)
     users = []
     async for user in cursor:
-        user.pop("hashed_password", None)
-        user.pop("password_hash", None)
+        user["_id"] = str(user["_id"])
+        if "hashed_password" in user:
+            del user["hashed_password"]
+        if "password_hash" in user:
+            del user["password_hash"]
         users.append(user)
         
-    total = await db["users"].count_documents(query)
+    total = await raw_db["users"].count_documents(query)
     
-    return serialize_doc({
+    return sanitize_doc({
         "items": users,
         "total": total,
         "skip": skip,
@@ -122,60 +128,38 @@ async def list_users(
 @router.get("/users/{user_id}/profile")
 async def get_user_profile(
     user_id: str,
-    db: AsyncIOMotorDatabase = Depends(get_db),
     current_admin: UserInDB = Depends(require_admin)
 ) -> Any:
-    if not ObjectId.is_valid(user_id):
-        raise HTTPException(status_code=400, detail="Invalid user ID")
-        
-    user = await db["users"].find_one({"_id": ObjectId(user_id)})
+    raw_db = get_raw_db()
+    
+    user_query = {"_id": ObjectId(user_id)} if ObjectId.is_valid(user_id) else {"_id": user_id}
+    user = await raw_db["users"].find_one(user_query)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
         
-    user.pop("hashed_password", None)
-    user.pop("password_hash", None)
-    
-    u_filter = build_user_filter(user_id)
-    
-    # 1. Searches count
-    total_searches = await db["search_jobs"].count_documents(u_filter)
-    if total_searches == 0:
-        total_searches = await db["searches"].count_documents(u_filter)
+    user["_id"] = str(user["_id"])
+    if "hashed_password" in user:
+        del user["hashed_password"]
+    if "password_hash" in user:
+        del user["password_hash"]
         
-    # 2. Leads count
-    total_leads = await db["leads"].count_documents(u_filter)
+    user_filter = build_user_filter(user_id)
     
-    # 3. AI analysis count
-    ai_jobs_count = await db["ai_analysis_jobs"].count_documents(u_filter)
-    ai_col_count = await db["ai_analysis"].count_documents(u_filter)
-    leads_ai_count = await db["leads"].count_documents({
-        "$and": [u_filter, {"$or": [{"ai_score": {"$gt": 0}}, {"ai_analysis.status": "Completed"}]}]
-    })
-    total_ai = max(ai_jobs_count, ai_col_count, leads_ai_count)
-    
-    # 4. Email count
-    total_emails = (
-        await db["campaigns"].count_documents(u_filter) +
-        await db["email_ai_campaigns"].count_documents(u_filter) +
-        await db["email_queue"].count_documents(u_filter)
-    )
-    
-    # 5. WhatsApp count
-    total_whatsapp = (
-        await db["wa_campaigns"].count_documents(u_filter) +
-        await db["wa_message_logs"].count_documents(u_filter) +
-        await db["whatsapp_queue"].count_documents(u_filter)
-    )
+    total_searches = await raw_db["search_jobs"].count_documents(user_filter)
+    total_leads = await raw_db["leads"].count_documents(user_filter)
+    total_ai_analyses = await raw_db["ai_analysis_jobs"].count_documents(user_filter)
+    total_emails = (await raw_db["email_ai_campaigns"].count_documents(user_filter)) + (await raw_db["email_campaigns"].count_documents(user_filter))
+    total_whatsapp = (await raw_db["wa_ai_campaigns"].count_documents(user_filter)) + (await raw_db["wa_campaigns"].count_documents(user_filter))
     
     stats = {
         "total_searches": total_searches,
         "total_leads": total_leads,
-        "total_ai_analyses": total_ai,
+        "total_ai_analyses": total_ai_analyses,
         "total_emails": total_emails,
         "total_whatsapp": total_whatsapp,
     }
     
-    return serialize_doc({
+    return sanitize_doc({
         "profile": user,
         "stats": stats
     })
@@ -184,335 +168,313 @@ async def get_user_profile(
 async def get_user_module_activity(
     user_id: str,
     module: str,
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
     search: Optional[str] = None,
-    status: Optional[str] = None,
-    db: AsyncIOMotorDatabase = Depends(get_db),
     current_admin: UserInDB = Depends(require_admin)
 ) -> Any:
-    valid_modules = ["searches", "leads", "ai", "emails", "whatsapp", "timeline"]
-    if module not in valid_modules:
-        raise HTTPException(status_code=400, detail=f"Invalid module: {module}. Must be one of {valid_modules}")
+    raw_db = get_raw_db()
+    user_filter = build_user_filter(user_id)
+    
+    # -------------------------------------------------------------
+    # 1. TIMELINE MODULE
+    # -------------------------------------------------------------
+    if module == "timeline":
+        timeline_events: List[Dict[str, Any]] = []
         
-    u_filter = build_user_filter(user_id)
-    items: List[Dict[str, Any]] = []
-    total = 0
-
-    # ─────────────────────────────────────────────────────────────
-    # 1. SEARCHES
-    # ─────────────────────────────────────────────────────────────
-    if module == "searches":
-        query = dict(u_filter)
-        if search:
-            query["$or"] = [
-                {"keyword": {"$regex": search, "$options": "i"}},
-                {"city": {"$regex": search, "$options": "i"}},
-                {"area": {"$regex": search, "$options": "i"}}
-            ]
-        if status and status.upper() != "ALL":
-            query["status"] = {"$regex": f"^{status}$", "$options": "i"}
-            
-        total = await db["search_jobs"].count_documents(query)
-        cursor = db["search_jobs"].find(query).sort("created_at", -1).skip(skip).limit(limit)
-        async for s in cursor:
-            loc_parts = [s.get("area"), s.get("city"), s.get("state"), s.get("country")]
-            location = ", ".join(filter(None, [str(p) for p in loc_parts if p])) or "All areas"
-            keyword = s.get("keyword") or s.get("search_query") or "Local Business Search"
-            total_found = s.get("total_found", s.get("results_count", 0))
-            
-            items.append({
-                "_id": str(s["_id"]),
-                "created_at": s.get("created_at") or s.get("started_at") or datetime.now(timezone.utc),
-                "keyword": keyword,
-                "location": location,
-                "provider": (s.get("provider") or "Google Maps").replace("_", " ").title(),
-                "total_found": total_found,
-                "limit": s.get("limit", 0),
-                "status": (s.get("status") or "COMPLETED").upper(),
-                "details": f"{total_found} leads discovered • {location}"
-            })
-
-    # ─────────────────────────────────────────────────────────────
-    # 2. LEADS
-    # ─────────────────────────────────────────────────────────────
-    elif module == "leads":
-        query = dict(u_filter)
-        if search:
-            query["$or"] = [
-                {"name": {"$regex": search, "$options": "i"}},
-                {"company_name": {"$regex": search, "$options": "i"}},
-                {"email": {"$regex": search, "$options": "i"}},
-                {"phone": {"$regex": search, "$options": "i"}}
-            ]
-        if status and status.upper() != "ALL":
-            query["status"] = {"$regex": f"^{status}$", "$options": "i"}
-
-        total = await db["leads"].count_documents(query)
-        cursor = db["leads"].find(query).sort("created_at", -1).skip(skip).limit(limit)
-        async for l in cursor:
-            display_name = l.get("name") or l.get("company_name") or "Unnamed Lead"
-            contact_parts = []
-            if l.get("phone"): contact_parts.append(l.get("phone"))
-            if l.get("email"): contact_parts.append(l.get("email"))
-            if l.get("website"): contact_parts.append(l.get("website"))
-            contact_str = " • ".join(contact_parts) if contact_parts else "No contact listed"
-            
-            loc_parts = [l.get("city"), l.get("state"), l.get("country")]
-            location = ", ".join(filter(None, [str(p) for p in loc_parts if p])) or "N/A"
-            
-            ai_score = l.get("ai_score") or (l.get("ai_analysis") or {}).get("overall_score") or 0
-            
-            items.append({
-                "_id": str(l["_id"]),
-                "created_at": l.get("created_at") or datetime.now(timezone.utc),
-                "name": display_name,
-                "category": (l.get("category") or "REAL ESTATE").upper(),
-                "contact": contact_str,
-                "phone": l.get("phone"),
-                "email": l.get("email"),
-                "website": l.get("website"),
-                "location": location,
-                "rating": l.get("rating"),
-                "ai_score": ai_score,
-                "lead_score": l.get("lead_score", 0),
-                "status": (l.get("status") or ("Analyzed" if ai_score > 0 else "Captured")).capitalize(),
-                "details": f"{contact_str} | {location}"
-            })
-
-    # ─────────────────────────────────────────────────────────────
-    # 3. AI ANALYSIS (from ai_analysis_jobs and leads)
-    # ─────────────────────────────────────────────────────────────
-    elif module == "ai":
-        query = dict(u_filter)
-        if search:
-            query["$or"] = [
-                {"website_url": {"$regex": search, "$options": "i"}},
-                {"lead_name": {"$regex": search, "$options": "i"}}
-            ]
-        if status and status.upper() != "ALL":
-            query["status"] = {"$regex": f"^{status}$", "$options": "i"}
-
-        total = await db["ai_analysis_jobs"].count_documents(query)
-        cursor = db["ai_analysis_jobs"].find(query).sort("created_at", -1).skip(skip).limit(limit)
-        
-        async for a in cursor:
-            lead_name = a.get("lead_name") or ""
-            lead_category = "REAL ESTATE"
-            lead_phone = ""
-            
-            if not lead_name and a.get("lead_id"):
-                try:
-                    lead_oid = ObjectId(a["lead_id"]) if ObjectId.is_valid(a["lead_id"]) else a["lead_id"]
-                    lead_doc = await db["leads"].find_one({"_id": lead_oid})
-                    if lead_doc:
-                        lead_name = lead_doc.get("name") or lead_doc.get("company_name") or ""
-                        lead_category = (lead_doc.get("category") or "REAL ESTATE").upper()
-                        lead_phone = lead_doc.get("phone") or ""
-                except Exception:
-                    pass
-            
-            target_display = lead_name or a.get("website_url") or "Target Lead Website"
-            job_status = (a.get("status") or "COMPLETED").upper()
-            
-            items.append({
-                "_id": str(a["_id"]),
-                "created_at": a.get("completed_at") or a.get("started_at") or a.get("created_at") or datetime.now(timezone.utc),
-                "analyzed_at": a.get("completed_at") or a.get("started_at") or a.get("created_at"),
-                "name": target_display,
-                "domain": a.get("website_url") or "Website Audit",
-                "url": a.get("website_url") or "",
-                "category": lead_category,
-                "phone": lead_phone,
-                "stage": a.get("stage") or "Complete",
-                "progress": a.get("progress", 100),
-                "status": job_status,
-                "error_message": a.get("error_message"),
-                "details": f"Target: {a.get('website_url', 'Website')} • Stage: {a.get('stage', 'Audit Done')}"
-            })
-
-    # ─────────────────────────────────────────────────────────────
-    # 4. EMAIL ACTIVITY
-    # ─────────────────────────────────────────────────────────────
-    elif module == "emails":
-        # Check both email_ai_campaigns and campaigns
-        query = dict(u_filter)
-        total_ai_c = await db["email_ai_campaigns"].count_documents(query)
-        total_c = await db["campaigns"].count_documents(query)
-        total = total_ai_c + total_c
-        
-        cursor1 = db["email_ai_campaigns"].find(query).sort("created_at", -1).skip(skip).limit(limit)
-        async for c in cursor1:
-            name = c.get("name") or c.get("campaign_name") or "Email AI Campaign"
-            items.append({
-                "_id": str(c["_id"]),
-                "created_at": c.get("created_at") or datetime.now(timezone.utc),
-                "campaign_name": name,
-                "subject": c.get("subject") or "Automated AI Outreach",
-                "recipient": f"{c.get('total_recipients', c.get('total_leads', 0))} leads",
-                "status": (c.get("status") or "Active").capitalize(),
-                "details": f"Subject: {c.get('subject', 'AI Outreach')} • {c.get('status', 'Active')}"
-            })
-            
-        remaining = limit - len(items)
-        if remaining > 0:
-            cursor2 = db["campaigns"].find(query).sort("created_at", -1).limit(remaining)
-            async for c in cursor2:
-                name = c.get("name") or "Direct Email Campaign"
-                items.append({
-                    "_id": str(c["_id"]),
-                    "created_at": c.get("created_at") or datetime.now(timezone.utc),
-                    "campaign_name": name,
-                    "subject": c.get("subject") or "Direct Outreach",
-                    "recipient": f"{c.get('total_recipients', 0)} recipients",
-                    "status": (c.get("status") or "Completed").capitalize(),
-                    "details": f"Recipients: {c.get('total_recipients', 0)} • {c.get('status', 'Sent')}"
-                })
-
-    # ─────────────────────────────────────────────────────────────
-    # 5. WHATSAPP ACTIVITY
-    # ─────────────────────────────────────────────────────────────
-    elif module == "whatsapp":
-        query = dict(u_filter)
-        total_wa_c = await db["wa_campaigns"].count_documents(query)
-        total_wa_m = await db["wa_message_logs"].count_documents(query)
-        total = total_wa_c + total_wa_m
-        
-        cursor1 = db["wa_campaigns"].find(query).sort("created_at", -1).skip(skip).limit(limit)
-        async for c in cursor1:
-            name = c.get("name") or c.get("campaign_name") or "WhatsApp Automation"
-            items.append({
-                "_id": str(c["_id"]),
-                "created_at": c.get("created_at") or datetime.now(timezone.utc),
-                "campaign_name": name,
-                "phone": f"{c.get('total_recipients', c.get('total_leads', 0))} contacts",
-                "message": c.get("template_name") or "WhatsApp Template",
-                "status": (c.get("status") or "Active").capitalize(),
-                "details": f"Template: {c.get('template_name', 'Lead Notification')} • {c.get('status', 'Active')}"
-            })
-            
-        remaining = limit - len(items)
-        if remaining > 0:
-            cursor2 = db["wa_message_logs"].find(query).sort("created_at", -1).limit(remaining)
-            async for m in cursor2:
-                items.append({
-                    "_id": str(m["_id"]),
-                    "created_at": m.get("created_at") or m.get("sent_at") or datetime.now(timezone.utc),
-                    "campaign_name": m.get("recipient_name") or m.get("phone") or "WhatsApp Message",
-                    "phone": m.get("phone") or "N/A",
-                    "message": m.get("message_snippet") or "Outreach message",
-                    "status": (m.get("status") or "Delivered").capitalize(),
-                    "details": f"Sent to {m.get('phone', 'contact')} • Status: {m.get('status', 'Delivered')}"
-                })
-
-    # ─────────────────────────────────────────────────────────────
-    # 6. TIMELINE (Synthesized chronological user history)
-    # ─────────────────────────────────────────────────────────────
-    elif module == "timeline":
-        timeline_events = []
-        
-        # A. Activity logs from DB
-        cursor_logs = db["activity_logs"].find(u_filter).sort("created_at", -1).limit(50)
-        async for log in cursor_logs:
+        # User Registration
+        user_query = {"_id": ObjectId(user_id)} if ObjectId.is_valid(user_id) else {"_id": user_id}
+        user_doc = await raw_db["users"].find_one(user_query)
+        if user_doc and user_doc.get("created_at"):
             timeline_events.append({
-                "_id": str(log["_id"]),
-                "created_at": log.get("created_at") or datetime.now(timezone.utc),
-                "module": (log.get("module") or "system").lower(),
-                "activity_type": log.get("activity_type") or "ACTION",
-                "title": log.get("title") or "User Action",
-                "description": log.get("description") or "",
-                "status": (log.get("status") or "Completed").capitalize()
+                "_id": f"reg_{user_id}",
+                "title": "Account Registered",
+                "module": "auth",
+                "activity_type": "USER_REGISTER",
+                "description": f"User account created for {user_doc.get('email', 'user')}",
+                "status": "COMPLETED",
+                "created_at": user_doc["created_at"],
+                "metadata": {"email": user_doc.get("email"), "company": user_doc.get("company_name")}
             })
             
-        # B. User Account Creation Event
-        try:
-            user_doc = await db["users"].find_one({"_id": ObjectId(user_id) if ObjectId.is_valid(user_id) else user_id})
-            if user_doc and user_doc.get("created_at"):
-                timeline_events.append({
-                    "_id": f"reg_{user_id}",
-                    "created_at": user_doc["created_at"],
-                    "module": "auth",
-                    "activity_type": "ACCOUNT_CREATED",
-                    "title": "Account Registered",
-                    "description": f"User account created for {user_doc.get('full_name') or user_doc.get('email')}",
-                    "status": "Active"
-                })
-        except Exception:
-            pass
-            
-        # C. Search Events
-        async for s in db["search_jobs"].find(u_filter).sort("created_at", -1).limit(20):
-            loc = ", ".join(filter(None, [s.get("city"), s.get("state")])) or s.get("area") or ""
-            kw = s.get("keyword") or "Business Search"
-            cnt = s.get("total_found", s.get("results_count", 0))
+        # Audit Logs (Logins, Security, Profile updates)
+        audit_cursor = raw_db["audit_logs"].find(user_filter).sort("created_at", -1).limit(50)
+        async for audit in audit_cursor:
             timeline_events.append({
-                "_id": f"search_{str(s['_id'])}",
-                "created_at": s.get("created_at") or datetime.now(timezone.utc),
+                "_id": str(audit.get("_id")),
+                "title": f"Action: {audit.get('action', 'Activity')}",
+                "module": "security",
+                "activity_type": audit.get("action", "SECURITY_LOG"),
+                "description": f"IP: {audit.get('ip_address', '127.0.0.1')} - {audit.get('user_agent', 'Session')[:60] if audit.get('user_agent') else 'Authentication event'}",
+                "status": "COMPLETED",
+                "created_at": audit.get("created_at") or datetime.now(timezone.utc),
+                "metadata": audit.get("details") or {}
+            })
+            
+        # Activity Logs (Generic app events)
+        activity_cursor = raw_db["activity_logs"].find(user_filter).sort("created_at", -1).limit(50)
+        async for act in activity_cursor:
+            timeline_events.append({
+                "_id": str(act.get("_id")),
+                "title": act.get("title") or act.get("activity_type") or "User Action",
+                "module": act.get("module", "app"),
+                "activity_type": act.get("activity_type", "ACTIVITY"),
+                "description": act.get("description") or "Operation executed",
+                "status": "COMPLETED",
+                "created_at": act.get("created_at") or datetime.now(timezone.utc),
+                "metadata": act.get("metadata") or {}
+            })
+            
+        # Search Jobs Events
+        search_cursor = raw_db["search_jobs"].find(user_filter).sort("created_at", -1).limit(30)
+        async for s in search_cursor:
+            loc = ", ".join(filter(None, [s.get("city"), s.get("state"), s.get("country")]))
+            timeline_events.append({
+                "_id": f"search_{s.get('_id')}",
+                "title": f"Lead Search: {s.get('keyword', 'Query')}",
                 "module": "search",
-                "activity_type": "SEARCH_EXECUTED",
-                "title": f"Searched for '{kw}'",
-                "description": f"Discovered {cnt} high-intent business leads" + (f" in {loc}" if loc else ""),
-                "status": (s.get("status") or "COMPLETED").upper()
+                "activity_type": "SEARCH_JOB",
+                "description": f"Search executed for '{s.get('keyword', 'Leads')}' in {loc or 'Target Region'} ({s.get('completed_leads', 0)} leads gathered)",
+                "status": s.get("status", "COMPLETED"),
+                "created_at": s.get("created_at") or datetime.now(timezone.utc),
+                "metadata": {
+                    "provider": s.get("provider", "google_maps"),
+                    "completed_leads": s.get("completed_leads", 0),
+                    "total_found": s.get("total_found", 0)
+                }
             })
             
-        # D. AI Analysis Events
-        async for a in db["ai_analysis_jobs"].find(u_filter).sort("created_at", -1).limit(20):
-            url = a.get("website_url") or "Target Website"
+        # AI Analysis Jobs Events
+        ai_cursor = raw_db["ai_analysis_jobs"].find(user_filter).sort("created_at", -1).limit(30)
+        async for aj in ai_cursor:
+            score = aj.get("overall_ai_score") or aj.get("ui_score") or aj.get("seo_score")
+            score_str = f"Score: {score}/100" if score is not None else "Analyzed"
             timeline_events.append({
-                "_id": f"ai_{str(a['_id'])}",
-                "created_at": a.get("completed_at") or a.get("started_at") or a.get("created_at") or datetime.now(timezone.utc),
-                "module": "ai",
-                "activity_type": "AI_AUDIT_RUN",
-                "title": f"AI Website Analysis for {url.replace('https://', '').replace('http://', '').replace('www.', '')}",
-                "description": f"Audit complete • Status: {a.get('status', 'Completed')} • Stage: {a.get('stage', 'Ready')}",
-                "status": (a.get("status") or "Completed").capitalize()
+                "_id": f"ai_{aj.get('_id')}",
+                "title": f"AI Audit: {aj.get('website_url', 'Lead Website')}",
+                "module": "ai_analysis",
+                "activity_type": "AI_ANALYSIS",
+                "description": f"Deep website & SEO intelligence audit ({score_str}, status: {aj.get('status', 'COMPLETED')})",
+                "status": aj.get("status", "COMPLETED"),
+                "created_at": aj.get("created_at") or datetime.now(timezone.utc),
+                "metadata": {
+                    "website_url": aj.get("website_url"),
+                    "score": score,
+                    "pages": aj.get("total_pages", 0)
+                }
             })
             
-        # E. Email & WhatsApp Events
-        async for c in db["email_ai_campaigns"].find(u_filter).sort("created_at", -1).limit(10):
+        # Email Campaigns Events
+        email_cursor = raw_db["email_ai_campaigns"].find(user_filter).sort("created_at", -1).limit(20)
+        async for ec in email_cursor:
             timeline_events.append({
-                "_id": f"email_{str(c['_id'])}",
-                "created_at": c.get("created_at") or datetime.now(timezone.utc),
-                "module": "emails",
+                "_id": f"email_{ec.get('_id')}",
+                "title": f"Email Campaign: {ec.get('campaign_name', 'Broadcast')}",
+                "module": "email",
                 "activity_type": "EMAIL_CAMPAIGN",
-                "title": f"Launched Email Campaign: {c.get('name', 'Outreach')}",
-                "description": f"Outreach targeting {c.get('total_recipients', 0)} prospects",
-                "status": (c.get("status") or "Sent").capitalize()
+                "description": f"Subject: '{ec.get('subject', 'Outreach')}' - {ec.get('sent_count', 0)} messages dispatched",
+                "status": ec.get("status", "COMPLETED"),
+                "created_at": ec.get("created_at") or datetime.now(timezone.utc),
+                "metadata": ec
             })
             
-        async for w in db["wa_campaigns"].find(u_filter).sort("created_at", -1).limit(10):
+        # WhatsApp Campaigns Events
+        wa_cursor = raw_db["wa_ai_campaigns"].find(user_filter).sort("created_at", -1).limit(20)
+        async for wc in wa_cursor:
             timeline_events.append({
-                "_id": f"wa_{str(w['_id'])}",
-                "created_at": w.get("created_at") or datetime.now(timezone.utc),
+                "_id": f"wa_{wc.get('_id')}",
+                "title": f"WhatsApp Campaign: {wc.get('campaign_name', 'Broadcast')}",
                 "module": "whatsapp",
                 "activity_type": "WHATSAPP_CAMPAIGN",
-                "title": f"Launched WhatsApp Automation: {w.get('name', 'Notification')}",
-                "description": f"Automation triggered for {w.get('total_recipients', 0)} contacts",
-                "status": (w.get("status") or "Active").capitalize()
+                "description": f"Template: '{wc.get('template_name', 'Message')}' - {wc.get('sent_count', 0)} messages delivered",
+                "status": wc.get("status", "COMPLETED"),
+                "created_at": wc.get("created_at") or datetime.now(timezone.utc),
+                "metadata": wc
             })
+            
+        # Sort newest first
+        timeline_events.sort(key=lambda x: str(x.get("created_at") or ""), reverse=True)
+        total_events = len(timeline_events)
+        paginated_events = timeline_events[skip:skip + limit]
+        
+        return sanitize_doc({
+            "items": paginated_events,
+            "total": total_events,
+            "skip": skip,
+            "limit": limit
+        })
 
-        # Sort timeline by created_at descending
-        def get_event_time(evt):
-            t = evt.get("created_at")
-            if isinstance(t, str):
+    # -------------------------------------------------------------
+    # 2. SEARCHES MODULE
+    # -------------------------------------------------------------
+    elif module == "searches":
+        query = dict(user_filter)
+        if search:
+            query["$and"] = [
+                user_filter,
+                {"$or": [
+                    {"keyword": {"$regex": search, "$options": "i"}},
+                    {"city": {"$regex": search, "$options": "i"}},
+                    {"state": {"$regex": search, "$options": "i"}},
+                    {"country": {"$regex": search, "$options": "i"}}
+                ]}
+            ]
+            
+        cursor = raw_db["search_jobs"].find(query).sort("created_at", -1).skip(skip).limit(limit)
+        items = []
+        async for doc in cursor:
+            loc_parts = filter(None, [doc.get("city"), doc.get("state"), doc.get("country")])
+            doc["location"] = ", ".join(loc_parts) or "All Locations"
+            doc["details"] = f"{doc.get('keyword', 'Search')} in {doc['location']} ({doc.get('completed_leads', 0)} leads gathered)"
+            items.append(doc)
+            
+        total = await raw_db["search_jobs"].count_documents(query)
+        return sanitize_doc({
+            "items": items,
+            "total": total,
+            "skip": skip,
+            "limit": limit
+        })
+
+    # -------------------------------------------------------------
+    # 3. LEADS MODULE
+    # -------------------------------------------------------------
+    elif module == "leads":
+        query = dict(user_filter)
+        if search:
+            query["$and"] = [
+                user_filter,
+                {"$or": [
+                    {"name": {"$regex": search, "$options": "i"}},
+                    {"company_name": {"$regex": search, "$options": "i"}},
+                    {"phone": {"$regex": search, "$options": "i"}},
+                    {"email": {"$regex": search, "$options": "i"}},
+                    {"city": {"$regex": search, "$options": "i"}}
+                ]}
+            ]
+            
+        cursor = raw_db["leads"].find(query).sort("created_at", -1).skip(skip).limit(limit)
+        items = []
+        async for doc in cursor:
+            doc["status"] = doc.get("processing_status") or doc.get("status") or "VERIFIED"
+            loc = ", ".join(filter(None, [doc.get("city"), doc.get("state"), doc.get("country")]))
+            doc["location"] = loc or doc.get("address") or "N/A"
+            doc["details"] = f"{doc.get('name') or doc.get('company_name', 'Lead')} • {doc.get('phone') or doc.get('email') or 'No direct phone'}"
+            items.append(doc)
+            
+        total = await raw_db["leads"].count_documents(query)
+        return sanitize_doc({
+            "items": items,
+            "total": total,
+            "skip": skip,
+            "limit": limit
+        })
+
+    # -------------------------------------------------------------
+    # 4. AI ANALYSIS MODULE
+    # -------------------------------------------------------------
+    elif module == "ai":
+        query = dict(user_filter)
+        if search:
+            query["$and"] = [
+                user_filter,
+                {"$or": [
+                    {"website_url": {"$regex": search, "$options": "i"}},
+                    {"domain": {"$regex": search, "$options": "i"}}
+                ]}
+            ]
+            
+        cursor = raw_db["ai_analysis_jobs"].find(query).sort("created_at", -1).skip(skip).limit(limit)
+        items = []
+        async for doc in cursor:
+            # Lookup lead name if lead_id present
+            lead_name = None
+            if doc.get("lead_id"):
                 try:
-                    return datetime.fromisoformat(t.replace("Z", "+00:00"))
+                    lead_query = {"_id": ObjectId(doc["lead_id"])} if ObjectId.is_valid(doc["lead_id"]) else {"_id": doc["lead_id"]}
+                    l = await raw_db["leads"].find_one(lead_query, {"name": 1, "company_name": 1})
+                    if l:
+                        lead_name = l.get("name") or l.get("company_name")
                 except Exception:
-                    return datetime.min.replace(tzinfo=timezone.utc)
-            elif isinstance(t, datetime):
-                if t.tzinfo is None:
-                    return t.replace(tzinfo=timezone.utc)
-                return t
-            return datetime.min.replace(tzinfo=timezone.utc)
+                    pass
+                    
+            doc["lead_name"] = lead_name or doc.get("website_url") or "Analyzed Website"
+            score = doc.get("overall_ai_score") or doc.get("ui_score") or doc.get("seo_score")
+            doc["score"] = score
+            doc["details"] = f"{doc['lead_name']} (Score: {score}/100)" if score is not None else doc['lead_name']
+            doc["status"] = doc.get("status", "COMPLETED")
+            items.append(doc)
+            
+        total = await raw_db["ai_analysis_jobs"].count_documents(query)
+        return sanitize_doc({
+            "items": items,
+            "total": total,
+            "skip": skip,
+            "limit": limit
+        })
 
-        timeline_events.sort(key=get_event_time, reverse=True)
-        total = len(timeline_events)
-        items = timeline_events[skip : skip + limit]
+    # -------------------------------------------------------------
+    # 5. EMAILS MODULE
+    # -------------------------------------------------------------
+    elif module in ["emails", "email"]:
+        # Query email_ai_campaigns and email_campaigns
+        cursor1 = raw_db["email_ai_campaigns"].find(user_filter).sort("created_at", -1).skip(skip).limit(limit)
+        items = []
+        async for doc in cursor1:
+            doc["campaign_name"] = doc.get("campaign_name") or doc.get("title") or "Email AI Campaign"
+            doc["details"] = f"{doc['campaign_name']} - Subject: '{doc.get('subject', 'N/A')}' ({doc.get('sent_count', 0)} sent)"
+            doc["status"] = doc.get("status", "COMPLETED")
+            items.append(doc)
+            
+        if len(items) < limit:
+            cursor2 = raw_db["email_campaigns"].find(user_filter).sort("created_at", -1).skip(skip).limit(limit - len(items))
+            async for doc in cursor2:
+                doc["campaign_name"] = doc.get("campaign_name") or doc.get("title") or "Email Campaign"
+                doc["details"] = f"{doc['campaign_name']} - Subject: '{doc.get('subject', 'N/A')}'"
+                doc["status"] = doc.get("status", "COMPLETED")
+                items.append(doc)
+                
+        total1 = await raw_db["email_ai_campaigns"].count_documents(user_filter)
+        total2 = await raw_db["email_campaigns"].count_documents(user_filter)
+        total = total1 + total2
+        
+        return sanitize_doc({
+            "items": items,
+            "total": total,
+            "skip": skip,
+            "limit": limit
+        })
 
-    return serialize_doc({
-        "items": items,
-        "total": total,
-        "skip": skip,
-        "limit": limit,
-        "module": module
-    })
+    # -------------------------------------------------------------
+    # 6. WHATSAPP MODULE
+    # -------------------------------------------------------------
+    elif module in ["whatsapp", "wa"]:
+        cursor1 = raw_db["wa_ai_campaigns"].find(user_filter).sort("created_at", -1).skip(skip).limit(limit)
+        items = []
+        async for doc in cursor1:
+            doc["campaign_name"] = doc.get("campaign_name") or "WhatsApp AI Campaign"
+            doc["details"] = f"{doc['campaign_name']} - Template: '{doc.get('template_name', 'General')}' ({doc.get('sent_count', 0)} sent)"
+            doc["status"] = doc.get("status", "COMPLETED")
+            items.append(doc)
+            
+        if len(items) < limit:
+            cursor2 = raw_db["wa_campaigns"].find(user_filter).sort("created_at", -1).skip(skip).limit(limit - len(items))
+            async for doc in cursor2:
+                doc["campaign_name"] = doc.get("campaign_name") or "WhatsApp Campaign"
+                doc["details"] = f"{doc['campaign_name']} ({doc.get('sent_count', 0)} sent)"
+                doc["status"] = doc.get("status", "COMPLETED")
+                items.append(doc)
+                
+        total1 = await raw_db["wa_ai_campaigns"].count_documents(user_filter)
+        total2 = await raw_db["wa_campaigns"].count_documents(user_filter)
+        total = total1 + total2
+        
+        return sanitize_doc({
+            "items": items,
+            "total": total,
+            "skip": skip,
+            "limit": limit
+        })
+
+    else:
+        raise HTTPException(status_code=400, detail=f"Invalid activity module: {module}")

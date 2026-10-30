@@ -368,7 +368,7 @@ export default function EmailTemplateManager() {
             <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar snap-x">
               <button 
                 onClick={() => setActiveCategory('All')}
-                className={cn("px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap snap-start transition-colors", activeCategory === 'All' ? "bg-slate-800 text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}
+                className={cn("px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap snap-start transition-colors", activeCategory === 'All' ? "bg-blue-600 text-white shadow-xs" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}
               >
                 All
               </button>
@@ -446,7 +446,7 @@ export default function EmailTemplateManager() {
           {activeTemplate ? (
             <>
               {updateMutation.isPending && (
-                <div className="absolute top-2 right-2 z-50 px-2 py-1 bg-slate-800/80 backdrop-blur text-white text-[10px] font-bold rounded-md flex items-center gap-1">
+                <div className="absolute top-2 right-2 z-50 px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-[10px] font-bold rounded-md flex items-center gap-1 shadow-xs">
                   <Loader2 className="w-3 h-3 animate-spin" /> Saving...
                 </div>
               )}
@@ -555,7 +555,7 @@ export default function EmailTemplateManager() {
                 <div className="flex items-center gap-2">
                   <button 
                     onClick={() => setHtmlMode(!htmlMode)}
-                    className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors", htmlMode ? "bg-slate-800 text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-700")}
+                    className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors", htmlMode ? "bg-blue-600 text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-700")}
                   >
                     <Type className="w-3.5 h-3.5" /> {htmlMode ? 'Visual' : 'HTML'}
                   </button>

@@ -44,21 +44,30 @@ export default function EmailLiveDashboard() {
   // Initialize
   useEffect(() => {
     setIsMounted(true);
-    const storedToken = localStorage.getItem('token');
+    const storedToken =
+      localStorage.getItem('access_token') ||
+      localStorage.getItem('token') ||
+      sessionStorage.getItem('access_token') ||
+      '';
     if (storedToken) setToken(storedToken);
     
     // In a real app this might come from router params. We use localStorage or fetch the latest RUNNING campaign.
     const fetchLatestCampaign = async () => {
       try {
+        const storedActiveId = localStorage.getItem('email_active_campaign');
         const res = await api.get('/email-ai/campaigns?status=RUNNING');
         if (res.data && res.data.length > 0) {
           setActiveCampaignId(res.data[0]._id);
-        } else {
-          // Fallback to QUEUED
-          const res2 = await api.get('/email-ai/campaigns?status=QUEUED');
-          if (res2.data && res2.data.length > 0) {
-            setActiveCampaignId(res2.data[0]._id);
-          }
+          return;
+        }
+        const res2 = await api.get('/email-ai/campaigns?status=QUEUED');
+        if (res2.data && res2.data.length > 0) {
+          setActiveCampaignId(res2.data[0]._id);
+          return;
+        }
+        if (storedActiveId) {
+          setActiveCampaignId(storedActiveId);
+          return;
         }
       } catch (e) {
         console.error('Failed to fetch campaign for dashboard', e);
@@ -92,9 +101,24 @@ export default function EmailLiveDashboard() {
     if (!activeCampaignId) return;
     fetchLiveStatus();
     // Periodic refresh so progress/status stay in sync even if a WS event is missed.
-    const pollInterval = setInterval(fetchLiveStatus, 10000);
+    const pollInterval = setInterval(fetchLiveStatus, 5000);
     return () => clearInterval(pollInterval);
   }, [activeCampaignId, fetchLiveStatus]);
+
+  // Global cross-tab / WebSocket real-time sync listener
+  useEffect(() => {
+    const handleLiveEvent = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail;
+      if (detail && (detail.type === 'email_sent' || detail.type === 'email_failed' || detail.status === 'Delivered' || detail.status === 'Failed' || detail.type === 'email_campaign_completed')) {
+        queryClient.invalidateQueries({ queryKey: ['email-ai-header-analytics'] });
+        queryClient.invalidateQueries({ queryKey: ['email-ai-analytics'] });
+        queryClient.invalidateQueries({ queryKey: ['email-ai-campaigns'] });
+        fetchLiveStatus();
+      }
+    };
+    window.addEventListener('email-ai-live-event', handleLiveEvent);
+    return () => window.removeEventListener('email-ai-live-event', handleLiveEvent);
+  }, [fetchLiveStatus, queryClient]);
 
   // WebSocket Connection
   useEffect(() => {
@@ -156,6 +180,14 @@ export default function EmailLiveDashboard() {
                 status: newStatus,
                 timestamp: new Date().toLocaleTimeString()
               });
+            }
+
+            // Real-time invalidation so top telemetry cards update immediately!
+            if (['Delivered', 'Failed', 'Skipped'].includes(newStatus) || data.type === 'email_campaign_completed') {
+              queryClient.invalidateQueries({ queryKey: ['email-ai-header-analytics'] });
+              queryClient.invalidateQueries({ queryKey: ['email-ai-analytics'] });
+              queryClient.invalidateQueries({ queryKey: ['email-ai-campaigns'] });
+              fetchLiveStatus();
             }
           }
           

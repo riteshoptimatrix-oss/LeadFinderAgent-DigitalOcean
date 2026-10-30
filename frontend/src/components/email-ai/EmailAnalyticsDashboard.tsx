@@ -1,18 +1,28 @@
-import { useQuery } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { Mail, CheckCircle2, XCircle, Clock, Activity, Calendar, Rocket, ArrowRight, ShieldCheck } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
 export default function EmailAnalyticsDashboard() {
+  const queryClient = useQueryClient();
   const { data: analytics, isLoading } = useQuery({
     queryKey: ['email-ai-analytics'],
     queryFn: async () => {
       const res = await api.get('/email-ai/analytics');
       return res.data;
     },
-    refetchInterval: 15000 // Update every 15s
+    refetchInterval: 4000 // Update every 4s for real-time live telemetry
   });
+
+  useEffect(() => {
+    const handleEmailEvent = () => {
+      queryClient.invalidateQueries({ queryKey: ['email-ai-analytics'] });
+    };
+    window.addEventListener('email-ai-live-event', handleEmailEvent);
+    return () => window.removeEventListener('email-ai-live-event', handleEmailEvent);
+  }, [queryClient]);
 
   if (isLoading || !analytics) {
     return (

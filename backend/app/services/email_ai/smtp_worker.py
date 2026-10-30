@@ -144,6 +144,7 @@ class EmailAIQueueWorker:
                         job = {
                             "campaign_id": campaign_id,
                             "lead_id": lead_id,
+                            "user_id": str(campaign.get("user_id")) if campaign.get("user_id") else None,
                             "smtp_id": campaign.get("smtp_id"),
                             "template_id": campaign.get("template_id"),
                             "status": "Pending",
@@ -667,6 +668,16 @@ class EmailAIQueueWorker:
 
         try:
             await ws_manager.broadcast_to_job(campaign_id, payload)
+            # Global sync broadcast so open pages invalidate their React Query caches immediately
+            await ws_manager.broadcast({
+                "type": event_type,
+                "event_type": event_type,
+                "campaign_id": campaign_id,
+                "lead_id": lead_id,
+                "status": display_status,
+                "error": error,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
         except Exception as e:
             logger.error(f"[EmailAI-SmtpWorker] WebSocket broadcast failed for campaign {campaign_id}: {e}")
 
@@ -681,5 +692,13 @@ class EmailAIQueueWorker:
         }
         try:
             await ws_manager.broadcast_to_job(campaign_id, payload)
+            await ws_manager.broadcast({
+                "type": payload["type"],
+                "event_type": payload["type"],
+                "campaign_id": campaign_id,
+                "status": status,
+                "data": data or {},
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            })
         except Exception as e:
             logger.error(f"[EmailAI-SmtpWorker] Campaign broadcast failed for campaign {campaign_id}: {e}")

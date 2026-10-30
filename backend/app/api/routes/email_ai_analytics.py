@@ -4,18 +4,32 @@ from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 
 from app.db.database import get_db
+from app.api.dependencies import get_current_user
+from app.models.user import UserInDB
 
 router = APIRouter()
 
+def get_user_match_filter(current_user: UserInDB) -> List[Dict[str, Any]]:
+    uid = str(current_user.id)
+    match_list: List[Dict[str, Any]] = [{"user_id": uid}]
+    if ObjectId.is_valid(uid):
+        match_list.append({"user_id": ObjectId(uid)})
+    return match_list
+
 @router.get("/history")
 async def get_campaign_history(
-    db=Depends(get_db),
     skip: int = 0,
     limit: int = 20,
-    status: Optional[str] = None
+    status: Optional[str] = None,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
 ):
-    """Fetch completed, cancelled, or failed campaigns for history view."""
-    query = {"status": {"$in": ["COMPLETED", "CANCELLED", "FAILED"]}}
+    """Fetch completed, cancelled, or failed campaigns for history view scoped to user."""
+    user_match = get_user_match_filter(current_user)
+    query: Dict[str, Any] = {
+        "status": {"$in": ["COMPLETED", "CANCELLED", "FAILED"]},
+        "$or": user_match
+    }
     if status:
         query["status"] = status
         
@@ -33,10 +47,16 @@ async def get_campaign_history(
     return {"data": campaigns, "total": total}
 
 @router.get("/analytics/overview")
-async def get_analytics_overview(db=Depends(get_db)):
-    """High level aggregated analytics across all campaigns."""
-    # Count total emails processed
+async def get_analytics_overview(
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """High level aggregated analytics across campaigns for the authenticated user."""
+    user_match = get_user_match_filter(current_user)
+
+    # Count total emails processed for this user
     pipeline = [
+        {"$match": {"$or": user_match}},
         {"$group": {
             "_id": "$status",
             "count": {"$sum": 1}
@@ -45,12 +65,12 @@ async def get_analytics_overview(db=Depends(get_db)):
     status_counts = await db["email_ai_queue"].aggregate(pipeline).to_list(None)
     
     stats = {
-        "total_campaigns": await db["email_ai_campaigns"].count_documents({}),
-        "total_emails": await db["email_ai_queue"].count_documents({}),
+        "total_campaigns": await db["email_ai_campaigns"].count_documents({"$or": user_match}),
+        "total_emails": await db["email_ai_queue"].count_documents({"$or": user_match}),
         "delivered": 0,
         "failed": 0,
         "pending": 0,
-        "replies": 0, # Placeholder for future IMAP integration
+        "replies": 0,
     }
     
     for sc in status_counts:
@@ -62,15 +82,21 @@ async def get_analytics_overview(db=Depends(get_db)):
             stats["pending"] += sc["count"]
             
     total_processed = stats["delivered"] + stats["failed"]
-    stats["success_rate"] = round((stats["delivered"] / total_processed * 100), 2) if total_processed > 0 else 0
+    stats["success_rate"] = round((stats["delivered"] / total_processed * 100), 2) if total_processed > 0 else 0.0
     
     return stats
 
 @router.get("/analytics/smtp/detailed")
-async def get_detailed_smtp_analytics(db=Depends(get_db)):
-    """Provider usage and failure rates."""
-    # Group jobs by SMTP ID
+async def get_detailed_smtp_analytics(
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Provider usage and failure rates scoped to user."""
+    user_match = get_user_match_filter(current_user)
+
+    # Group jobs by SMTP ID for this user
     pipeline = [
+        {"$match": {"$or": user_match}},
         {"$group": {
             "_id": {"smtp_id": "$smtp_id", "status": "$status"},
             "count": {"$sum": 1}

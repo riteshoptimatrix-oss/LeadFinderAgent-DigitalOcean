@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { PageHeader } from '@/src/components/common/PageHeader';
 import {
@@ -62,6 +62,7 @@ const VALID_TABS: Tab[] = [
 
 export default function EmailAIPage() {
   const searchParams = useSearchParams();
+  const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
   // Fetch summary analytics for the executive header telemetry
@@ -75,8 +76,8 @@ export default function EmailAIPage() {
         return null;
       }
     },
-    refetchInterval: 20000,
-    staleTime: 10000
+    refetchInterval: 4000,
+    staleTime: 2000
   });
 
   // Fetch SMTP profiles to determine real engine dispatch status
@@ -90,8 +91,19 @@ export default function EmailAIPage() {
         return [];
       }
     },
-    staleTime: 15000
+    staleTime: 10000
   });
+
+  // Real-time synchronization event listener
+  useEffect(() => {
+    const handleEmailSync = () => {
+      queryClient.invalidateQueries({ queryKey: ['email-ai-header-analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['email-ai-analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['email-ai-smtp'] });
+    };
+    window.addEventListener('email-ai-live-event', handleEmailSync);
+    return () => window.removeEventListener('email-ai-live-event', handleEmailSync);
+  }, [queryClient]);
 
   const activeSenders = Array.isArray(smtpProfiles) ? smtpProfiles.filter((s: any) => s.is_active !== false) : [];
   const hasActiveSender = activeSenders.length > 0;

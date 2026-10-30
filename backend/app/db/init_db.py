@@ -112,6 +112,22 @@ async def init_email_ai_defaults():
     except Exception as e:
         logger.error(f"Email AI defaults: Failed to seed starter templates: {e}")
 
+    # Purge any legacy unowned/demo campaigns without a valid user_id
+    try:
+        orphan_res = await db["email_ai_campaigns"].delete_many({
+            "$or": [
+                {"user_id": None},
+                {"user_id": {"$exists": False}},
+                {"user_id": ""}
+            ]
+        })
+        if orphan_res.deleted_count > 0:
+            logger.info(f"Email AI defaults: Cleaned up {orphan_res.deleted_count} unassigned legacy demo campaign(s).")
+            valid_cids = [str(c["_id"]) for c in await db["email_ai_campaigns"].find({}, {"_id": 1}).to_list(None)]
+            await db["email_ai_queue"].delete_many({"campaign_id": {"$nin": valid_cids}})
+    except Exception as cleanup_err:
+        logger.warning(f"Email AI defaults: Cleanup warning: {cleanup_err}")
+
     if not settings.smtp_is_configured:
         logger.info("SMTP settings not configured in .env. Skipping default SMTP profile seeding.")
         return

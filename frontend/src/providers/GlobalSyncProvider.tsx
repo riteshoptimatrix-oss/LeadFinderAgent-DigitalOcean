@@ -83,6 +83,24 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
             'analysis_success'
           ];
 
+          const emailEvents = [
+            'email_sent', 'email_failed', 'email_skipped', 'email_preparing',
+            'smtp_connecting', 'email_sending', 'email_campaign_status', 'email_campaign_completed'
+          ];
+
+          if (emailEvents.includes(eventType)) {
+            // Immediate real-time invalidation of all Email AI queries
+            queryClient.invalidateQueries({ queryKey: ['email-ai-header-analytics'] });
+            queryClient.invalidateQueries({ queryKey: ['email-ai-analytics'] });
+            queryClient.invalidateQueries({ queryKey: ['email-ai-campaigns'] });
+            queryClient.invalidateQueries({ queryKey: ['email-ai-history'] });
+            queryClient.invalidateQueries({ queryKey: ['email-ai-errors'] });
+            queryClient.invalidateQueries({ queryKey: ['email-ai-smtp'] });
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('email-ai-live-event', { detail: payload }));
+            }
+          }
+
           if (standardEvents.includes(eventType) || analysisEvents.includes(eventType)) {
             const leadId = payload.lead_id || payload.data?.id || payload.lead?.id || payload.data?._id || payload.lead?._id;
 

@@ -12,6 +12,7 @@ import ssl
 import socket
 from app.db.database import get_db
 from app.api.dependencies import get_current_user
+from app.models.user import UserInDB
 from app.core.websocket import manager
 from app.core.logger import logger
 from app.models.email_ai import (
@@ -29,39 +30,78 @@ def serialize_doc(doc: dict) -> dict:
         doc["_id"] = str(doc["_id"])
     return doc
 
+def get_user_match_filter(current_user: UserInDB) -> List[Dict[str, Any]]:
+    uid = str(current_user.id)
+    match_list: List[Dict[str, Any]] = [{"user_id": uid}]
+    if ObjectId.is_valid(uid):
+        match_list.append({"user_id": ObjectId(uid)})
+    return match_list
+
 # ==========================================
 # SMTP Profiles
 # ==========================================
 @router.get("/smtp", response_model=List[Dict[Any, Any]])
-async def get_smtp_profiles(db=Depends(get_db)):
-    profiles = await db["email_ai_smtp"].find({"is_active": {"$ne": False}}).to_list(100)
+async def get_smtp_profiles(
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    user_match = get_user_match_filter(current_user)
+    query = {
+        "is_active": {"$ne": False},
+        "$or": user_match + [{"user_id": None}, {"user_id": {"$exists": False}}, {"is_default": True}]
+    }
+    profiles = await db["email_ai_smtp"].find(query).to_list(100)
     return [serialize_doc(p) for p in profiles]
 
 @router.post("/smtp", response_model=Dict[Any, Any])
-async def create_smtp_profile(profile: EmailAISmtpCreate, db=Depends(get_db)):
+async def create_smtp_profile(
+    profile: EmailAISmtpCreate,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
     new_profile = profile.model_dump()
+    new_profile["user_id"] = str(current_user.id)
     new_profile["created_at"] = datetime.now(timezone.utc)
     new_profile["updated_at"] = datetime.now(timezone.utc)
     
     if new_profile.get("is_default"):
-        await db["email_ai_smtp"].update_many({}, {"$set": {"is_default": False}})
+        await db["email_ai_smtp"].update_many(
+            {"user_id": str(current_user.id)},
+            {"$set": {"is_default": False}}
+        )
         
     result = await db["email_ai_smtp"].insert_one(new_profile)
     created = await db["email_ai_smtp"].find_one({"_id": result.inserted_id})
     return serialize_doc(created)
 
 @router.delete("/smtp/{id}")
-async def delete_smtp_profile(id: str, db=Depends(get_db)):
-    await db["email_ai_smtp"].update_one(
-        {"_id": ObjectId(id)},
-        {"$set": {"is_active": False}}
+async def delete_smtp_profile(
+    id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    try:
+        oid = ObjectId(id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid SMTP profile id")
+        
+    filter_q: Dict[str, Any] = {"_id": oid}
+    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        filter_q["$or"] = get_user_match_filter(current_user)
+
+    res = await db["email_ai_smtp"].update_one(
+        filter_q,
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}}
     )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="SMTP profile not found or permission denied")
     return {"message": "Deleted"}
 
 @router.get("/smtp/{id}/test")
 async def test_smtp_profile(
     id: str,
     send_test: bool = Query(False, description="Also send a real test email to the SMTP username"),
+    current_user: UserInDB = Depends(get_current_user),
     db=Depends(get_db)
 ):
     """Attempt a real SMTP connection + authentication against a stored profile.
@@ -184,13 +224,26 @@ async def test_smtp_profile(
 # Templates
 # ==========================================
 @router.get("/templates", response_model=List[Dict[Any, Any]])
-async def get_templates(db=Depends(get_db)):
-    templates = await db["email_ai_templates"].find({"is_active": {"$ne": False}}).to_list(100)
+async def get_templates(
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    user_match = get_user_match_filter(current_user)
+    query = {
+        "is_active": {"$ne": False},
+        "$or": user_match + [{"user_id": None}, {"user_id": {"$exists": False}}, {"user_id": "system"}]
+    }
+    templates = await db["email_ai_templates"].find(query).to_list(100)
     return [serialize_doc(t) for t in templates]
 
 @router.post("/templates", response_model=Dict[Any, Any])
-async def create_template(template: EmailAITemplateCreate, db=Depends(get_db)):
+async def create_template(
+    template: EmailAITemplateCreate,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
     new_template = template.model_dump()
+    new_template["user_id"] = str(current_user.id)
     new_template["created_at"] = datetime.now(timezone.utc)
     new_template["updated_at"] = datetime.now(timezone.utc)
     
@@ -199,24 +252,53 @@ async def create_template(template: EmailAITemplateCreate, db=Depends(get_db)):
     return serialize_doc(created)
 
 @router.delete("/templates/{id}")
-async def delete_template(id: str, db=Depends(get_db)):
-    await db["email_ai_templates"].update_one(
-        {"_id": ObjectId(id)},
-        {"$set": {"is_active": False}}
+async def delete_template(
+    id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    try:
+        oid = ObjectId(id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid template id")
+        
+    filter_q: Dict[str, Any] = {"_id": oid}
+    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        filter_q["$or"] = get_user_match_filter(current_user)
+
+    res = await db["email_ai_templates"].update_one(
+        filter_q,
+        {"$set": {"is_active": False, "updated_at": datetime.now(timezone.utc)}}
     )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Template not found or permission denied")
     return {"message": "Deleted"}
 
 
 @router.put("/templates/{id}", response_model=Dict[Any, Any])
-async def update_template(id: str, template: EmailAITemplateUpdate, db=Depends(get_db)):
+async def update_template(
+    id: str,
+    template: EmailAITemplateUpdate,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    try:
+        oid = ObjectId(id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid template id")
+
     update_data = {k: v for k, v in template.model_dump(exclude_unset=True).items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
         
     update_data["updated_at"] = datetime.now(timezone.utc)
     
+    filter_q: Dict[str, Any] = {"_id": oid}
+    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        filter_q["$or"] = get_user_match_filter(current_user)
+
     result = await db["email_ai_templates"].update_one(
-        {"_id": ObjectId(id)},
+        filter_q,
         {
             "$set": update_data,
             "$inc": {"version": 1}
@@ -224,30 +306,54 @@ async def update_template(id: str, template: EmailAITemplateUpdate, db=Depends(g
     )
     
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Template not found")
+        raise HTTPException(status_code=404, detail="Template not found or permission denied")
         
-    updated = await db["email_ai_templates"].find_one({"_id": ObjectId(id)})
+    updated = await db["email_ai_templates"].find_one({"_id": oid})
     return serialize_doc(updated)
 
 @router.put("/templates/{id}/favorite", response_model=Dict[Any, Any])
-async def favorite_template(id: str, is_favorite: bool = Query(...), db=Depends(get_db)):
+async def favorite_template(
+    id: str,
+    is_favorite: bool = Query(...),
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    try:
+        oid = ObjectId(id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid template id")
+
+    filter_q: Dict[str, Any] = {"_id": oid}
+    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        filter_q["$or"] = get_user_match_filter(current_user)
+
     result = await db["email_ai_templates"].update_one(
-        {"_id": ObjectId(id)},
+        filter_q,
         {"$set": {"is_favorite": is_favorite, "updated_at": datetime.now(timezone.utc)}}
     )
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Template not found")
-    updated = await db["email_ai_templates"].find_one({"_id": ObjectId(id)})
+        raise HTTPException(status_code=404, detail="Template not found or permission denied")
+    updated = await db["email_ai_templates"].find_one({"_id": oid})
     return serialize_doc(updated)
 
 @router.post("/templates/{id}/duplicate", response_model=Dict[Any, Any])
-async def duplicate_template(id: str, db=Depends(get_db)):
-    template = await db["email_ai_templates"].find_one({"_id": ObjectId(id)})
+async def duplicate_template(
+    id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    try:
+        oid = ObjectId(id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid template id")
+
+    template = await db["email_ai_templates"].find_one({"_id": oid})
     if not template:
         raise HTTPException(status_code=404, detail="Template not found")
         
     template.pop("_id", None)
     template["name"] = f"{template.get('name', 'Template')} (Copy)"
+    template["user_id"] = str(current_user.id)
     template["created_at"] = datetime.now(timezone.utc)
     template["updated_at"] = datetime.now(timezone.utc)
     template["version"] = 1
@@ -264,22 +370,41 @@ async def duplicate_template(id: str, db=Depends(get_db)):
 async def get_campaigns(
     status: Optional[str] = None,
     search: Optional[str] = None,
+    all_users: bool = Query(False),
+    current_user: UserInDB = Depends(get_current_user),
     db=Depends(get_db)
 ):
-    query = {}
+    user_match = get_user_match_filter(current_user)
+    query: Dict[str, Any] = {}
+    if not (all_users and str(current_user.role).upper() in ["ADMIN", "SUPERADMIN"]):
+        query["$or"] = user_match
+
     if status:
         query["status"] = status
     if search:
-        query["name"] = {"$regex": search, "$options": "i"}
+        search_filter = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"info.name": {"$regex": search, "$options": "i"}}
+        ]
+        if "$or" in query:
+            query = {"$and": [{"$or": query["$or"]}, {"$or": search_filter}]}
+            if status:
+                query["status"] = status
+        else:
+            query["$or"] = search_filter
         
     campaigns = await db["email_ai_campaigns"].find(query).sort("created_at", -1).to_list(100)
     return [serialize_doc(c) for c in campaigns]
 
 @router.post("/campaigns", response_model=Dict[Any, Any])
-async def create_campaign(campaign: EmailAICampaignCreate, db=Depends(get_db)):
+async def create_campaign(
+    campaign: EmailAICampaignCreate,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
     start = datetime.now(timezone.utc)
     logger.info(
-        f"[EmailAI] create_campaign: name={campaign.info.name}, "
+        f"[EmailAI] create_campaign: user={current_user.email}, name={campaign.info.name}, "
         f"leads={len(campaign.target_leads)}, template={campaign.template_id}, smtp={campaign.smtp_id}"
     )
 
@@ -318,6 +443,8 @@ async def create_campaign(campaign: EmailAICampaignCreate, db=Depends(get_db)):
         )
 
     new_campaign = campaign.model_dump()
+    new_campaign["user_id"] = str(current_user.id)
+    new_campaign["name"] = campaign.info.name
     new_campaign["created_at"] = datetime.now(timezone.utc)
     new_campaign["updated_at"] = datetime.now(timezone.utc)
     new_campaign["status"] = "QUEUED"
@@ -332,18 +459,20 @@ async def create_campaign(campaign: EmailAICampaignCreate, db=Depends(get_db)):
 
     created = await db["email_ai_campaigns"].find_one({"_id": result.inserted_id})
 
-    # Queue is prepared. In this phase, we do not auto-start or run background workers.
-    # The status remains QUEUED.
-
     duration = (datetime.now(timezone.utc) - start).total_seconds()
     logger.info(
-        f"[EmailAI] create_campaign SUCCESS: campaign_id={result.inserted_id}, "
+        f"[EmailAI] create_campaign SUCCESS: campaign_id={result.inserted_id}, user={current_user.email}, "
         f"status=QUEUED, leads={len(campaign.target_leads)}, duration_ms={round(duration * 1000, 2)}"
     )
     return serialize_doc(created)
 
 @router.post("/campaigns/{campaign_id}/{action}")
-async def control_campaign(campaign_id: str, action: str, db=Depends(get_db)):
+async def control_campaign(
+    campaign_id: str,
+    action: str,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
     if action not in ["pause", "resume", "cancel"]:
         raise HTTPException(status_code=400, detail="Invalid action")
         
@@ -352,14 +481,23 @@ async def control_campaign(campaign_id: str, action: str, db=Depends(get_db)):
         "resume": "RUNNING",
         "cancel": "CANCELLED"
     }
+
+    try:
+        oid = ObjectId(campaign_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid campaign_id")
+
+    filter_q: Dict[str, Any] = {"_id": oid}
+    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        filter_q["$or"] = get_user_match_filter(current_user)
     
     result = await db["email_ai_campaigns"].update_one(
-        {"_id": ObjectId(campaign_id)},
+        filter_q,
         {"$set": {"status": status_map[action], "updated_at": datetime.now(timezone.utc)}}
     )
     
     if result.matched_count == 0:
-        raise HTTPException(status_code=404, detail="Campaign not found")
+        raise HTTPException(status_code=404, detail="Campaign not found or permission denied")
 
     # Cancelling also finalizes any outstanding Pending/Waiting jobs so the
     # campaign does not remain open indefinitely.
@@ -376,8 +514,21 @@ async def control_campaign(campaign_id: str, action: str, db=Depends(get_db)):
     return {"message": f"Campaign {action}ed successfully"}
 
 @router.get("/campaigns/{campaign_id}/live-status")
-async def get_campaign_live_status(campaign_id: str, db=Depends(get_db)):
-    campaign = await db["email_ai_campaigns"].find_one({"_id": ObjectId(campaign_id)})
+async def get_campaign_live_status(
+    campaign_id: str,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    try:
+        oid = ObjectId(campaign_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid campaign_id")
+
+    filter_q: Dict[str, Any] = {"_id": oid}
+    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        filter_q["$or"] = get_user_match_filter(current_user)
+
+    campaign = await db["email_ai_campaigns"].find_one(filter_q)
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
@@ -452,8 +603,17 @@ async def websocket_endpoint(websocket: WebSocket, campaign_id: str):
 # Analytics & Exports
 # ==========================================
 @router.get("/analytics")
-async def get_analytics(db=Depends(get_db)):
-    campaigns = await db["email_ai_campaigns"].find().to_list(None)
+async def get_analytics(
+    all_users: bool = Query(False),
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    user_match = get_user_match_filter(current_user)
+    query: Dict[str, Any] = {}
+    if not (all_users and str(current_user.role).upper() in ["ADMIN", "SUPERADMIN"]):
+        query = {"$or": user_match}
+
+    campaigns = await db["email_ai_campaigns"].find(query).to_list(None)
     
     total_campaigns = len(campaigns)
     total_sent = 0
@@ -466,50 +626,56 @@ async def get_analytics(db=Depends(get_db)):
     start_of_month = today.replace(day=1)
     
     sent_today = sent_week = sent_month = 0
-    
-    # Chart data structure
     daily_trends = {}
     
     for c in campaigns:
         for log in c.get("logs", []):
-            if log["status"] == "sent":
+            status = log.get("status")
+            if status == "sent":
                 total_sent += 1
                 log_date = log.get("processed_at")
                 if log_date:
                     if isinstance(log_date, str):
-                        log_date = datetime.fromisoformat(log_date.replace('Z', '+00:00'))
-                    
-                    if log_date >= today: sent_today += 1
-                    if log_date >= start_of_week: sent_week += 1
-                    if log_date >= start_of_month: sent_month += 1
-                    
-                    day_str = log_date.strftime("%Y-%m-%d")
-                    if day_str not in daily_trends:
-                        daily_trends[day_str] = {"date": day_str, "sent": 0, "failed": 0}
-                    daily_trends[day_str]["sent"] += 1
-            elif log["status"] == "failed":
+                        try:
+                            log_date = datetime.fromisoformat(log_date.replace('Z', '+00:00'))
+                        except Exception:
+                            log_date = None
+                    if log_date:
+                        if log_date >= today: sent_today += 1
+                        if log_date >= start_of_week: sent_week += 1
+                        if log_date >= start_of_month: sent_month += 1
+                        
+                        day_str = log_date.strftime("%Y-%m-%d")
+                        if day_str not in daily_trends:
+                            daily_trends[day_str] = {"date": day_str, "sent": 0, "failed": 0}
+                        daily_trends[day_str]["sent"] += 1
+            elif status == "failed":
                 total_failed += 1
                 log_date = log.get("processed_at")
                 if log_date:
                     if isinstance(log_date, str):
-                        log_date = datetime.fromisoformat(log_date.replace('Z', '+00:00'))
-                    day_str = log_date.strftime("%Y-%m-%d")
-                    if day_str not in daily_trends:
-                        daily_trends[day_str] = {"date": day_str, "sent": 0, "failed": 0}
-                    daily_trends[day_str]["failed"] += 1
-                
-            if log.get("duration", 0) > 0:
+                        try:
+                            log_date = datetime.fromisoformat(log_date.replace('Z', '+00:00'))
+                        except Exception:
+                            log_date = None
+                    if log_date:
+                        day_str = log_date.strftime("%Y-%m-%d")
+                        if day_str not in daily_trends:
+                            daily_trends[day_str] = {"date": day_str, "sent": 0, "failed": 0}
+                        daily_trends[day_str]["failed"] += 1
+                        
+            if (log.get("duration") or 0) > 0:
                 total_duration += log["duration"]
                 valid_durations_count += 1
                 
     total = total_sent + total_failed
-    success_rate = (total_sent / total * 100) if total > 0 else 0
+    success_rate = (total_sent / total * 100) if total > 0 else 0.0
     
     trends_list = sorted(list(daily_trends.values()), key=lambda x: x["date"])[-14:] # last 14 days
     
     return {
-        "success_rate": success_rate,
-        "avg_send_time": (total_duration / valid_durations_count) if valid_durations_count > 0 else 0,
+        "success_rate": round(success_rate, 1),
+        "avg_send_time": round((total_duration / valid_durations_count), 2) if valid_durations_count > 0 else 0.0,
         "total_campaigns": total_campaigns,
         "messages_sent_today": sent_today,
         "messages_sent_week": sent_week,
@@ -520,55 +686,79 @@ async def get_analytics(db=Depends(get_db)):
     }
 
 @router.get("/analytics/smtp")
-async def get_smtp_analytics(db=Depends(get_db)):
-    smtps = await db["email_ai_smtp"].find().to_list(100)
-    campaigns = await db["email_ai_campaigns"].find().to_list(None)
+async def get_smtp_analytics(
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    user_match = get_user_match_filter(current_user)
+    query_campaigns = {"$or": user_match}
+    query_smtp = {
+        "is_active": {"$ne": False},
+        "$or": user_match + [{"user_id": None}, {"user_id": {"$exists": False}}, {"is_default": True}]
+    }
+
+    smtps = await db["email_ai_smtp"].find(query_smtp).to_list(100)
+    campaigns = await db["email_ai_campaigns"].find(query_campaigns).to_list(None)
     
     stats = {}
     for smtp in smtps:
-        stats[str(smtp["_id"])] = {"name": smtp["name"], "sent": 0, "failed": 0}
+        stats[str(smtp["_id"])] = {"name": smtp.get("name", "SMTP Relay"), "sent": 0, "failed": 0}
         
     for c in campaigns:
         smtp_id = str(c.get("smtp_id"))
         if smtp_id in stats:
             for log in c.get("logs", []):
-                if log["status"] == "sent": stats[smtp_id]["sent"] += 1
-                elif log["status"] == "failed": stats[smtp_id]["failed"] += 1
+                if log.get("status") == "sent": stats[smtp_id]["sent"] += 1
+                elif log.get("status") == "failed": stats[smtp_id]["failed"] += 1
                 
     return list(stats.values())
 
 @router.get("/analytics/templates")
-async def get_template_analytics(db=Depends(get_db)):
-    templates = await db["email_ai_templates"].find().to_list(100)
-    campaigns = await db["email_ai_campaigns"].find().to_list(None)
+async def get_template_analytics(
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    user_match = get_user_match_filter(current_user)
+    query_campaigns = {"$or": user_match}
+    query_templates = {
+        "is_active": {"$ne": False},
+        "$or": user_match + [{"user_id": None}, {"user_id": {"$exists": False}}, {"user_id": "system"}]
+    }
+
+    templates = await db["email_ai_templates"].find(query_templates).to_list(100)
+    campaigns = await db["email_ai_campaigns"].find(query_campaigns).to_list(None)
     
     stats = {}
     for t in templates:
-        stats[str(t["_id"])] = {"name": t["name"], "sent": 0, "failed": 0}
+        stats[str(t["_id"])] = {"name": t.get("name", "Template"), "sent": 0, "failed": 0}
         
     for c in campaigns:
         t_id = str(c.get("template_id"))
         if t_id in stats:
             for log in c.get("logs", []):
-                if log["status"] == "sent": stats[t_id]["sent"] += 1
-                elif log["status"] == "failed": stats[t_id]["failed"] += 1
+                if log.get("status") == "sent": stats[t_id]["sent"] += 1
+                elif log.get("status") == "failed": stats[t_id]["failed"] += 1
                 
     return list(stats.values())
 
 @router.get("/analytics/errors")
-async def get_errors_center(db=Depends(get_db)):
-    campaigns = await db["email_ai_campaigns"].find().to_list(None)
+async def get_errors_center(
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    user_match = get_user_match_filter(current_user)
+    campaigns = await db["email_ai_campaigns"].find({"$or": user_match}).to_list(None)
     error_counts = {}
     
     for c in campaigns:
         for log in c.get("logs", []):
-            if log["status"] == "failed":
+            if log.get("status") == "failed":
                 err_msg = log.get("error", "Unknown Error")
-                # Categorize
                 category = "Unknown"
                 if "timeout" in err_msg.lower(): category = "Connection Timeout"
                 elif "auth" in err_msg.lower(): category = "Authentication"
-                elif "format" in err_msg.lower(): category = "Validation"
+                elif "format" in err_msg.lower() or "syntax" in err_msg.lower(): category = "Validation"
+                elif "closed" in err_msg.lower() or "reset" in err_msg.lower(): category = "Connection Closed"
                 
                 if category not in error_counts: error_counts[category] = 0
                 error_counts[category] += 1
@@ -576,14 +766,18 @@ async def get_errors_center(db=Depends(get_db)):
     return [{"category": k, "count": v} for k, v in error_counts.items()]
 
 @router.get("/logs")
-async def get_global_logs(db=Depends(get_db)):
-    campaigns = await db["email_ai_campaigns"].find().sort("created_at", -1).limit(20).to_list(20)
+async def get_global_logs(
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    user_match = get_user_match_filter(current_user)
+    campaigns = await db["email_ai_campaigns"].find({"$or": user_match}).sort("created_at", -1).limit(20).to_list(20)
     
     logs_flat = []
     for c in campaigns:
         for log in c.get("logs", []):
             logs_flat.append({
-                "campaign_name": c.get("name"),
+                "campaign_name": c.get("name") or c.get("info", {}).get("name", "Campaign"),
                 "lead_id": log.get("lead_id"),
                 "status": log.get("status"),
                 "error": log.get("error"),
@@ -591,23 +785,37 @@ async def get_global_logs(db=Depends(get_db)):
                 "duration": log.get("duration")
             })
             
-    logs_flat.sort(key=lambda x: x["processed_at"], reverse=True)
+    logs_flat.sort(key=lambda x: str(x.get("processed_at") or ""), reverse=True)
     return logs_flat[:100]
 
 @router.get("/campaigns/{campaign_id}/export")
-async def export_campaign(campaign_id: str, format: str = Query("csv"), db=Depends(get_db)):
-    campaign = await db["email_ai_campaigns"].find_one({"_id": ObjectId(campaign_id)})
+async def export_campaign(
+    campaign_id: str,
+    format: str = Query("csv"),
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    try:
+        oid = ObjectId(campaign_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid campaign_id")
+
+    filter_q: Dict[str, Any] = {"_id": oid}
+    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        filter_q["$or"] = get_user_match_filter(current_user)
+
+    campaign = await db["email_ai_campaigns"].find_one(filter_q)
     if not campaign:
-        raise HTTPException(status_code=404, detail="Campaign not found")
+        raise HTTPException(status_code=404, detail="Campaign not found or access denied")
         
     data = []
     for log in campaign.get("logs", []):
-        lead = await db["leads"].find_one({"_id": ObjectId(log["lead_id"])})
+        lead = await db["leads"].find_one({"_id": ObjectId(log["lead_id"])}) if log.get("lead_id") and ObjectId.is_valid(log["lead_id"]) else None
         data.append({
-            "Lead ID": log["lead_id"],
+            "Lead ID": log.get("lead_id", ""),
             "Business Name": lead.get("business_name") if lead else "Unknown",
             "Email": lead.get("email") if lead else "Unknown",
-            "Status": log["status"].upper(),
+            "Status": str(log.get("status", "")).upper(),
             "Duration (s)": log.get("duration", 0),
             "Processed At": log.get("processed_at", "")
         })

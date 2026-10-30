@@ -105,8 +105,14 @@ export default function EmailCampaignWizard() {
   // Mutations
   const createCampaign = useMutation({
     mutationFn: async (payload: any) => await api.post('/email-ai/campaigns', payload),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
       toast.success('Campaign configured and queued successfully!');
+      if (res?.data?._id) {
+        localStorage.setItem('email_active_campaign', res.data._id);
+      }
+      queryClient.invalidateQueries({ queryKey: ['email-ai-header-analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['email-ai-campaigns'] });
+      queryClient.invalidateQueries({ queryKey: ['email-ai-analytics'] });
       logWizardEvent('campaign_created', {
         name: formData.info.name,
         leads: selectedLeadIds.length,

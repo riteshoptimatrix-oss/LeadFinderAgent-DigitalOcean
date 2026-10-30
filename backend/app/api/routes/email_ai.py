@@ -8,6 +8,8 @@ import tempfile
 import os
 import asyncio
 import smtplib
+import ssl
+import socket
 from app.db.database import get_db
 from app.api.dependencies import get_current_user
 from app.core.websocket import manager
@@ -76,57 +78,107 @@ async def test_smtp_profile(
     if not profile:
         raise HTTPException(status_code=404, detail="SMTP profile not found.")
 
-    host = profile.get("host")
+    host = (profile.get("host") or "").strip()
     port = int(profile.get("port", 587))
-    username = profile.get("username")
-    password = profile.get("password")
-    encryption = profile.get("encryption", "TLS")
+    username = (profile.get("username") or "").strip()
+    password = str(profile.get("password") or "")
+    encryption = (profile.get("encryption") or "TLS").upper().strip()
 
     if not host or not username or not password:
         raise HTTPException(status_code=400, detail="SMTP configuration is invalid: host, username and password are required.")
 
+    # Build permissive SSL context
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+
+    primary_is_ssl = (port == 465) or (encryption in ["SSL", "SMTPS"])
+    strategies = []
+    if primary_is_ssl:
+        strategies.append({"mode": "SSL", "port": port})
+        if port == 465:
+            strategies.append({"mode": "TLS", "port": 587})
+    else:
+        strategies.append({"mode": "TLS", "port": port})
+        if port == 587:
+            strategies.append({"mode": "SSL", "port": 465})
+
     server = None
-    try:
-        if encryption == "SSL":
-            server = smtplib.SMTP_SSL(host, port, timeout=15)
-        else:
-            server = smtplib.SMTP(host, port, timeout=15)
-            server.ehlo()
-            if encryption == "TLS":
-                server.starttls()
+    last_error = None
+    connected_strategy = None
+
+    for strat in strategies:
+        strat_mode = strat["mode"]
+        strat_port = strat["port"]
+        server = None
+        try:
+            logger.info(f"[EmailAI] Testing SMTP {host}:{strat_port} via {strat_mode}...")
+            if strat_mode == "SSL":
+                server = smtplib.SMTP_SSL(host, strat_port, timeout=15, context=context)
                 server.ehlo()
-        server.login(username, password)
-        logger.info(f"[EmailAI] SMTP test OK: host={host}, port={port}, user={username}")
+            else:
+                server = smtplib.SMTP(host, strat_port, timeout=15)
+                server.ehlo()
+                if encryption != "NONE":
+                    server.starttls(context=context)
+                    server.ehlo()
 
-        result = {"status": "success", "host": host, "port": port, "message": "Connection successful"}
+            server.login(username, password)
+            connected_strategy = strat
+            logger.info(f"[EmailAI] SMTP test OK: host={host}, port={strat_port}, mode={strat_mode}, user={username}")
+            break
+        except smtplib.SMTPAuthenticationError as e:
+            logger.warning(f"[EmailAI] SMTP test auth failed: host={host}, port={strat_port}, user={username}: {e}")
+            raise HTTPException(
+                status_code=400,
+                detail=f"Authentication failed: Check username and password. If using Gmail/Yahoo/Outlook, an App Password is required."
+            )
+        except (smtplib.SMTPServerDisconnected, ConnectionResetError, BrokenPipeError, TimeoutError, socket.timeout) as e:
+            logger.warning(f"[EmailAI] SMTP test disconnected on {host}:{strat_port} ({strat_mode}): {e}")
+            last_error = f"Connection unexpectedly closed by {host}:{strat_port}. Please check port (465 for SSL, 587 for TLS), verify your App Password, or check if your hosting provider (DigitalOcean) blocks outbound SMTP."
+            continue
+        except Exception as e:
+            logger.warning(f"[EmailAI] SMTP test failed on {host}:{strat_port}: {e}")
+            last_error = str(e)
+            continue
+        finally:
+            if not connected_strategy and server:
+                try:
+                    server.quit()
+                except Exception:
+                    pass
 
-        if send_test:
+    if not connected_strategy or not server:
+        raise HTTPException(status_code=400, detail=last_error or f"SMTP connection failed for {host}:{port}")
+
+    result = {
+        "status": "success",
+        "host": host,
+        "port": connected_strategy["port"],
+        "mode": connected_strategy["mode"],
+        "message": f"SMTP Verified Successfully via {connected_strategy['mode']} on port {connected_strategy['port']}!"
+    }
+
+    if send_test:
+        try:
             from email.mime.text import MIMEText
             msg = MIMEText("This is a test email from the Lead Finder Agent Email AI to verify your SMTP configuration is working correctly.")
             msg["Subject"] = "Lead Finder Agent - SMTP Test"
             msg["From"] = username
             msg["To"] = username
-            server.send_message(msg)
-            result["message"] = "Connection successful and test email sent"
+            server.sendmail(username, [username], msg.as_string())
+            result["message"] = f"Connection successful and test email sent to {username}"
             result["test_email_sent"] = True
             logger.info(f"[EmailAI] SMTP test email sent to {username}")
+        except Exception as send_err:
+            logger.warning(f"[EmailAI] Test email send failed: {send_err}")
 
-        return result
-    except smtplib.SMTPAuthenticationError as e:
-        logger.warning(f"[EmailAI] SMTP test auth failed: host={host}, port={port}, user={username}: {e}")
-        raise HTTPException(status_code=400, detail=f"SMTP authentication failed. Check username/password. Reason: {e}")
-    except smtplib.SMTPServerDisconnected as e:
-        logger.warning(f"[EmailAI] SMTP test disconnected: host={host}, port={port}: {e}")
-        raise HTTPException(status_code=400, detail=f"SMTP connection dropped. Check host, port and encryption (TLS/SSL). Reason: {e}")
-    except Exception as e:
-        logger.warning(f"[EmailAI] SMTP test failed: host={host}, port={port}: {type(e).__name__}: {e}")
-        raise HTTPException(status_code=400, detail=f"SMTP connection failed. Reason: {e}")
-    finally:
-        if server:
-            try:
-                server.quit()
-            except Exception:
-                pass
+    try:
+        server.quit()
+    except Exception:
+        pass
+
+    return result
 
 # ==========================================
 # Templates

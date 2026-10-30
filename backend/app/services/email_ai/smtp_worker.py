@@ -1,5 +1,7 @@
 import asyncio
 import smtplib
+import ssl
+import socket
 import re
 import random
 import traceback
@@ -403,64 +405,117 @@ class EmailAIQueueWorker:
         return value.astimezone(timezone.utc)
 
     def _send_email_sync(self, smtp_profile: Dict[str, Any], to_email: str, subject: str, html: str, text: str) -> bool:
-        """Synchronous SMTP execution designed to run in executor. Logs every step."""
+        """Synchronous SMTP execution designed to run in executor. Logs every step.
+        Supports intelligent SSL/TLS auto-detection, fallback ports, and resilient handshakes.
+        """
+        host = (smtp_profile.get("host") or "").strip()
+        port = int(smtp_profile.get("port", 587) or 587)
+        username = (smtp_profile.get("username") or "").strip()
+        password = str(smtp_profile.get("password") or "")
+        encryption = (smtp_profile.get("encryption") or "TLS").upper().strip()
+        timeout = int(smtp_profile.get("timeout", 20) or 20)
+        from_email = (smtp_profile.get("from_email") or smtp_profile.get("email") or username).strip()
+        from_name = (smtp_profile.get("from_name") or smtp_profile.get("name") or "").strip()
+
         msg = MIMEMultipart('alternative')
         msg['Subject'] = subject
-        msg['From'] = smtp_profile.get("username")
+        if from_name:
+            msg['From'] = f"{from_name} <{from_email}>"
+        else:
+            msg['From'] = from_email
         msg['To'] = to_email
 
         if text:
-            msg.attach(MIMEText(text, 'plain'))
+            msg.attach(MIMEText(text, 'plain', 'utf-8'))
         if html:
-            msg.attach(MIMEText(html, 'html'))
+            msg.attach(MIMEText(html, 'html', 'utf-8'))
 
-        host = smtp_profile.get("host")
-        port = int(smtp_profile.get("port", 587) or 587)
-        username = smtp_profile.get("username")
-        password = smtp_profile.get("password")
-        encryption = (smtp_profile.get("encryption") or "TLS").upper()
-        timeout = int(smtp_profile.get("timeout", 15) or 15)
+        # Clean bare envelope sender address
+        envelope_sender = from_email
+        if "<" in envelope_sender and ">" in envelope_sender:
+            envelope_sender = envelope_sender.split("<")[1].split(">")[0].strip()
 
-        server = None
-        try:
-            logger.info(f"[EmailAI-SMTP] Connecting host={host} port={port} encryption={encryption} timeout={timeout}")
-            if encryption == "SSL":
-                server = smtplib.SMTP_SSL(host, port, timeout=timeout)
-            else:
-                server = smtplib.SMTP(host, port, timeout=timeout)
-                server.ehlo()
-                if encryption == "TLS":
-                    server.starttls()
+        # Build permissive SSL context
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+
+        # Auto-detect primary strategy based on port & encryption:
+        # Port 465 -> SSL/SMTPS
+        # Port 587 -> STARTTLS
+        # Port 25 / 2525 -> STARTTLS or Plaintext
+        primary_is_ssl = (port == 465) or (encryption in ["SSL", "SMTPS"])
+
+        strategies = []
+        if primary_is_ssl:
+            strategies.append({"mode": "SSL", "port": port})
+            if port == 465:
+                strategies.append({"mode": "TLS", "port": 587})
+        else:
+            strategies.append({"mode": "TLS", "port": port})
+            if port == 587:
+                strategies.append({"mode": "SSL", "port": 465})
+
+        last_error = None
+        for strat in strategies:
+            strat_mode = strat["mode"]
+            strat_port = strat["port"]
+            server = None
+            try:
+                logger.info(f"[EmailAI-SMTP] Connecting to {host}:{strat_port} via {strat_mode} (timeout={timeout}s)...")
+                if strat_mode == "SSL":
+                    server = smtplib.SMTP_SSL(host, strat_port, timeout=timeout, context=context)
                     server.ehlo()
-            logger.info(f"[EmailAI-SMTP] Connected to {host}:{port}")
+                else:
+                    server = smtplib.SMTP(host, strat_port, timeout=timeout)
+                    server.ehlo()
+                    if encryption != "NONE":
+                        try:
+                            server.starttls(context=context)
+                            server.ehlo()
+                        except Exception as tls_ex:
+                            logger.warning(f"[EmailAI-SMTP] STARTTLS failed on {host}:{strat_port}: {tls_ex}")
+                            if encryption == "TLS":
+                                raise
 
-            server.login(username, password)
-            logger.info(f"[EmailAI-SMTP] Authenticated as {username}")
+                logger.info(f"[EmailAI-SMTP] Connected to {host}:{strat_port}. Authenticating as {username}...")
+                if username and password:
+                    server.login(username, password)
+                    logger.info(f"[EmailAI-SMTP] Authenticated successfully as {username}")
 
-            server.send_message(msg)
-            logger.info(f"[EmailAI-SMTP] Message sent to {to_email} (subject='{subject[:60]}')")
-            return True
-        except smtplib.SMTPAuthenticationError as e:
-            logger.error(f"[EmailAI-SMTP] Authentication failed for {username}@{host}: {e}")
-            raise
-        except smtplib.SMTPServerDisconnected as e:
-            logger.error(f"[EmailAI-SMTP] Server disconnected host={host}:{port}: {e}")
-            raise
-        except smtplib.SMTPRecipientsRefused as e:
-            logger.error(f"[EmailAI-SMTP] Recipient refused {to_email}: {e}")
-            raise
-        except smtplib.SMTPException as e:
-            logger.error(f"[EmailAI-SMTP] SMTP error host={host}:{port}: {type(e).__name__}: {e}")
-            raise
-        except Exception as e:
-            logger.error(f"[EmailAI-SMTP] Unexpected error host={host}:{port}: {type(e).__name__}: {e}")
-            raise
-        finally:
-            if server:
-                try:
-                    server.quit()
-                except Exception:
-                    pass
+                # Send message using sendmail for raw envelope control
+                server.sendmail(envelope_sender, [to_email], msg.as_string())
+                logger.info(f"[EmailAI-SMTP] Message delivered to {to_email} via {host}:{strat_port} (subject='{subject[:60]}')")
+                return True
+
+            except smtplib.SMTPAuthenticationError as e:
+                logger.error(f"[EmailAI-SMTP] Authentication failed for {username}@{host}:{strat_port}: {e}")
+                last_error = f"Authentication failed for {username}. If using Gmail/Yahoo/Outlook, please use an App Password (not your normal account password)."
+                break  # Don't try other ports if authentication was rejected
+
+            except smtplib.SMTPRecipientsRefused as e:
+                logger.error(f"[EmailAI-SMTP] Recipient refused {to_email}: {e}")
+                last_error = f"Recipient email address refused by mail server: {to_email}"
+                break
+
+            except (smtplib.SMTPServerDisconnected, ConnectionResetError, BrokenPipeError, TimeoutError, socket.timeout) as e:
+                logger.warning(f"[EmailAI-SMTP] Connection disconnected on {host}:{strat_port} ({strat_mode}): {e}. Attempting fallback if available...")
+                last_error = f"Connection unexpectedly closed by {host}:{strat_port}. Please check port (465 for SSL, 587 for TLS), verify your App Password, or ensure your hosting provider does not block outbound SMTP."
+                continue
+
+            except Exception as e:
+                logger.warning(f"[EmailAI-SMTP] Error on {host}:{strat_port} ({strat_mode}): {e}")
+                last_error = str(e)
+                continue
+
+            finally:
+                if server:
+                    try:
+                        server.quit()
+                    except Exception:
+                        pass
+
+        raise Exception(last_error or f"SMTP connection failed for {host}:{port}")
 
     def _replace_variables(self, text: str, lead: Dict[str, Any]) -> str:
         if not text:

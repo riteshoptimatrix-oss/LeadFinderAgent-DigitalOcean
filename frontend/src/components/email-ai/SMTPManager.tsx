@@ -130,6 +130,67 @@ export default function SMTPManager() {
               <p className="text-xs text-slate-500">All credentials are encrypted and stored securely.</p>
             </div>
           </div>
+
+          {/* Quick Presets */}
+          <div className="mb-6 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2.5">
+              Quick Provider Presets:
+            </span>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setFormData({
+                  ...formData,
+                  name: 'Gmail SMTP',
+                  host: 'smtp.gmail.com',
+                  port: 465,
+                  encryption: 'SSL'
+                })}
+                className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 shadow-2xs transition-all"
+              >
+                Gmail (Port 465 SSL)
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({
+                  ...formData,
+                  name: 'Gmail STARTTLS',
+                  host: 'smtp.gmail.com',
+                  port: 587,
+                  encryption: 'TLS'
+                })}
+                className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 shadow-2xs transition-all"
+              >
+                Gmail (Port 587 TLS)
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({
+                  ...formData,
+                  name: 'Hostinger Webmail',
+                  host: 'smtp.hostinger.com',
+                  port: 465,
+                  encryption: 'SSL'
+                })}
+                className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 shadow-2xs transition-all"
+              >
+                Hostinger (Port 465 SSL)
+              </button>
+              <button
+                type="button"
+                onClick={() => setFormData({
+                  ...formData,
+                  name: 'Office 365',
+                  host: 'smtp.office365.com',
+                  port: 587,
+                  encryption: 'TLS'
+                })}
+                className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg border border-slate-200 shadow-2xs transition-all"
+              >
+                Office 365 (Port 587)
+              </button>
+            </div>
+          </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 max-w-4xl">
             <div className="space-y-1.5 col-span-full">
@@ -158,7 +219,14 @@ export default function SMTPManager() {
               <input 
                 type="number" 
                 value={formData.port}
-                onChange={e => setFormData({...formData, port: parseInt(e.target.value)})}
+                onChange={e => {
+                  const p = parseInt(e.target.value) || 587;
+                  setFormData({
+                    ...formData, 
+                    port: p,
+                    encryption: p === 465 ? 'SSL' : p === 587 ? 'TLS' : formData.encryption
+                  });
+                }}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-900"
               />
             </div>
@@ -167,12 +235,19 @@ export default function SMTPManager() {
               <label className="text-sm font-semibold text-slate-700">Encryption Layer</label>
               <select 
                 value={formData.encryption}
-                onChange={e => setFormData({...formData, encryption: e.target.value})}
+                onChange={e => {
+                  const enc = e.target.value;
+                  setFormData({
+                    ...formData, 
+                    encryption: enc,
+                    port: enc === 'SSL' && formData.port === 587 ? 465 : enc === 'TLS' && formData.port === 465 ? 587 : formData.port
+                  });
+                }}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-900"
               >
-                <option value="TLS">STARTTLS (Recommended for Port 587)</option>
+                <option value="TLS">STARTTLS (Port 587 / 2525)</option>
                 <option value="SSL">SSL/TLS (Port 465)</option>
-                <option value="None">None (Not Recommended)</option>
+                <option value="None">None (Plaintext)</option>
               </select>
             </div>
             
@@ -198,6 +273,7 @@ export default function SMTPManager() {
                 type="text" 
                 value={formData.username}
                 onChange={e => setFormData({...formData, username: e.target.value})}
+                placeholder="your-email@domain.com"
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-900"
               />
             </div>
@@ -213,6 +289,9 @@ export default function SMTPManager() {
                 placeholder="••••••••••••"
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-900 tracking-widest"
               />
+              <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200 mt-1">
+                <strong>Important:</strong> If using Gmail, Google Workspace, or Yahoo, generate and paste a 16-character <strong>App Password</strong> (regular passwords will be blocked by Google).
+              </p>
             </div>
 
             <div className="space-y-1.5 col-span-full pt-4 border-t border-slate-100">

@@ -1,22 +1,32 @@
+
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Static export disabled - this app uses dynamic routes and real-time data
-  // Remove this line to enable static export if needed (requires all routes to be static)
-  // output: "export",
-  
-  // Images configuration - unoptimized for static export compatibility
+  // Allow development access from local network IP
+  allowedDevOrigins: ["192.168.1.14"],
+
+  // Images configuration
   images: {
     unoptimized: true,
   },
-  
-  // Skip TypeScript errors during build (optional - consider fixing types instead)
+
+  // Skip TypeScript errors during build
   typescript: {
     ignoreBuildErrors: true,
   },
-  
+
   // Trailing slash configuration
   trailingSlash: false,
+
+  webpack: (config, { dev, isServer }) => {
+    if (dev && !isServer) {
+      config.output = {
+        ...config.output,
+        chunkLoadTimeout: 60000, // 60s timeout to prevent ChunkLoadError in dev mode
+      };
+    }
+    return config;
+  },
 };
 
 export default nextConfig;

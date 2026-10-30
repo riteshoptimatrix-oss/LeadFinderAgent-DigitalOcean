@@ -46,10 +46,17 @@ async def get_smtp_profiles(
     db=Depends(get_db)
 ):
     user_match = get_user_match_filter(current_user)
-    query = {
-        "is_active": {"$ne": False},
-        "$or": user_match + [{"user_id": None}, {"user_id": {"$exists": False}}, {"is_default": True}]
-    }
+    # User-wise segregation: Users only see their own SMTP profiles or shared system profiles
+    if str(current_user.role).upper() in ["ADMIN", "SUPERADMIN"]:
+        query = {
+            "is_active": {"$ne": False},
+            "$or": user_match + [{"user_id": None}, {"user_id": {"$exists": False}}]
+        }
+    else:
+        query = {
+            "is_active": {"$ne": False},
+            "$or": user_match + [{"is_system": True, "user_id": None}]
+        }
     profiles = await db["email_ai_smtp"].find(query).to_list(100)
     return [serialize_doc(p) for p in profiles]
 
@@ -64,6 +71,14 @@ async def create_smtp_profile(
     new_profile["created_at"] = datetime.now(timezone.utc)
     new_profile["updated_at"] = datetime.now(timezone.utc)
     
+    # Auto-clean Google App Password spaces if provided
+    raw_pwd = str(new_profile.get("password") or "").strip()
+    host = str(new_profile.get("host") or "").lower()
+    if "gmail" in host and len(raw_pwd.replace(" ", "")) == 16:
+        new_profile["password"] = raw_pwd.replace(" ", "")
+    else:
+        new_profile["password"] = raw_pwd
+
     if new_profile.get("is_default"):
         await db["email_ai_smtp"].update_many(
             {"user_id": str(current_user.id)},
@@ -97,37 +112,29 @@ async def delete_smtp_profile(
         raise HTTPException(status_code=404, detail="SMTP profile not found or permission denied")
     return {"message": "Deleted"}
 
-@router.get("/smtp/{id}/test")
-async def test_smtp_profile(
-    id: str,
-    send_test: bool = Query(False, description="Also send a real test email to the SMTP username"),
-    current_user: UserInDB = Depends(get_current_user),
-    db=Depends(get_db)
-):
-    """Attempt a real SMTP connection + authentication against a stored profile.
+def _run_smtp_verification_sync(
+    host: str,
+    port: int,
+    encryption: str,
+    username: str,
+    password: str,
+    from_email: Optional[str] = None,
+    from_name: Optional[str] = None,
+    timeout: int = 15,
+    send_test: bool = False,
+    recipient: Optional[str] = None
+) -> Dict[str, Any]:
+    """Synchronous SMTP connect, auth, and optional test email dispatch with intelligent Google App Password handling."""
+    host = host.strip()
+    username = username.strip()
+    raw_pwd = str(password or "").strip()
+    clean_pwd = raw_pwd.replace(" ", "") if ("gmail" in host.lower() and len(raw_pwd.replace(" ", "")) == 16) else raw_pwd
+    encryption = (encryption or "TLS").upper().strip()
+    timeout = int(timeout or 15)
+    
+    eff_from = (from_email or username).strip()
+    target_recipient = (recipient or username).strip()
 
-    Returns a clear pass/fail result so the frontend can show a professional
-    error instead of a blank screen when the SMTP configuration is invalid.
-    When ``send_test=true`` a real test message is sent to the profile's own
-    address to validate the full connect -> auth -> send -> disconnect cycle.
-    """
-    try:
-        profile = await db["email_ai_smtp"].find_one({"_id": ObjectId(id), "is_active": {"$ne": False}})
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid SMTP profile id.")
-    if not profile:
-        raise HTTPException(status_code=404, detail="SMTP profile not found.")
-
-    host = (profile.get("host") or "").strip()
-    port = int(profile.get("port", 587))
-    username = (profile.get("username") or "").strip()
-    password = str(profile.get("password") or "")
-    encryption = (profile.get("encryption") or "TLS").upper().strip()
-
-    if not host or not username or not password:
-        raise HTTPException(status_code=400, detail="SMTP configuration is invalid: host, username and password are required.")
-
-    # Build permissive SSL context
     context = ssl.create_default_context()
     context.check_hostname = False
     context.verify_mode = ssl.CERT_NONE
@@ -152,33 +159,62 @@ async def test_smtp_profile(
         strat_port = strat["port"]
         server = None
         try:
-            logger.info(f"[EmailAI] Testing SMTP {host}:{strat_port} via {strat_mode}...")
+            logger.info(f"[EmailAI-Test] Connecting {host}:{strat_port} ({strat_mode})...")
             if strat_mode == "SSL":
-                server = smtplib.SMTP_SSL(host, strat_port, timeout=15, context=context)
+                server = smtplib.SMTP_SSL(host, strat_port, timeout=timeout, context=context)
                 server.ehlo()
             else:
-                server = smtplib.SMTP(host, strat_port, timeout=15)
+                server = smtplib.SMTP(host, strat_port, timeout=timeout)
                 server.ehlo()
                 if encryption != "NONE":
                     server.starttls(context=context)
                     server.ehlo()
 
-            server.login(username, password)
+            # Attempt login with clean App Password
+            try:
+                server.login(username, clean_pwd)
+            except smtplib.SMTPServerDisconnected:
+                if clean_pwd != raw_pwd:
+                    # Retry with raw password
+                    try:
+                        server = smtplib.SMTP_SSL(host, strat_port, timeout=timeout, context=context) if strat_mode == "SSL" else smtplib.SMTP(host, strat_port, timeout=timeout)
+                        server.ehlo()
+                        if strat_mode != "SSL" and encryption != "NONE":
+                            server.starttls(context=context)
+                            server.ehlo()
+                        server.login(username, raw_pwd)
+                    except Exception:
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Google/Gmail rejected credentials and closed the connection. "
+                                   "Please verify: 1) You have 2-Step Verification ON in your Google Account. "
+                                   "2) You generated and used a 16-character Google App Password (not your Gmail account password) from Google Security settings."
+                        )
+                else:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Google/Gmail rejected credentials and closed the connection. "
+                               "Please verify: 1) You have 2-Step Verification ON in your Google Account. "
+                               "2) You generated and used a 16-character Google App Password (not your Gmail account password) from Google Security settings."
+                    )
+
             connected_strategy = strat
-            logger.info(f"[EmailAI] SMTP test OK: host={host}, port={strat_port}, mode={strat_mode}, user={username}")
+            logger.info(f"[EmailAI-Test] Authenticated successfully as {username} on {host}:{strat_port}")
             break
+        except HTTPException:
+            raise
         except smtplib.SMTPAuthenticationError as e:
-            logger.warning(f"[EmailAI] SMTP test auth failed: host={host}, port={strat_port}, user={username}: {e}")
+            logger.warning(f"[EmailAI-Test] Auth failed for {username}: {e}")
             raise HTTPException(
                 status_code=400,
-                detail=f"Authentication failed: Check username and password. If using Gmail/Yahoo/Outlook, an App Password is required."
+                detail=f"SMTP Authentication Failed: {e}. If using Gmail, an App Password is required."
             )
         except (smtplib.SMTPServerDisconnected, ConnectionResetError, BrokenPipeError, TimeoutError, socket.timeout) as e:
-            logger.warning(f"[EmailAI] SMTP test disconnected on {host}:{strat_port} ({strat_mode}): {e}")
-            last_error = f"Connection unexpectedly closed by {host}:{strat_port}. Please check port (465 for SSL, 587 for TLS), verify your App Password, or check if your hosting provider (DigitalOcean) blocks outbound SMTP."
+            logger.warning(f"[EmailAI-Test] Disconnected on {host}:{strat_port}: {e}")
+            last_error = f"Connection closed by {host}:{strat_port}. Please check port (465 SSL, 587 TLS), ensure your App Password is correct, and verify hosting provider does not block outbound SMTP."
             continue
         except Exception as e:
-            logger.warning(f"[EmailAI] SMTP test failed on {host}:{strat_port}: {e}")
+            logger.warning(f"[EmailAI-Test] Failed on {host}:{strat_port}: {e}")
             last_error = str(e)
             continue
         finally:
@@ -196,22 +232,50 @@ async def test_smtp_profile(
         "host": host,
         "port": connected_strategy["port"],
         "mode": connected_strategy["mode"],
-        "message": f"SMTP Verified Successfully via {connected_strategy['mode']} on port {connected_strategy['port']}!"
+        "message": f"SMTP Connection & Authentication Verified on port {connected_strategy['port']} ({connected_strategy['mode']})!"
     }
 
-    if send_test:
+    if send_test or recipient:
         try:
+            from email.mime.multipart import MIMEMultipart
             from email.mime.text import MIMEText
-            msg = MIMEText("This is a test email from the Lead Finder Agent Email AI to verify your SMTP configuration is working correctly.")
-            msg["Subject"] = "Lead Finder Agent - SMTP Test"
-            msg["From"] = username
-            msg["To"] = username
-            server.sendmail(username, [username], msg.as_string())
-            result["message"] = f"Connection successful and test email sent to {username}"
+
+            test_msg = MIMEMultipart("alternative")
+            test_msg["Subject"] = f"[LeadFinder AI] SMTP Verification Test Email ({datetime.now().strftime('%H:%M:%S')})"
+            test_msg["From"] = f"{from_name} <{eff_from}>" if from_name else eff_from
+            test_msg["To"] = target_recipient
+
+            now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')
+            html_content = f"""
+            <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 28px; border: 1px solid #e2e8f0; border-radius: 16px; background: #ffffff;">
+                <div style="display: flex; align-items: center; margin-bottom: 20px;">
+                    <h2 style="color: #4f46e5; margin: 0; font-size: 20px;">LeadFinder AI · SMTP Relay Test</h2>
+                </div>
+                <p style="color: #334155; font-size: 15px; line-height: 1.6; margin-bottom: 16px;">
+                    Hello! This is a test email sent from <strong>LeadFinder AI Email Automation Studio</strong> to verify that your outbound SMTP dispatch relay is working properly.
+                </p>
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin: 20px 0; font-size: 13px; color: #475569; line-height: 1.8;">
+                    <div><strong>SMTP Relay:</strong> {host}:{connected_strategy['port']} ({connected_strategy['mode']})</div>
+                    <div><strong>Authenticated Sender:</strong> {eff_from}</div>
+                    <div><strong>Target Recipient:</strong> {target_recipient}</div>
+                    <div><strong>Dispatch Timestamp:</strong> {now_str}</div>
+                    <div><strong>Status:</strong> <span style="color: #16a34a; font-weight: bold;">Verified & Operational</span></div>
+                </div>
+                <p style="color: #64748b; font-size: 13px; line-height: 1.5;">
+                    Your email configuration is complete and ready to dispatch campaigns.
+                </p>
+            </div>
+            """
+            test_msg.attach(MIMEText(html_content, "html", "utf-8"))
+            envelope_sender = eff_from.split("<")[-1].split(">")[0].strip() if "<" in eff_from else eff_from
+            server.sendmail(envelope_sender, [target_recipient], test_msg.as_string())
+            result["message"] = f"SMTP verified! Test email successfully sent and delivered to {target_recipient}."
             result["test_email_sent"] = True
-            logger.info(f"[EmailAI] SMTP test email sent to {username}")
+            result["recipient"] = target_recipient
+            logger.info(f"[EmailAI-Test] Test email successfully sent to {target_recipient}")
         except Exception as send_err:
-            logger.warning(f"[EmailAI] Test email send failed: {send_err}")
+            logger.warning(f"[EmailAI-Test] Test email send failed: {send_err}")
+            raise HTTPException(status_code=400, detail=f"Connected and authenticated, but failed to deliver test email to {target_recipient}: {send_err}")
 
     try:
         server.quit()
@@ -219,6 +283,70 @@ async def test_smtp_profile(
         pass
 
     return result
+
+@router.get("/smtp/{id}/test")
+async def test_smtp_profile(
+    id: str,
+    send_test: bool = Query(False, description="Also send a real test email"),
+    recipient: Optional[str] = Query(None, description="Target recipient email (e.g. nikunj.optimatrix@gmail.com)"),
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    try:
+        profile = await db["email_ai_smtp"].find_one({"_id": ObjectId(id), "is_active": {"$ne": False}})
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid SMTP profile id.")
+    if not profile:
+        raise HTTPException(status_code=404, detail="SMTP profile not found.")
+
+    host = (profile.get("host") or "").strip()
+    port = int(profile.get("port", 587))
+    username = (profile.get("username") or "").strip()
+    password = str(profile.get("password") or "")
+    encryption = (profile.get("encryption") or "TLS").upper().strip()
+    timeout = int(profile.get("timeout", 15) or 15)
+    from_email = (profile.get("from_email") or profile.get("email") or username).strip()
+    from_name = (profile.get("from_name") or profile.get("name") or "").strip()
+
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        _run_smtp_verification_sync,
+        host, port, encryption, username, password, from_email, from_name, timeout, send_test, recipient
+    )
+
+class EmailAISmtpDirectTestRequest(BaseModel):
+    host: str
+    port: int = 587
+    encryption: str = "TLS"
+    username: str
+    password: str
+    from_email: Optional[str] = None
+    from_name: Optional[str] = None
+    timeout: int = 15
+    send_test: bool = True
+    recipient: Optional[str] = "nikunj.optimatrix@gmail.com"
+
+@router.post("/smtp/test-direct")
+async def test_smtp_direct(
+    request: EmailAISmtpDirectTestRequest,
+    current_user: UserInDB = Depends(get_current_user)
+):
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        _run_smtp_verification_sync,
+        request.host,
+        request.port,
+        request.encryption,
+        request.username,
+        request.password,
+        request.from_email,
+        request.from_name,
+        request.timeout,
+        request.send_test,
+        request.recipient
+    )
 
 # ==========================================
 # Templates

@@ -412,7 +412,8 @@ class EmailAIQueueWorker:
         host = (smtp_profile.get("host") or "").strip()
         port = int(smtp_profile.get("port", 587) or 587)
         username = (smtp_profile.get("username") or "").strip()
-        password = str(smtp_profile.get("password") or "")
+        raw_password = str(smtp_profile.get("password") or "").strip()
+        clean_password = raw_password.replace(" ", "") if ("gmail" in host.lower() and len(raw_password.replace(" ", "")) == 16) else raw_password
         encryption = (smtp_profile.get("encryption") or "TLS").upper().strip()
         timeout = int(smtp_profile.get("timeout", 20) or 20)
         from_email = (smtp_profile.get("from_email") or smtp_profile.get("email") or username).strip()
@@ -480,8 +481,32 @@ class EmailAIQueueWorker:
                                 raise
 
                 logger.info(f"[EmailAI-SMTP] Connected to {host}:{strat_port}. Authenticating as {username}...")
-                if username and password:
-                    server.login(username, password)
+                if username and clean_password:
+                    try:
+                        server.login(username, clean_password)
+                    except smtplib.SMTPServerDisconnected:
+                        if clean_password != raw_password:
+                            try:
+                                server = smtplib.SMTP_SSL(host, strat_port, timeout=timeout, context=context) if strat_mode == "SSL" else smtplib.SMTP(host, strat_port, timeout=timeout)
+                                server.ehlo()
+                                if strat_mode != "SSL" and encryption != "NONE":
+                                    server.starttls(context=context)
+                                    server.ehlo()
+                                server.login(username, raw_password)
+                            except Exception:
+                                raise smtplib.SMTPAuthenticationError(
+                                    535,
+                                    b"Google/Gmail rejected credentials and closed the connection. "
+                                    b"Ensure you are using a 16-character Google App Password (not your Gmail account password) "
+                                    b"generated from Google Account Security -> 2-Step Verification -> App passwords."
+                                )
+                        else:
+                            raise smtplib.SMTPAuthenticationError(
+                                535,
+                                b"Google/Gmail rejected credentials and closed the connection. "
+                                b"Ensure you are using a 16-character Google App Password (not your Gmail account password) "
+                                b"generated from Google Account Security -> 2-Step Verification -> App passwords."
+                            )
                     logger.info(f"[EmailAI-SMTP] Authenticated successfully as {username}")
 
                 # Send message using sendmail for raw envelope control

@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { 
   Server, Lock, Plus, Trash2, Edit2, CheckCircle2, 
-  XCircle, Mail, AlertCircle, RefreshCw, Zap, Shield
+  XCircle, Mail, AlertCircle, RefreshCw, Zap, Shield, Send, X
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
@@ -29,6 +29,9 @@ export default function SMTPManager() {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
+  const [testRecipientModal, setTestRecipientModal] = useState<{ id: string; name: string } | null>(null);
+  const [testRecipientEmail, setTestRecipientEmail] = useState<string>('nikunj.optimatrix@gmail.com');
+  const [isSendingSample, setIsSendingSample] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -97,6 +100,59 @@ export default function SMTPManager() {
       const msg = error?.response?.data?.detail || error?.message || 'Connection Failed. Check credentials, port, and security settings.';
       toast.error(msg, {
         icon: <AlertCircle className="w-5 h-5 text-red-500" />
+      });
+    }
+  });
+
+  const sendTestEmailMutation = useMutation({
+    mutationFn: async ({ id, recipient }: { id: string; recipient: string }) => {
+      setIsSendingSample(true);
+      const target = recipient.trim() || 'nikunj.optimatrix@gmail.com';
+      const res = await api.get(`/email-ai/smtp/${id}/test?send_test=true&recipient=${encodeURIComponent(target)}`);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      setIsSendingSample(false);
+      setTestRecipientModal(null);
+      toast.success(data?.message || 'Test email successfully dispatched!', {
+        icon: <CheckCircle2 className="w-5 h-5 text-emerald-500" />,
+        duration: 5000
+      });
+    },
+    onError: (error: any) => {
+      setIsSendingSample(false);
+      const msg = error?.response?.data?.detail || error?.message || 'Failed to dispatch test email.';
+      toast.error(msg, {
+        icon: <AlertCircle className="w-5 h-5 text-red-500" />,
+        duration: 6000
+      });
+    }
+  });
+
+  const testDirectMutation = useMutation({
+    mutationFn: async (recipient: string) => {
+      setIsSendingSample(true);
+      const target = recipient.trim() || 'nikunj.optimatrix@gmail.com';
+      const res = await api.post('/email-ai/smtp/test-direct', {
+        ...formData,
+        recipient: target,
+        send_test: true
+      });
+      return res.data;
+    },
+    onSuccess: (data) => {
+      setIsSendingSample(false);
+      toast.success(data?.message || 'Test email successfully dispatched!', {
+        icon: <CheckCircle2 className="w-5 h-5 text-emerald-500" />,
+        duration: 5000
+      });
+    },
+    onError: (error: any) => {
+      setIsSendingSample(false);
+      const msg = error?.response?.data?.detail || error?.message || 'SMTP direct test failed.';
+      toast.error(msg, {
+        icon: <AlertCircle className="w-5 h-5 text-red-500" />,
+        duration: 6000
       });
     }
   });
@@ -348,17 +404,32 @@ export default function SMTPManager() {
               </span>
             </label>
 
-            <div className="flex gap-3">
+            <div className="flex items-center gap-3">
               <button 
+                type="button"
+                onClick={() => testDirectMutation.mutate(testRecipientEmail)}
+                disabled={isSendingSample || !formData.host || !formData.username || !formData.password}
+                className="px-5 py-2.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-xl text-sm font-bold hover:bg-emerald-100 disabled:opacity-50 transition-all flex items-center gap-1.5 cursor-pointer"
+                title="Send a real test email to nikunj.optimatrix@gmail.com"
+              >
+                {isSendingSample ? (
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Dispatching Test...</>
+                ) : (
+                  <><Send className="w-3.5 h-3.5" /> Test to nikunj.optimatrix@gmail.com</>
+                )}
+              </button>
+              <button 
+                type="button"
                 onClick={() => setIsAdding(false)}
-                className="px-6 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+                className="px-6 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
               >
                 Cancel
               </button>
               <button 
+                type="button"
                 onClick={() => saveMutation.mutate(formData)}
                 disabled={saveMutation.isPending || !formData.host || !formData.username || !formData.password}
-                className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-md shadow-indigo-500/20"
+                className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-bold hover:bg-indigo-700 disabled:opacity-50 transition-all shadow-md shadow-indigo-500/20 cursor-pointer"
               >
                 {saveMutation.isPending ? 'Encrypting & Saving...' : 'Secure & Save Profile'}
               </button>

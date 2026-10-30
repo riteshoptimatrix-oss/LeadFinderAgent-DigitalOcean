@@ -386,34 +386,17 @@ async def get_lead_analysis(lead_id: str, current_user: dict = Depends(get_curre
 
         # Compute business opportunity score from Lead's business sub-document
         biz = lead.get("business") or {}
-        overall_score = biz.get("overall_score") or lead.get("ai_analysis", {}).get("overall_score") or (job.get("overall_ai_score") if job else None)
-        
-        if overall_score is None:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error": "Missing Required Scores",
-                    "message": "AI Analysis overall_score could not be retrieved from Lead or Job records.",
-                    "component": "AI Analysis Route"
-                }
-            )
+        overall_score = biz.get("overall_score") or lead.get("ai_analysis", {}).get("overall_score") or (job.get("overall_ai_score") if job else 0)
         try:
-            overall_score = int(overall_score)
-        except (TypeError, ValueError) as e:
-            raise HTTPException(
-                status_code=422,
-                detail={
-                    "error": "Invalid Score Type",
-                    "message": f"overall_score is not a valid numeric score: {str(e)}",
-                    "component": "AI Analysis Route"
-                }
-            )
+            overall_score = int(overall_score or 0)
+        except (TypeError, ValueError):
+            overall_score = 0
 
         cd = lead.get("contact_discovery") or {}
         has_email = 1 if cd.get("primary_email") else 0
         has_phone = 1 if cd.get("primary_phone") else 0
         contact_bonus = (has_email * 10) + (has_phone * 5)
-        business_score = min(100, max(0, int((overall_score * 0.8) + (contact_bonus * 2))))
+        business_score = min(100, max(0, int((overall_score * 0.8) + (contact_bonus * 2)))) if overall_score > 0 else 0
 
         return LeadAnalysisResponse(
             job=AIAnalysisJobResponse.model_validate(job),
@@ -437,31 +420,15 @@ async def get_lead_analysis(lead_id: str, current_user: dict = Depends(get_curre
     contacts = await db["contact_discoveries"].find_one({"job_id": job_id})
 
     overall_score = job.get("overall_ai_score")
-    if overall_score is None:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "Missing Required Scores",
-                "message": "Legacy job overall_ai_score is missing or null.",
-                "component": "AI Analysis Route (Legacy Fallback)"
-            }
-        )
     try:
-        overall_score = int(overall_score)
-    except (TypeError, ValueError) as e:
-        raise HTTPException(
-            status_code=422,
-            detail={
-                "error": "Invalid Score Type",
-                "message": f"overall_ai_score is not a valid numeric score: {str(e)}",
-                "component": "AI Analysis Route (Legacy Fallback)"
-            }
-        )
+        overall_score = int(overall_score or 0)
+    except (TypeError, ValueError):
+        overall_score = 0
 
     has_primary_email = 1 if (contacts and contacts.get("primary_email")) else 0
     has_primary_phone = 1 if (contacts and contacts.get("primary_phone")) else 0
     contact_bonus = (has_primary_email * 10) + (has_primary_phone * 5)
-    business_score = min(100, max(0, int((overall_score * 0.8) + (contact_bonus * 2))))
+    business_score = min(100, max(0, int((overall_score * 0.8) + (contact_bonus * 2)))) if overall_score > 0 else 0
 
     return LeadAnalysisResponse(
         job=AIAnalysisJobResponse.model_validate(job),

@@ -106,8 +106,8 @@ function getLeadAnalysisState(lead: any) {
     };
   }
 
-  // Guard against stale stuck states: if started > 180 seconds ago
-  const isStale = Boolean(startedAt && (Date.now() - new Date(startedAt).getTime() > 180000));
+  // Guard against stale stuck states: if started > 300 seconds (5 min) ago
+  const isStale = Boolean(startedAt && (Date.now() - new Date(startedAt).getTime() > 300000));
   if (isStale && ['queued', 'waiting', 'running', 'in_progress', 'started', 'collecting', 'analyzing'].includes(rawStatus)) {
     if (hasPositiveScore) {
       return {
@@ -188,7 +188,38 @@ function LeadsPageContent() {
 
   // Currently starting analysis indicator per lead
   const [startingAnalysisId, setStartingAnalysisId] = useState<string | null>(null);
-  const [analyzingLeadIds, setAnalyzingLeadIds] = useState<Set<string>>(new Set());
+  
+  // Load analyzing IDs from sessionStorage to survive page refresh
+  const [analyzingLeadIds, setAnalyzingLeadIds] = useState<Set<string>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = sessionStorage.getItem('optimatrix_analyzing_leads');
+        if (stored) {
+          const parsed: Record<string, number> = JSON.parse(stored);
+          const now = Date.now();
+          const valid = Object.entries(parsed)
+            .filter(([_, ts]) => now - Number(ts) < 300000)
+            .map(([id]) => id);
+          return new Set(valid);
+        }
+      } catch {}
+    }
+    return new Set();
+  });
+
+  // Sync analyzingLeadIds to sessionStorage whenever it changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const entries: Record<string, number> = {};
+        const now = Date.now();
+        analyzingLeadIds.forEach(id => {
+          entries[id] = now;
+        });
+        sessionStorage.setItem('optimatrix_analyzing_leads', JSON.stringify(entries));
+      } catch {}
+    }
+  }, [analyzingLeadIds]);
 
   // Lead Analysis Drawer state
   const [selectedDrawerLead, setSelectedDrawerLead] = useState<any | null>(null);

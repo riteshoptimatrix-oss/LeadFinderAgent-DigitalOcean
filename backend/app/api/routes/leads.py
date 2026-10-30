@@ -48,7 +48,7 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
                 "SAVING", "saving",
                 "RETRY", "retry"
             ]}
-        })
+        }, sort=[("_id", -1)])
 
         now = datetime.now(timezone.utc)
         has_score = bool(
@@ -72,11 +72,11 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
             else:
                 age_seconds = 0
 
-            if age_seconds > 180:
-                # Active job is stale/hung beyond 3 minutes -> fail it
+            if age_seconds > 300:
+                # Active job is stale/hung beyond 5 minutes -> fail it
                 await db["ai_analysis_jobs"].update_one(
                     {"_id": active_job["_id"]},
-                    {"$set": {"status": "FAILED", "error_message": "Analysis timed out after 180s.", "updated_at": now}}
+                    {"$set": {"status": "FAILED", "error_message": "Analysis timed out after 300s.", "updated_at": now}}
                 )
                 new_status = "Completed" if has_score else "Failed"
                 stage_label = "Completed" if has_score else "Analysis timed out. Please retry."
@@ -118,7 +118,8 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
                     }}
                 )
             else:
-                started_at = ai.get("analysis_started_at") or lead.get("created_at")
+                # Never fall back to lead.created_at (which is the lead creation date, not analysis start date)
+                started_at = ai.get("analysis_started_at") or ai.get("started_at")
                 age_seconds = 0
                 if started_at:
                     if isinstance(started_at, str):
@@ -131,8 +132,16 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
                             started_at = started_at.replace(tzinfo=timezone.utc)
                         age_seconds = (now - started_at).total_seconds()
                 
-                # Only fail if started more than 180s ago! If recently started (<180s), it is actively enqueued in background!
-                if age_seconds > 180:
+                # Check if there is an active queue
+                queue_id = ai.get("queue_id")
+                has_active_queue = False
+                if queue_id:
+                    q_obj = ObjectId(queue_id) if ObjectId.is_valid(str(queue_id)) else str(queue_id)
+                    q = await db["ai_analysis_queues"].find_one({"_id": q_obj, "status": {"$in": ["WAITING", "RUNNING", "STARTED", "PENDING"]}})
+                    has_active_queue = bool(q)
+
+                # Only fail if started more than 300s ago AND no active queue AND started_at is valid
+                if started_at and age_seconds > 300 and not has_active_queue:
                     lead.setdefault("ai_analysis", {})["analysis_status"] = "Failed"
                     lead["ai_analysis"]["stage"] = "Analysis incomplete. Please retry."
                     lead["ai_analysis"]["progress"] = 0
@@ -898,22 +907,22 @@ async def start_analysis(
         website = "http://" + website
 
     from datetime import timezone
-    # Check for genuinely active jobs; if stale (>180s), fail it so a fresh analysis runs
+    # Check for genuinely active jobs; if stale (>300s), fail it so a fresh analysis runs
     now = datetime.now(timezone.utc)
     active_job = await db["ai_analysis_jobs"].find_one({
         "lead_id": str(id),
         "status": {"$in": ["WAITING", "STARTED", "COLLECTING", "ANALYZING", "SCORING", "SAVING", "QUEUED"]}
-    })
+    }, sort=[("_id", -1)])
     if active_job:
         job_updated = active_job.get("updated_at") or active_job.get("started_at") or active_job.get("created_at")
         if job_updated and job_updated.tzinfo is None:
             job_updated = job_updated.replace(tzinfo=timezone.utc)
         age = (now - job_updated).total_seconds() if job_updated else 999
-        if age <= 180:
+        if age <= 300:
             return StartAnalysisResponse(
                 lead_id=str(id),
                 website_url=website,
-                queue_id=str(active_job["queue_id"]),
+                queue_id=str(active_job.get("queue_id", "")),
                 worker_id="Worker-Active"
             )
         else:
@@ -936,10 +945,10 @@ async def start_analysis(
     # Immediately update the lead document with genuine processing state
     now = datetime.now(timezone.utc)
     await db["leads"].update_one(
-        query,
+        {"_id": lead["_id"]},
         {"$set": {
             "ai_analysis.analysis_status": "Queued",
-            "ai_analysis.progress": 5,
+            "ai_analysis.progress": 10,
             "ai_analysis.stage": "Queued for AI analysis",
             "ai_analysis.queue_id": str(queue.id),
             "ai_analysis.analysis_started_at": now,

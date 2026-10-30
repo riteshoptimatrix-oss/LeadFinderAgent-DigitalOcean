@@ -4,9 +4,9 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "next build",
-    "build:static": "next build",
-    "build:netlify": "next build",
+    "build": "next build --webpack",
+    "build:static": "next build --webpack",
+    "build:netlify": "next build --webpack",
     "start": "next start",
     "lint": "eslint"
   },

@@ -851,11 +851,10 @@ function LeadsPageContent() {
           {/* Search Campaign Button (Moved to main action area alongside Add Lead) */}
           <button
             onClick={() => setSessionsModalOpen(true)}
-            className={`px-3.5 py-2.5 rounded-xl text-sm font-semibold border transition-all flex items-center justify-center gap-2 cursor-pointer shadow-2xs active:scale-98 ${
-              activeSession
-                ? 'bg-blue-50 text-blue-700 border-blue-300 ring-2 ring-blue-500/20'
-                : 'bg-white text-slate-700 hover:text-slate-900 border-slate-200 hover:bg-slate-50'
-            }`}
+            className={`px-3.5 py-2.5 rounded-xl text-sm font-semibold border transition-all flex items-center justify-center gap-2 cursor-pointer shadow-2xs active:scale-98 ${activeSession
+              ? 'bg-blue-50 text-blue-700 border-blue-300 ring-2 ring-blue-500/20'
+              : 'bg-white text-slate-700 hover:text-slate-900 border-slate-200 hover:bg-slate-50'
+              }`}
             title="Browse search campaigns"
           >
             <History className="w-4 h-4 text-blue-600" />
@@ -863,14 +862,6 @@ function LeadsPageContent() {
             {activeSession && (
               <span className="w-2 h-2 rounded-full bg-blue-600" />
             )}
-          </button>
-
-          <button
-            onClick={() => setIsAddLeadOpen(true)}
-            className="flex-1 sm:flex-initial px-4 py-2.5 bg-blue-600 hover:bg-blue-700 active:scale-98 text-white rounded-xl text-sm font-semibold shadow-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-          >
-            <Plus className="w-4 h-4 stroke-[2.5]" />
-            Add Lead
           </button>
 
           <div className="relative group">
@@ -1256,11 +1247,11 @@ function LeadsPageContent() {
                   );
                   const analysisState = isActivelyAnalyzing && rawAnalysisState.status !== 'completed'
                     ? {
-                        status: 'analyzing',
-                        label: 'Analyzing...',
-                        progress: Math.max(rawAnalysisState.progress, 15),
-                        startedAt: rawAnalysisState.startedAt || new Date().toISOString()
-                      }
+                      status: 'analyzing',
+                      label: 'Analyzing...',
+                      progress: Math.max(rawAnalysisState.progress, 15),
+                      startedAt: rawAnalysisState.startedAt || new Date().toISOString()
+                    }
                     : rawAnalysisState;
                   const isSelectedInDrawer = selectedDrawerLead?._id === lead._id && drawerOpen;
 
@@ -1489,11 +1480,10 @@ function LeadsPageContent() {
                               onClick={() => handleStartAnalysis(lead)}
                               disabled={!lead.website || isActivelyAnalyzing}
                               title={isActivelyAnalyzing ? "Analysis in progress." : "Analysis failed. Click to retry analysis."}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-2xs transition-all active:scale-95 cursor-pointer ${
-                                isActivelyAnalyzing
-                                  ? 'border-blue-200 bg-blue-50/80 text-blue-700'
-                                  : 'border-rose-200 bg-rose-50/60 text-rose-700 hover:bg-rose-100/60'
-                              }`}
+                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-2xs transition-all active:scale-95 cursor-pointer ${isActivelyAnalyzing
+                                ? 'border-blue-200 bg-blue-50/80 text-blue-700'
+                                : 'border-rose-200 bg-rose-50/60 text-rose-700 hover:bg-rose-100/60'
+                                }`}
                             >
                               {isActivelyAnalyzing ? (
                                 <>
@@ -1543,11 +1533,11 @@ function LeadsPageContent() {
             );
             const analysisState = isActivelyAnalyzing && rawAnalysisState.status !== 'completed'
               ? {
-                  status: 'analyzing',
-                  label: 'Analyzing...',
-                  progress: Math.max(rawAnalysisState.progress, 15),
-                  startedAt: rawAnalysisState.startedAt || new Date().toISOString()
-                }
+                status: 'analyzing',
+                label: 'Analyzing...',
+                progress: Math.max(rawAnalysisState.progress, 15),
+                startedAt: rawAnalysisState.startedAt || new Date().toISOString()
+              }
               : rawAnalysisState;
 
             return (
@@ -1657,11 +1647,10 @@ function LeadsPageContent() {
                       <button
                         onClick={() => handleStartAnalysis(lead)}
                         disabled={!lead.website || isActivelyAnalyzing}
-                        className={`flex-1 px-3 py-2 rounded-xl border text-xs font-semibold shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                          isActivelyAnalyzing
-                            ? 'bg-blue-50 border-blue-200 text-blue-700'
-                            : 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
-                        }`}
+                        className={`flex-1 px-3 py-2 rounded-xl border text-xs font-semibold shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${isActivelyAnalyzing
+                          ? 'bg-blue-50 border-blue-200 text-blue-700'
+                          : 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
+                          }`}
                       >
                         {isActivelyAnalyzing ? (
                           <>

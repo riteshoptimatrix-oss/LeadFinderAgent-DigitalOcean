@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
+from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId

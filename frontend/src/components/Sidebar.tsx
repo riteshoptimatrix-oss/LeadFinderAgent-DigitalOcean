@@ -369,10 +369,16 @@ export default function Sidebar() {
                 {(!isSectionCollapsed || isCollapsed) && (
                   <div className={cn(isCollapsed ? "space-y-1" : "space-y-0.5")}>
                     {group.items.map((item) => {
-                      // Exact match, or starts-with but only when no other nav item is a longer/more-specific match
+                      // Collect all hrefs across all groups for specificity check
+                      const allHrefs = allGroups.flatMap(g => g.items.map(i => i.href));
+                      // Exact match for current path
                       const isExact = pathname === item.href;
+                      // Prefix match: only if no other nav item has a more specific (longer) href that also matches
                       const isPrefix = !isExact && item.href !== '/dashboard' && pathname?.startsWith(item.href + '/');
-                      const isActive = isExact || isPrefix;
+                      const hasMoreSpecificMatch = isPrefix && allHrefs.some(
+                        href => href !== item.href && href.startsWith(item.href + '/') && pathname?.startsWith(href)
+                      );
+                      const isActive = isExact || (isPrefix && !hasMoreSpecificMatch);
                       const Icon = item.icon;
                       const hasBadgeBox = Boolean(item.badgeBox);
                       const tooltipLabel = item.status ? `${item.name} — ${item.status}` : item.name;

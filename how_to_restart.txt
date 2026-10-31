@@ -1,0 +1,4 @@
+bash /root/lead-finder-project/restart.sh              # dono
+bash /root/lead-finder-project/restart.sh backend      # sirf backend
+bash /root/lead-finder-project/restart.sh frontend     # sirf frontend
+bash /root/lead-finder-project/restart.sh all --build  # frontend build + dono restart

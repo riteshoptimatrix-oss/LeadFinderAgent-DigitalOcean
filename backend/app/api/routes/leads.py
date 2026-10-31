@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, Request
 from fastapi.responses import FileResponse
 from typing import List, Optional
 from datetime import datetime, timezone
+import asyncio
 import os
 import time
 import json
@@ -350,6 +351,7 @@ async def get_leads(
     if sort_by not in ["name", "google_rating", "review_count", "created_at", "category", "status", "lead_score", "ai_score"]:
         sort_by = "created_at"
 
+    cursor = db["leads"].find(query).sort(sort_by, sort_order).skip(skip).limit(limit)
     raw_leads = await cursor.to_list(length=limit)
     reconciled_leads = await asyncio.gather(*[_reconcile_lead_ai_status(l, db) for l in raw_leads])
 

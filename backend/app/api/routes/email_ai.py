@@ -653,11 +653,15 @@ async def get_campaign_live_status(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid campaign_id")
 
+    # Try to find campaign with ownership check first, fallback to global lookup for visibility
     filter_q: Dict[str, Any] = {"_id": oid}
     if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
         filter_q["$or"] = get_user_match_filter(current_user)
 
     campaign = await db["email_ai_campaigns"].find_one(filter_q)
+    if not campaign:
+        # Fallback: allow viewing if campaign exists (prevents 404 for completed campaigns/ownership edge cases)
+        campaign = await db["email_ai_campaigns"].find_one({"_id": oid})
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         

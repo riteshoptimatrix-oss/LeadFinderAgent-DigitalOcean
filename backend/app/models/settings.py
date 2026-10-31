@@ -14,9 +14,12 @@ class SMTPSettings(BaseModel):
 
 class WhatsAppSettings(BaseModel):
     user_id: Optional[str] = None
-    wa_provider_type: Optional[str] = "BROWSER" # OFFICIAL, BROWSER
+    wa_provider_type: Optional[str] = "OFFICIAL" # OFFICIAL, BROWSER
     wa_official_token: Optional[str] = None
+    wa_api_key: Optional[str] = None
     wa_phone_id: Optional[str] = None
+    wa_waba_id: Optional[str] = None
+    wa_webhook_verify_token: Optional[str] = None
     wa_browser_headless: Optional[bool] = True
     wa_browser_profile_dir: Optional[str] = None
     wa_retry_count: Optional[int] = 3

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { useRouter } from 'next/navigation';
-import { Check, MessageSquare, Clock, Globe, Tag, ArrowLeft, ArrowRight, CheckCircle2, Plus, Pencil, Trash2, X, Eye } from 'lucide-react';
+import { Check, MessageSquare, Clock, Globe, Tag, ArrowLeft, ArrowRight, CheckCircle2, Plus, Pencil, Trash2, X, Eye, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
 import { DeleteDialog } from '@/src/components/common/Dialogs';
@@ -127,6 +127,20 @@ export default function TemplateManager() {
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.detail || 'Failed to delete template');
+    }
+  });
+
+  const syncMetaMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.post('/whatsapp-ai/templates/sync-meta');
+      return res.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['wa-ai-templates'] });
+      toast.success(data?.message || 'Synced templates from Meta');
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Failed to sync Meta templates. Please check WABA ID and Access Token in Settings.');
     }
   });
 
@@ -276,13 +290,24 @@ export default function TemplateManager() {
         <div className="flex flex-col min-h-0 bg-slate-50/50 rounded-3xl border border-slate-200 p-6">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-bold text-slate-900">Message Templates</h2>
-            <button
-              onClick={openCreate}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-500/30"
-            >
-              <Plus className="w-4 h-4" />
-              New Template
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => syncMetaMutation.mutate()}
+                disabled={syncMetaMutation.isPending}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-200 text-slate-700 rounded-xl text-xs font-bold hover:bg-slate-100 transition-all shadow-sm disabled:opacity-50"
+                title="Pull approved templates from Meta WhatsApp Business Account"
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5 text-emerald-600", syncMetaMutation.isPending && "animate-spin")} />
+                Sync Meta
+              </button>
+              <button
+                onClick={openCreate}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-500/30"
+              >
+                <Plus className="w-4 h-4" />
+                New Template
+              </button>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto space-y-4 pr-2">
             {isLoading ? (

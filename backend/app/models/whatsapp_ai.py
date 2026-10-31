@@ -50,3 +50,27 @@ class WAAICampaignInDB(WAAICampaignBase):
 
     class Config:
         populate_by_name = True
+
+
+class WhatsAppConfigUpdate(BaseModel):
+    access_token: Optional[str] = None
+    phone_number_id: Optional[str] = None
+    waba_id: Optional[str] = None
+    verify_token: Optional[str] = None
+
+
+class WhatsAppConfigResponse(BaseModel):
+    is_configured: bool
+    phone_number_id: Optional[str] = None
+    waba_id: Optional[str] = None
+    masked_token: Optional[str] = None
+    webhook_url: Optional[str] = None
+    verified_phone: Optional[str] = None
+    display_name: Optional[str] = None
+    quality_rating: Optional[str] = None
+
+
+class PreviewRequest(BaseModel):
+    template_id: Optional[str] = None
+    template_content: Optional[str] = None
+    lead_id: Optional[str] = None

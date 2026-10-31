@@ -239,6 +239,7 @@ export default function LeadDetailsPage() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const leadId = searchParams.get("id") as string;
+  const returnUrl = searchParams.get("returnUrl") || "/dashboard/leads";
 
   // Active Main Tab
   const [activeTab, setActiveTab] = useState<"overview" | "audits" | "tech" | "crm" | "contacts">("overview");
@@ -555,7 +556,7 @@ ${issues || "No critical issues detected."}
           <h2 className="text-xl font-bold text-slate-900">Lead Record Not Found</h2>
           <p className="text-sm text-slate-500">The lead you are trying to view does not exist or has been deleted.</p>
           <Link
-            href="/dashboard/leads"
+            href={returnUrl}
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-bold hover:bg-blue-700 transition-all shadow-sm"
           >
             <ArrowLeft className="w-4 h-4" /> Return to Leads Directory
@@ -638,7 +639,7 @@ ${issues || "No critical issues detected."}
         <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
           <div className="flex items-center gap-2">
             <Link
-              href="/dashboard/leads"
+              href={returnUrl}
               className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 font-bold text-slate-700 shadow-sm transition hover:bg-slate-50 hover:text-blue-600"
             >
               <ArrowLeft className="w-3.5 h-3.5" /> Back to Leads

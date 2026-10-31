@@ -67,6 +67,28 @@ class AIAnalysisQueueService:
         if jobs:
             await job_collection.insert_many(jobs)
             queue_status = AIAnalysisState.WAITING
+            from datetime import timezone
+            now_utc = datetime.now(timezone.utc)
+            lead_oids = []
+            for j in jobs:
+                lid = j.get("lead_id")
+                if isinstance(lid, ObjectId):
+                    lead_oids.append(lid)
+                elif isinstance(lid, str) and ObjectId.is_valid(lid):
+                    lead_oids.append(ObjectId(lid))
+            if lead_oids:
+                await db["leads"].update_many(
+                    {"_id": {"$in": lead_oids}},
+                    {"$set": {
+                        "ai_analysis.analysis_status": "Queued",
+                        "ai_analysis.status": "Queued",
+                        "ai_analysis.progress": 10,
+                        "ai_analysis.stage": "Queued for AI analysis",
+                        "ai_analysis.queue_id": str(queue_id),
+                        "ai_analysis.analysis_started_at": now_utc,
+                        "updated_at": now_utc,
+                    }}
+                )
         else:
             queue_status = AIAnalysisState.EMPTY
 

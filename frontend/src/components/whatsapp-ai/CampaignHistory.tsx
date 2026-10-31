@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { Calendar, Users, Send, CheckCircle2, Clock, Activity, Pause, Play, XSquare, Search, Filter, Download, Terminal } from 'lucide-react';
+import { Calendar, Users, Send, CheckCircle2, Clock, Activity, Pause, Play, XSquare, Search, Filter, Download, Terminal, RotateCcw } from 'lucide-react';
 import { format } from 'date-fns';
 import { cn } from '@/src/lib/utils';
 import { toast } from 'sonner';
@@ -165,6 +165,23 @@ export default function CampaignHistory() {
       toast.success(`Campaign ${variables.action}d`);
     }
   });
+
+  const retryMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await api.post(`/whatsapp-ai/campaigns/${id}/retry-failed`);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['wa-ai-campaigns'] });
+      toast.success(data?.message || 'Retrying failed messages...');
+      if (activeCampaignId) {
+        api.get(`/whatsapp-ai/campaigns/${activeCampaignId}/live-status`).then(r => setLiveStatus(r.data));
+      }
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Failed to retry messages');
+    }
+  });
   
   const handleExport = async (campaignId: string, format: 'csv' | 'xlsx') => {
     try {
@@ -216,7 +233,7 @@ export default function CampaignHistory() {
                   </span>
                 )}
               </div>
-              <p className="text-sm text-slate-500">Automating Windows WhatsApp Desktop Natively</p>
+              <p className="text-sm text-slate-500">Official Meta WhatsApp Business Cloud API</p>
             </div>
             <button 
               onClick={() => setActiveCampaignId(null)}
@@ -245,7 +262,7 @@ export default function CampaignHistory() {
             </div>
           </div>
 
-          <div className="flex gap-4">
+          <div className="flex flex-wrap gap-4">
             {liveStatus.status === 'RUNNING' && (
               <button 
                 onClick={() => controlMutation.mutate({ id: activeCampaignId, action: 'pause' })}
@@ -268,6 +285,15 @@ export default function CampaignHistory() {
                 className="flex-1 py-3 bg-red-500 text-white rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-red-600 transition-colors"
               >
                 <XSquare className="w-5 h-5" /> Cancel Campaign
+              </button>
+            )}
+            {liveStatus.failed > 0 && (
+              <button 
+                onClick={() => retryMutation.mutate(activeCampaignId)}
+                disabled={retryMutation.isPending}
+                className="flex-1 py-3 bg-amber-600 text-white rounded-xl font-semibold flex items-center justify-center gap-2 hover:bg-amber-700 transition-colors disabled:opacity-50"
+              >
+                <RotateCcw className={cn("w-5 h-5", retryMutation.isPending && "animate-spin")} /> Retry Failed ({liveStatus.failed})
               </button>
             )}
           </div>

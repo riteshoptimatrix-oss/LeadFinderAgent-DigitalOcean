@@ -568,6 +568,27 @@ async def create_bulk_queue(
 
     await db["ai_analysis_jobs"].insert_many(jobs)
 
+    # Immediately mark all eligible leads (primary + linked) as Queued in DB
+    all_lead_ids = []
+    for spec in job_specs:
+        if spec.get("lead_id"):
+            all_lead_ids.append(spec["lead_id"])
+        all_lead_ids.extend(spec.get("linked_lead_ids") or [])
+    all_lead_oids = [to_object_id(lid) for lid in all_lead_ids if lid]
+    if all_lead_oids:
+        await db["leads"].update_many(
+            {"_id": {"$in": all_lead_oids}},
+            {"$set": {
+                "ai_analysis.analysis_status": "Queued",
+                "ai_analysis.status": "Queued",
+                "ai_analysis.progress": 5,
+                "ai_analysis.stage": "Queued for bulk AI analysis",
+                "ai_analysis.queue_id": str(queue_id),
+                "ai_analysis.analysis_started_at": now,
+                "updated_at": now,
+            }}
+        )
+
     total_leads = sum(1 + len(s["linked_lead_ids"]) for s in job_specs)
     duplicate_leads = total_leads - len(jobs)
 

@@ -12,7 +12,6 @@ pandas
 openpyxl
 playwright
 python-jose[cryptography]
-router
 slowapi
 bcrypt
 passlib

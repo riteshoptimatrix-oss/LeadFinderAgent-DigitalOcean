@@ -74,7 +74,7 @@ from app.services.campaigns.queue_worker import CampaignQueueWorker
 from app.services.email.email_worker import email_worker_instance
 
 from app.services.whatsapp.enhanced_wa_worker import EnhancedWAQueueWorker
-from app.services.whatsapp_ai.desktop_worker import WADesktopQueueWorker
+from app.services.whatsapp_ai.cloud_worker import WAAICloudWorker
 from app.services.email_ai.smtp_worker import EmailAIQueueWorker
 from app.services.ai.ai_worker import AIQueueWorker
 from app.services.advanced_analysis_worker import AdvancedAnalysisWorker
@@ -91,7 +91,7 @@ limiter = Limiter(key_func=get_remote_address)
 campaign_worker = None
 email_worker = None
 wa_worker = None
-wa_ai_desktop_worker = None
+wa_ai_cloud_worker = None
 email_ai_worker = None
 ai_worker = None
 
@@ -254,8 +254,8 @@ async def lifespan(app: FastAPI):
         wa_worker = EnhancedWAQueueWorker(db, batch_size=10, concurrency=5, message_delay=2.0)
         supervisor.register("wa_queue", wa_worker, factory=lambda d=db: EnhancedWAQueueWorker(d, batch_size=10, concurrency=5, message_delay=2.0))
 
-        wa_ai_desktop_worker = WADesktopQueueWorker(db)
-        supervisor.register("wa_ai_desktop_queue", wa_ai_desktop_worker, factory=lambda d=db: WADesktopQueueWorker(d))
+        wa_ai_cloud_worker = WAAICloudWorker(db)
+        supervisor.register("wa_ai_cloud_queue", wa_ai_cloud_worker, factory=lambda d=db: WAAICloudWorker(d))
 
         email_ai_worker = EmailAIQueueWorker(db)
         supervisor.register("email_ai_queue", email_ai_worker, factory=lambda d=db: EmailAIQueueWorker(d))

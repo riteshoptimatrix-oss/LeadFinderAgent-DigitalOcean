@@ -349,6 +349,11 @@ class AIAnalysisMetadata(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     analysis_status: Optional[str] = None
+    status: Optional[str] = None
+    progress: Optional[float] = None
+    stage: Optional[str] = None
+    queue_id: Optional[str] = None
+    error_message: Optional[str] = None
     analysis_started_at: Optional[datetime] = None
     analysis_completed_at: Optional[datetime] = None
     analysis_version: Optional[str] = None

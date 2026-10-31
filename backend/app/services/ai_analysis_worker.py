@@ -126,7 +126,7 @@ class AnalysisSummary:
 # Each phase has a hard ceiling. If it exceeds this, the phase is marked as
 # failed with a fallback result and the pipeline continues.
 
-CRAWL_TIMEOUT = 150            # Crawler may need time for large sites
+CRAWL_TIMEOUT = 60             # Fast crawler ceiling for high-priority pages
 ENRICHMENT_TIMEOUT = 30        # Lead enrichment (website info/structure)
 CONTACT_TIMEOUT = 90           # Contact discovery (email/phone scraping)
 TECH_TIMEOUT = 60              # Technology detection
@@ -831,15 +831,19 @@ class AIAnalysisWorker:
                 # Persist live progress into MongoDB so leads table and drawer always share truth
                 try:
                     lead_status_label = "Completed" if status == "success" else ("Failed" if status == "failed" else "Running")
-                    await db["leads"].update_one(
-                        {"_id": to_object_id(lead_id)},
-                        {"$set": {
-                            "ai_analysis.progress": progress,
-                            "ai_analysis.stage": stage,
-                            "ai_analysis.analysis_status": lead_status_label,
-                            "updated_at": datetime.now(timezone.utc),
-                        }}
-                    )
+                    target_lead_ids = [lead_id] + (job.get("linked_lead_ids") or [])
+                    target_oids = [to_object_id(lid) for lid in target_lead_ids if lid]
+                    if target_oids:
+                        await db["leads"].update_many(
+                            {"_id": {"$in": target_oids}},
+                            {"$set": {
+                                "ai_analysis.progress": progress,
+                                "ai_analysis.stage": stage,
+                                "ai_analysis.analysis_status": lead_status_label,
+                                "ai_analysis.status": lead_status_label,
+                                "updated_at": datetime.now(timezone.utc),
+                            }}
+                        )
                     await db["ai_analysis_jobs"].update_one(
                         {"_id": job_id},
                         {"$set": {
@@ -973,7 +977,7 @@ class AIAnalysisWorker:
             logger.info("STEP_STARTED: Crawl")
             try:
                 from app.services.crawler_engine.engine import CrawlEngine
-                crawler = CrawlEngine(max_pages=30, max_depth=3)
+                crawler = CrawlEngine(max_pages=12, max_depth=2)
 
                 async def silent_update(stage: str, url: str, details: dict):
                     pass
@@ -1687,6 +1691,11 @@ class AIAnalysisWorker:
                     persist_ai_analysis(lead_id, normalized_analysis),
                     timeout=SAVE_TIMEOUT
                 )
+                for linked_id in (job.get("linked_lead_ids") or []):
+                    try:
+                        await persist_ai_analysis(str(linked_id), normalized_analysis)
+                    except Exception as linked_save_err:
+                        logger.warning(f"Failed to persist ai_analysis for linked lead {linked_id}: {linked_save_err}")
                 # ── Phase 8: Automatic DB consistency verification ──
                 try:
                     await self._verify_and_repair_consistency(
@@ -1715,6 +1724,25 @@ class AIAnalysisWorker:
                     logger.info(f"RETRY_SCHEDULED: Job {job_id} scheduled for retry after {duration}s.")
 
             if not retried:
+                if final_status == AIAnalysisState.FAILED:
+                    all_failed_ids = [lead_id] + (job.get("linked_lead_ids") or [])
+                    failed_oids = [to_object_id(lid) for lid in all_failed_ids if lid]
+                    if failed_oids:
+                        try:
+                            await db["leads"].update_many(
+                                {"_id": {"$in": failed_oids}},
+                                {"$set": {
+                                    "ai_analysis.analysis_status": "Failed",
+                                    "ai_analysis.status": "Failed",
+                                    "ai_analysis.stage": "Analysis failed. Please retry.",
+                                    "ai_analysis.progress": 0,
+                                    "ai_analysis.error_message": "; ".join(errors) if errors else "Analysis failed",
+                                    "updated_at": completed_at,
+                                }}
+                            )
+                        except Exception as fail_upd_err:
+                            logger.error(f"Failed to update lead documents on failure: {fail_upd_err}")
+
                 # Update job record (metadata only) — with timeout protection
                 try:
                     await asyncio.wait_for(

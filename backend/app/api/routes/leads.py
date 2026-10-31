@@ -20,46 +20,54 @@ router = APIRouter()
 
 async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dict:
     """Self-healing helper: ensure lead ai_analysis state accurately reflects genuine worker jobs.
-    Prevents leads from being orphaned in infinite 'Queued' or 'Analyzing...' state."""
-    ai = lead.get("ai_analysis")
-    if not isinstance(ai, dict):
+    Prevents leads from being orphaned in infinite 'Queued' or 'Analyzing...' state,
+    and ensures active/completed/failed jobs in ai_analysis_jobs are reflected on the lead."""
+    if not isinstance(lead, dict):
         return lead
 
+    ai = lead.get("ai_analysis")
+    if not isinstance(ai, dict):
+        ai = {}
+        lead["ai_analysis"] = ai
+
     raw_status = str(ai.get("analysis_status") or ai.get("status") or "").lower()
-    transient = {"queued", "running", "analyzing", "processing", "in_progress", "started", "collecting", "scoring", "saving", "waiting", "pending"}
+    lead_id_str = str(lead.get("_id", ""))
+    if not lead_id_str:
+        return lead
 
-    if raw_status in transient:
-        lead_id_str = str(lead.get("_id"))
-        id_filters = [lead_id_str]
-        if ObjectId.is_valid(lead_id_str):
-            id_filters.append(ObjectId(lead_id_str))
+    id_filters = [lead_id_str]
+    if ObjectId.is_valid(lead_id_str):
+        id_filters.append(ObjectId(lead_id_str))
 
-        active_job = await db["ai_analysis_jobs"].find_one({
-            "lead_id": {"$in": id_filters},
-            "status": {"$in": [
-                "WAITING", "waiting",
-                "QUEUED", "queued",
-                "PENDING", "pending",
-                "RUNNING", "running",
-                "STARTED", "started",
-                "COLLECTING", "collecting",
-                "ANALYZING", "analyzing",
-                "SCORING", "scoring",
-                "SAVING", "saving",
-                "RETRY", "retry"
-            ]}
-        }, sort=[("_id", -1)])
+    has_score = bool(
+        (lead.get("ai_score") and lead.get("ai_score") > 0) or
+        (ai.get("overall_score") and ai.get("overall_score") > 0) or
+        (ai.get("overall_ai_score") and ai.get("overall_ai_score") > 0) or
+        (lead.get("lead_score") and lead.get("lead_score") > 0)
+    )
 
-        now = datetime.now(timezone.utc)
-        has_score = bool(
-            (lead.get("ai_score") and lead.get("ai_score") > 0) or
-            (ai.get("overall_score") and ai.get("overall_score") > 0) or
-            (ai.get("overall_ai_score") and ai.get("overall_ai_score") > 0) or
-            (lead.get("lead_score") and lead.get("lead_score") > 0)
-        )
+    now = datetime.now(timezone.utc)
 
-        if active_job:
-            job_updated = active_job.get("updated_at") or active_job.get("started_at") or active_job.get("created_at")
+    # 1. Query the latest job associated with this lead (direct or linked in bulk)
+    job_query = {
+        "$or": [
+            {"lead_id": {"$in": id_filters}},
+            {"linked_lead_ids": lead_id_str}
+        ]
+    }
+
+    try:
+        latest_job = await db["ai_analysis_jobs"].find_one(job_query, sort=[("_id", -1)])
+    except Exception as job_err:
+        logger.warning(f"Failed to lookup ai_analysis_jobs for lead {lead_id_str}: {job_err}")
+        latest_job = None
+
+    if latest_job:
+        job_status = str(latest_job.get("status") or "").upper()
+        active_statuses = {"WAITING", "QUEUED", "PENDING", "RUNNING", "STARTED", "COLLECTING", "ANALYZING", "SCORING", "SAVING", "RETRY"}
+
+        if job_status in active_statuses:
+            job_updated = latest_job.get("updated_at") or latest_job.get("started_at") or latest_job.get("created_at")
             if job_updated:
                 if isinstance(job_updated, str):
                     try:
@@ -75,19 +83,21 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
             if age_seconds > 300:
                 # Active job is stale/hung beyond 5 minutes -> fail it
                 await db["ai_analysis_jobs"].update_one(
-                    {"_id": active_job["_id"]},
+                    {"_id": latest_job["_id"]},
                     {"$set": {"status": "FAILED", "error_message": "Analysis timed out after 300s.", "updated_at": now}}
                 )
                 new_status = "Completed" if has_score else "Failed"
                 stage_label = "Completed" if has_score else "Analysis timed out. Please retry."
                 prog_val = 100 if has_score else 0
-                lead.setdefault("ai_analysis", {})["analysis_status"] = new_status
-                lead["ai_analysis"]["stage"] = stage_label
-                lead["ai_analysis"]["progress"] = prog_val
+                ai["analysis_status"] = new_status
+                ai["status"] = new_status
+                ai["stage"] = stage_label
+                ai["progress"] = prog_val
                 await db["leads"].update_one(
                     {"_id": lead["_id"]},
                     {"$set": {
                         "ai_analysis.analysis_status": new_status,
+                        "ai_analysis.status": new_status,
                         "ai_analysis.stage": stage_label,
                         "ai_analysis.progress": prog_val,
                         "updated_at": now,
@@ -95,72 +105,108 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
                 )
             else:
                 # Sync real-time progress and stage from active job
-                job_raw_status = str(active_job.get("status", "Analyzing")).lower()
-                canonical_status = "Analyzing" if job_raw_status in ["started", "collecting", "analyzing", "scoring", "saving", "running"] else "Queued"
-                lead.setdefault("ai_analysis", {})["analysis_status"] = canonical_status
-                if active_job.get("progress") is not None:
-                    lead["ai_analysis"]["progress"] = active_job["progress"]
-                if active_job.get("current_stage"):
-                    lead["ai_analysis"]["stage"] = active_job["current_stage"]
-        else:
-            # No active job exists yet in DB
-            if has_score:
-                lead.setdefault("ai_analysis", {})["analysis_status"] = "Completed"
-                lead["ai_analysis"]["progress"] = 100
-                lead["ai_analysis"]["stage"] = "Completed"
+                canonical_status = "Analyzing" if job_status in ["STARTED", "COLLECTING", "ANALYZING", "SCORING", "SAVING", "RUNNING"] else "Queued"
+                ai["analysis_status"] = canonical_status
+                ai["status"] = canonical_status
+                ai["progress"] = latest_job.get("progress") if latest_job.get("progress") is not None else (25 if canonical_status == "Analyzing" else 10)
+                ai["stage"] = latest_job.get("current_stage") or ("Analyzing website..." if canonical_status == "Analyzing" else "Queued for AI analysis")
+                ai["queue_id"] = str(latest_job.get("queue_id") or "")
+                started_dt = latest_job.get("started_at") or latest_job.get("created_at") or now
+                ai["analysis_started_at"] = started_dt
+
+        elif job_status in {"COMPLETED", "SUCCESS", "PARTIAL_SUCCESS"}:
+            if raw_status not in {"completed", "done", "partial_success", "success"}:
+                ai["analysis_status"] = "Completed"
+                ai["status"] = "Completed"
+                ai["progress"] = 100
+                ai["stage"] = "Completed"
+                if latest_job.get("overall_ai_score") and not lead.get("ai_score"):
+                    lead["ai_score"] = latest_job["overall_ai_score"]
+                    ai["overall_ai_score"] = latest_job["overall_ai_score"]
+
+        elif job_status in {"FAILED", "CANCELLED", "TIMEOUT"}:
+            if raw_status not in {"completed", "done", "partial_success", "success", "failed"}:
+                ai["analysis_status"] = "Failed"
+                ai["status"] = "Failed"
+                ai["progress"] = 0
+                ai["stage"] = latest_job.get("error_message") or "Analysis failed. Please retry."
                 await db["leads"].update_one(
                     {"_id": lead["_id"]},
                     {"$set": {
-                        "ai_analysis.analysis_status": "Completed",
-                        "ai_analysis.progress": 100,
-                        "ai_analysis.stage": "Completed",
+                        "ai_analysis.analysis_status": "Failed",
+                        "ai_analysis.status": "Failed",
+                        "ai_analysis.stage": ai["stage"],
+                        "ai_analysis.progress": 0,
+                        "updated_at": now,
+                    }}
+                )
+
+    else:
+        # No job record found in ai_analysis_jobs
+        if has_score:
+            ai["analysis_status"] = "Completed"
+            ai["status"] = "Completed"
+            ai["progress"] = 100
+            ai["stage"] = "Completed"
+        elif raw_status in {"queued", "running", "analyzing", "processing", "in_progress", "started", "collecting", "scoring", "saving", "waiting", "pending"}:
+            started_at = ai.get("analysis_started_at") or ai.get("started_at")
+            age_seconds = 0
+            if started_at:
+                if isinstance(started_at, str):
+                    try:
+                        started_at = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
+                    except Exception:
+                        started_at = None
+                if isinstance(started_at, datetime):
+                    if started_at.tzinfo is None:
+                        started_at = started_at.replace(tzinfo=timezone.utc)
+                    age_seconds = (now - started_at).total_seconds()
+
+            queue_id = ai.get("queue_id")
+            has_active_queue = False
+            if queue_id:
+                q_obj = ObjectId(queue_id) if ObjectId.is_valid(str(queue_id)) else str(queue_id)
+                q = await db["ai_analysis_queues"].find_one({"_id": q_obj, "status": {"$in": ["WAITING", "RUNNING", "STARTED", "PENDING"]}})
+                if q:
+                    q_updated = q.get("updated_at") or q.get("created_at")
+                    if isinstance(q_updated, str):
+                        try:
+                            q_updated = datetime.fromisoformat(q_updated.replace('Z', '+00:00'))
+                        except Exception:
+                            q_updated = None
+                    if isinstance(q_updated, datetime) and q_updated.tzinfo is None:
+                        q_updated = q_updated.replace(tzinfo=timezone.utc)
+                    q_age = (now - q_updated).total_seconds() if isinstance(q_updated, datetime) else 999
+                    has_active_queue = q_age <= 300
+
+            if (not started_at or age_seconds > 300) and not has_active_queue:
+                ai["analysis_status"] = "Failed"
+                ai["status"] = "Failed"
+                ai["stage"] = "Analysis incomplete. Please retry."
+                ai["progress"] = 0
+                await db["leads"].update_one(
+                    {"_id": lead["_id"]},
+                    {"$set": {
+                        "ai_analysis.analysis_status": "Failed",
+                        "ai_analysis.status": "Failed",
+                        "ai_analysis.stage": "Analysis incomplete. Please retry.",
+                        "ai_analysis.progress": 0,
                         "updated_at": now,
                     }}
                 )
             else:
-                # Never fall back to lead.created_at (which is the lead creation date, not analysis start date)
-                started_at = ai.get("analysis_started_at") or ai.get("started_at")
-                age_seconds = 0
-                if started_at:
-                    if isinstance(started_at, str):
-                        try:
-                            started_at = datetime.fromisoformat(started_at.replace('Z', '+00:00'))
-                        except Exception:
-                            started_at = None
-                    if isinstance(started_at, datetime):
-                        if started_at.tzinfo is None:
-                            started_at = started_at.replace(tzinfo=timezone.utc)
-                        age_seconds = (now - started_at).total_seconds()
-                
-                # Check if there is an active queue
-                queue_id = ai.get("queue_id")
-                has_active_queue = False
-                if queue_id:
-                    q_obj = ObjectId(queue_id) if ObjectId.is_valid(str(queue_id)) else str(queue_id)
-                    q = await db["ai_analysis_queues"].find_one({"_id": q_obj, "status": {"$in": ["WAITING", "RUNNING", "STARTED", "PENDING"]}})
-                    has_active_queue = bool(q)
-
-                # Only fail if started more than 300s ago AND no active queue AND started_at is valid
-                if started_at and age_seconds > 300 and not has_active_queue:
-                    lead.setdefault("ai_analysis", {})["analysis_status"] = "Failed"
-                    lead["ai_analysis"]["stage"] = "Analysis incomplete. Please retry."
-                    lead["ai_analysis"]["progress"] = 0
-                    await db["leads"].update_one(
-                        {"_id": lead["_id"]},
-                        {"$set": {
-                            "ai_analysis.analysis_status": "Failed",
-                            "ai_analysis.stage": "Analysis incomplete. Please retry.",
-                            "ai_analysis.progress": 0,
-                            "updated_at": now,
-                        }}
-                    )
-                else:
-                    # Maintain queued/analyzing state
-                    lead.setdefault("ai_analysis", {})["analysis_status"] = "Queued"
-                    if not lead["ai_analysis"].get("progress"):
-                        lead["ai_analysis"]["progress"] = 10
-                    if not lead["ai_analysis"].get("stage"):
-                        lead["ai_analysis"]["stage"] = "Queued for AI analysis"
+                ai["analysis_status"] = "Queued"
+                ai["status"] = "Queued"
+                if not ai.get("progress"):
+                    ai["progress"] = 10
+                if not ai.get("stage"):
+                    ai["stage"] = "Queued for AI analysis"
+        else:
+            if not ai.get("analysis_status"):
+                ai["analysis_status"] = "not_analyzed"
+                ai["status"] = "not_analyzed"
+                ai["progress"] = 0
+                ai["stage"] = "Not Analyzed"
 
     return lead
 
@@ -304,14 +350,15 @@ async def get_leads(
     if sort_by not in ["name", "google_rating", "review_count", "created_at", "category", "status", "lead_score", "ai_score"]:
         sort_by = "created_at"
 
-    cursor = db["leads"].find(query).sort(sort_by, sort_order).skip(skip).limit(limit)
+    raw_leads = await cursor.to_list(length=limit)
+    reconciled_leads = await asyncio.gather(*[_reconcile_lead_ai_status(l, db) for l in raw_leads])
+
     leads = []
     warnings: list = []
     phones_returned = 0
     locations_returned = 0
-    async for lead in cursor:
+    for lead in reconciled_leads:
         try:
-            lead = await _reconcile_lead_ai_status(lead, db)
             normalized, lead_warnings = build_lead_response(lead, logger=logger)
             if lead_warnings:
                 warnings.extend(lead_warnings)

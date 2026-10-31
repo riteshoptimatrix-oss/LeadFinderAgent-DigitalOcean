@@ -1,8 +1,10 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, Suspense, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
+
+const API_BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000/api/v1').replace('localhost', '127.0.0.1');
 import {
   Download,
   Trash2,
@@ -106,8 +108,8 @@ function getLeadAnalysisState(lead: any) {
     };
   }
 
-  // Guard against stale stuck states: if started > 300 seconds (5 min) ago
-  const isStale = Boolean(startedAt && (Date.now() - new Date(startedAt).getTime() > 300000));
+  // Guard against stale stuck states: if started > 600 seconds (10 min) ago
+  const isStale = Boolean(startedAt && (Date.now() - new Date(startedAt).getTime() > 600000));
   if (isStale && ['queued', 'waiting', 'running', 'in_progress', 'started', 'collecting', 'analyzing'].includes(rawStatus)) {
     if (hasPositiveScore) {
       return {
@@ -179,10 +181,21 @@ function LeadsPageContent() {
   const queryClient = useQueryClient();
 
   const urlJobId = searchParams.get('job_id');
+  const urlPage = searchParams.get('page');
+  const urlLimit = searchParams.get('limit');
+  const urlSearch = searchParams.get('keyword') || searchParams.get('search');
+  const urlCity = searchParams.get('city');
+  const urlCategory = searchParams.get('category');
+  const urlHasWebsite = searchParams.get('has_website') === 'true';
+  const urlHasPhone = searchParams.get('has_phone') === 'true';
+  const urlHasEmail = searchParams.get('has_email') === 'true';
+  const urlStatus = searchParams.get('status') || '';
+  const urlSortBy = searchParams.get('sort_by') || 'created_at';
+  const urlSortOrder = searchParams.get('sort_order') ? parseInt(searchParams.get('sort_order')!, 10) : -1;
 
-  const [page, setPage] = useState(0);
-  const [limit, setLimit] = useState(10);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(() => (urlPage ? Math.max(0, parseInt(urlPage, 10)) : 0));
+  const [limit, setLimit] = useState(() => (urlLimit ? parseInt(urlLimit, 10) : 10));
+  const [searchQuery, setSearchQuery] = useState(() => urlSearch || '');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
@@ -239,7 +252,8 @@ function LeadsPageContent() {
     address: ''
   });
 
-  const handleOpenAnalysisDrawer = (targetLead: any, autoStart: boolean = false) => {
+  const handleOpenAnalysisDrawer = (targetLead: any, autoStart: boolean = false, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     setSelectedDrawerLead(targetLead);
     setDrawerAutoStart(autoStart);
     setDrawerOpen(true);
@@ -323,16 +337,116 @@ function LeadsPageContent() {
     }
   }, [urlJobId, campaignOptionsData]);
 
-  // Filters
-  const [showFilters, setShowFilters] = useState(false);
-  const [filterCity, setFilterCity] = useState('');
-  const [filterCategory, setFilterCategory] = useState('');
-  const [filterHasWebsite, setFilterHasWebsite] = useState(false);
-  const [filterHasPhone, setFilterHasPhone] = useState(false);
-  const [filterHasEmail, setFilterHasEmail] = useState(false);
-  const [filterStatus, setFilterStatus] = useState('');
-  const [sortBy, setSortBy] = useState('created_at');
-  const [sortOrder, setSortOrder] = useState(-1);
+  // Filters (initialized from URL params if present)
+  const [showFilters, setShowFilters] = useState(() => Boolean(urlCity || urlCategory || urlHasWebsite || urlHasPhone || urlHasEmail || urlStatus));
+  const [filterCity, setFilterCity] = useState(() => urlCity || '');
+  const [filterCategory, setFilterCategory] = useState(() => urlCategory || '');
+  const [filterHasWebsite, setFilterHasWebsite] = useState(() => urlHasWebsite);
+  const [filterHasPhone, setFilterHasPhone] = useState(() => urlHasPhone);
+  const [filterHasEmail, setFilterHasEmail] = useState(() => urlHasEmail);
+  const [filterStatus, setFilterStatus] = useState(() => urlStatus);
+  const [sortBy, setSortBy] = useState(() => urlSortBy);
+  const [sortOrder, setSortOrder] = useState(() => urlSortOrder);
+
+  // Construct current leads URL preserving search, filters, pagination, and campaign context
+  const buildCurrentLeadsUrl = useCallback(() => {
+    const params = new URLSearchParams();
+    if (page > 0) params.set('page', page.toString());
+    if (limit !== 10) params.set('limit', limit.toString());
+    if (searchQuery) params.set('keyword', searchQuery);
+    if (activeSession?.job_id) params.set('job_id', activeSession.job_id);
+    if (filterCity) params.set('city', filterCity);
+    if (filterCategory) params.set('category', filterCategory);
+    if (filterHasWebsite) params.set('has_website', 'true');
+    if (filterHasPhone) params.set('has_phone', 'true');
+    if (filterHasEmail) params.set('has_email', 'true');
+    if (filterStatus) params.set('status', filterStatus);
+    if (sortBy && sortBy !== 'created_at') params.set('sort_by', sortBy);
+    if (sortOrder !== -1) params.set('sort_order', sortOrder.toString());
+
+    const qs = params.toString();
+    return `/dashboard/leads${qs ? `?${qs}` : ''}`;
+  }, [page, limit, searchQuery, activeSession?.job_id, filterCity, filterCategory, filterHasWebsite, filterHasPhone, filterHasEmail, filterStatus, sortBy, sortOrder]);
+
+  // Keep browser address bar synchronized with current filters & pagination
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const targetUrl = buildCurrentLeadsUrl();
+      const currentUrl = window.location.pathname + window.location.search;
+      if (targetUrl !== currentUrl) {
+        window.history.replaceState(null, '', targetUrl);
+      }
+    }
+  }, [buildCurrentLeadsUrl]);
+
+  // Real-time WebSocket connection to receive instant AI analysis updates
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const token = localStorage.getItem('access_token') || sessionStorage.getItem('access_token') || '';
+    const wsBase = API_BASE_URL.replace(/^http/, 'ws').replace(/\/api\/v1\/?$/, '');
+    const wsUrl = `${wsBase}/api/v1/ws/analysis-updates?token=${token}`;
+
+    let ws: WebSocket | null = null;
+    let reconnectTimeout: any = null;
+    let isMounted = true;
+
+    const connect = () => {
+      try {
+        ws = new WebSocket(wsUrl);
+
+        ws.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            const incomingLeadId = payload.lead_id || payload.leadId;
+            const eventType = String(payload.type || payload.event_type || '');
+
+            const isAnalysisEvent =
+              ['LEAD_ANALYSIS_UPDATED', 'LEAD_COMPLETED', 'AI_ANALYSIS_COMPLETED', 'LEAD_FAILED', 'analysis_completed', 'STAGE_PROGRESS', 'BULK_QUEUE_CREATED', 'bulk_job_completed', 'queue_completed'].includes(eventType) ||
+              /analysis|bulk/i.test(eventType);
+
+            if (isAnalysisEvent) {
+              queryClient.invalidateQueries({ queryKey: ['leads'] });
+              queryClient.invalidateQueries({ queryKey: ['activeBulkQueues'] });
+
+              if (incomingLeadId && ['COMPLETED', 'FAILED', 'PARTIAL_SUCCESS', 'analysis_completed', 'LEAD_COMPLETED', 'LEAD_FAILED'].includes(payload.status || payload.type)) {
+                setAnalyzingLeadIds((prev) => {
+                  const next = new Set(prev);
+                  next.delete(String(incomingLeadId));
+                  return next;
+                });
+              }
+            }
+          } catch {}
+        };
+
+        ws.onclose = () => {
+          if (isMounted) {
+            reconnectTimeout = setTimeout(connect, 5000);
+          }
+        };
+
+        ws.onerror = () => {
+          ws?.close();
+        };
+      } catch {
+        if (isMounted) {
+          reconnectTimeout = setTimeout(connect, 5000);
+        }
+      }
+    };
+
+    connect();
+
+    return () => {
+      isMounted = false;
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+      }
+    };
+  }, [queryClient]);
 
   const handleClearSession = () => {
     setActiveSession(null);
@@ -345,13 +459,15 @@ function LeadsPageContent() {
     setSearchQuery('');
     setPage(0);
     setActiveSession(null);
-    router.replace('/dashboard/leads');
     setFilterCity('');
     setFilterCategory('');
     setFilterHasWebsite(false);
     setFilterHasPhone(false);
     setFilterHasEmail(false);
     setFilterStatus('');
+    setSortBy('created_at');
+    setSortOrder(-1);
+    router.replace('/dashboard/leads');
   };
 
   // Check backend for active bulk queues to restore state on navigation/refresh
@@ -470,7 +586,8 @@ function LeadsPageContent() {
   };
 
   // Start individual AI analysis with immediate backend trigger and optimistic UI update
-  const handleStartAnalysis = async (lead: any) => {
+  const handleStartAnalysis = async (lead: any, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
     if (!lead.website) {
       toast.error('Cannot analyze: Lead has no website available');
       return;
@@ -526,8 +643,10 @@ function LeadsPageContent() {
   }, [leads, analyzingLeadIds]);
 
   // Navigate to individual lead detail page
-  const handleOpenLeadDetail = (leadId: string) => {
-    router.push(`/dashboard/leads/detail?id=${leadId}`);
+  const handleOpenLeadDetail = (leadId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const returnUrl = buildCurrentLeadsUrl();
+    router.push(`/dashboard/leads/detail?id=${leadId}&returnUrl=${encodeURIComponent(returnUrl)}`);
   };
 
   const [selectAllLoading, setSelectAllLoading] = useState(false);
@@ -1276,7 +1395,7 @@ function LeadsPageContent() {
                     startingAnalysisId === lead._id ||
                     ['queued', 'analyzing', 'processing', 'running', 'started'].includes(rawAnalysisState.status)
                   );
-                  const analysisState = isActivelyAnalyzing && rawAnalysisState.status !== 'completed'
+                  const analysisState = isActivelyAnalyzing && rawAnalysisState.status !== 'completed' && rawAnalysisState.status !== 'failed'
                     ? {
                       status: 'analyzing',
                       label: 'Analyzing...',
@@ -1420,14 +1539,9 @@ function LeadsPageContent() {
                             )}
 
                             {analysisState.status === 'analyzing' && (
-                              <div className="flex items-start gap-1.5">
-                                <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0 mt-0.5" />
-                                <div className="flex flex-col">
-                                  <span className="text-xs font-medium text-slate-800">Analyzing...</span>
-                                  <span className="text-[10px] text-slate-400">
-                                    Started {formatStartedAgo(analysisState.startedAt)}
-                                  </span>
-                                </div>
+                              <div className="flex items-center gap-1.5">
+                                <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
+                                <span className="text-xs font-medium text-slate-800">Analyzing...</span>
                               </div>
                             )}
 
@@ -1464,7 +1578,7 @@ function LeadsPageContent() {
                           {/* When Not Analyzed: Click starts genuine backend job & immediately switches to Analyzing... */}
                           {analysisState.status === 'not_analyzed' ? (
                             <button
-                              onClick={() => handleStartAnalysis(lead)}
+                              onClick={(e) => handleStartAnalysis(lead, e)}
                               disabled={!lead.website || isActivelyAnalyzing}
                               title={lead.website ? "Start AI Website Analysis" : "Website not available"}
                               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold shadow-2xs transition-all ${lead.website
@@ -1488,7 +1602,7 @@ function LeadsPageContent() {
                             /* While running/queued/processing: Persistent Analyzing... button with spinner.
                                Clicking opens AI drawer to inspect live progress without interrupting job. */
                             <button
-                              onClick={() => handleOpenAnalysisDrawer(lead, false)}
+                              onClick={(e) => handleOpenAnalysisDrawer(lead, false, e)}
                               title="Analysis in progress. Click to view live telemetry."
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-blue-200 bg-blue-50/80 text-xs font-semibold text-blue-700 shadow-2xs hover:bg-blue-100/80 transition-all active:scale-95 cursor-pointer"
                             >
@@ -1498,7 +1612,7 @@ function LeadsPageContent() {
                           ) : analysisState.status === 'completed' ? (
                             /* When completed: Shows AI Insights button opening the drawer */
                             <button
-                              onClick={() => handleOpenAnalysisDrawer(lead, false)}
+                              onClick={(e) => handleOpenAnalysisDrawer(lead, false, e)}
                               title="Analysis completed. Click to view AI Insights."
                               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-xs font-semibold text-slate-700 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-2xs active:scale-95 cursor-pointer"
                             >
@@ -1508,7 +1622,7 @@ function LeadsPageContent() {
                           ) : (
                             /* When failed: Shows Retry Analysis button (or Analyzing... if user clicked retry) */
                             <button
-                              onClick={() => handleStartAnalysis(lead)}
+                              onClick={(e) => handleStartAnalysis(lead, e)}
                               disabled={!lead.website || isActivelyAnalyzing}
                               title={isActivelyAnalyzing ? "Analysis in progress." : "Analysis failed. Click to retry analysis."}
                               className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-2xs transition-all active:scale-95 cursor-pointer ${isActivelyAnalyzing
@@ -1532,7 +1646,7 @@ function LeadsPageContent() {
 
                           {/* Right-facing arrow: EXCLUSIVELY opens the individual lead detail page */}
                           <button
-                            onClick={() => handleOpenLeadDetail(lead._id)}
+                            onClick={(e) => handleOpenLeadDetail(lead._id, e)}
                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors cursor-pointer"
                             title="Open Individual Lead Details"
                           >
@@ -1562,7 +1676,7 @@ function LeadsPageContent() {
               startingAnalysisId === lead._id ||
               ['queued', 'analyzing', 'processing', 'running', 'started'].includes(rawAnalysisState.status)
             );
-            const analysisState = isActivelyAnalyzing && rawAnalysisState.status !== 'completed'
+            const analysisState = isActivelyAnalyzing && rawAnalysisState.status !== 'completed' && rawAnalysisState.status !== 'failed'
               ? {
                 status: 'analyzing',
                 label: 'Analyzing...',
@@ -1646,7 +1760,7 @@ function LeadsPageContent() {
                   <div className="flex items-center justify-between gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
                     {analysisState.status === 'not_analyzed' ? (
                       <button
-                        onClick={() => handleStartAnalysis(lead)}
+                        onClick={(e) => handleStartAnalysis(lead, e)}
                         disabled={!lead.website || startingAnalysisId === lead._id || isActivelyAnalyzing}
                         className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-blue-50 text-xs font-bold text-blue-600 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
@@ -1662,21 +1776,21 @@ function LeadsPageContent() {
                       </button>
                     ) : analysisState.status === 'queued' || analysisState.status === 'analyzing' || analysisState.status === 'processing' || isActivelyAnalyzing ? (
                       <button
-                        onClick={() => handleOpenAnalysisDrawer(lead, false)}
+                        onClick={(e) => handleOpenAnalysisDrawer(lead, false, e)}
                         className="flex-1 px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
                         <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" /> Analyzing...
                       </button>
                     ) : analysisState.status === 'completed' ? (
                       <button
-                        onClick={() => handleOpenAnalysisDrawer(lead, false)}
+                        onClick={(e) => handleOpenAnalysisDrawer(lead, false, e)}
                         className="flex-1 px-3 py-2 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-xs font-semibold text-slate-700 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                       >
                         <Sparkles className="w-3.5 h-3.5 text-blue-500" /> AI Insights
                       </button>
                     ) : (
                       <button
-                        onClick={() => handleStartAnalysis(lead)}
+                        onClick={(e) => handleStartAnalysis(lead, e)}
                         disabled={!lead.website || isActivelyAnalyzing}
                         className={`flex-1 px-3 py-2 rounded-xl border text-xs font-semibold shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${isActivelyAnalyzing
                           ? 'bg-blue-50 border-blue-200 text-blue-700'
@@ -1695,7 +1809,7 @@ function LeadsPageContent() {
                       </button>
                     )}
                     <button
-                      onClick={() => handleOpenLeadDetail(lead._id)}
+                      onClick={(e) => handleOpenLeadDetail(lead._id, e)}
                       className="p-2 border border-slate-200 rounded-xl hover:bg-slate-50 text-slate-500 cursor-pointer"
                       title="Open Lead Details"
                     >

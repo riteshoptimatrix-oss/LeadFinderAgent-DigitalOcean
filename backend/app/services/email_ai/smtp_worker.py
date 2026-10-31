@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 from bson import ObjectId
 
 from app.core.logger import logger
+from app.core.security_crypto import decrypt_string
 from app.services.ws_manager import ws_manager
 from app.services.worker_manager import shutdown_event
 
@@ -295,8 +296,15 @@ class EmailAIQueueWorker:
             body_text = self._replace_variables(template.get("body_text", ""), lead)
             logger.info(f"[EmailAI-SmtpWorker] Template rendered for lead {lead_id}")
 
-            # 3. Get SMTP Profile (With failover support)
-            smtp_profile = await self.db["email_ai_smtp"].find_one({"_id": ObjectId(job["smtp_id"]), "is_active": True})
+            # 3. Get SMTP Profile (With user-scoped failover support)
+            smtp_profile = None
+            if job.get("smtp_id") and ObjectId.is_valid(str(job["smtp_id"])):
+                smtp_profile = await self.db["email_ai_smtp"].find_one({"_id": ObjectId(job["smtp_id"]), "is_active": True})
+            
+            if not smtp_profile and job.get("user_id"):
+                # Try finding active profile for this specific user
+                smtp_profile = await self.db["email_ai_smtp"].find_one({"user_id": str(job["user_id"]), "is_active": True})
+                
             if not smtp_profile:
                 # Rotation / Failover: Find any active SMTP
                 smtp_profile = await self.db["email_ai_smtp"].find_one({"is_active": True})
@@ -412,7 +420,7 @@ class EmailAIQueueWorker:
         host = (smtp_profile.get("host") or "").strip()
         port = int(smtp_profile.get("port", 587) or 587)
         username = (smtp_profile.get("username") or "").strip()
-        raw_password = str(smtp_profile.get("password") or "").strip()
+        raw_password = decrypt_string(str(smtp_profile.get("password") or "").strip())
         clean_password = raw_password.replace(" ", "") if ("gmail" in host.lower() and len(raw_password.replace(" ", "")) == 16) else raw_password
         encryption = (smtp_profile.get("encryption") or "TLS").upper().strip()
         timeout = int(smtp_profile.get("timeout", 20) or 20)

@@ -30,7 +30,7 @@ export default function SMTPManager() {
   const [isAdding, setIsAdding] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testRecipientModal, setTestRecipientModal] = useState<{ id: string; name: string } | null>(null);
-  const [testRecipientEmail, setTestRecipientEmail] = useState<string>('nikunj.optimatrix@gmail.com');
+  const [testRecipientEmail, setTestRecipientEmail] = useState<string>('');
   const [isSendingSample, setIsSendingSample] = useState(false);
   
   const [formData, setFormData] = useState({
@@ -107,7 +107,7 @@ export default function SMTPManager() {
   const sendTestEmailMutation = useMutation({
     mutationFn: async ({ id, recipient }: { id: string; recipient: string }) => {
       setIsSendingSample(true);
-      const target = recipient.trim() || 'nikunj.optimatrix@gmail.com';
+      const target = recipient.trim();
       const res = await api.get(`/email-ai/smtp/${id}/test?send_test=true&recipient=${encodeURIComponent(target)}`);
       return res.data;
     },
@@ -132,7 +132,7 @@ export default function SMTPManager() {
   const testDirectMutation = useMutation({
     mutationFn: async (recipient: string) => {
       setIsSendingSample(true);
-      const target = recipient.trim() || 'nikunj.optimatrix@gmail.com';
+      const target = recipient.trim();
       const res = await api.post('/email-ai/smtp/test-direct', {
         ...formData,
         recipient: target,

@@ -17,10 +17,13 @@ class EmailSettingsModel(BaseModel):
     smtp_port: int = 587
     smtp_user: str = ""
     smtp_pass: str = ""
-    from_email: str = ""
+    smtp_encryption: str = "TLS"
+    smtp_from_email: str = ""
+    smtp_sender_name: str = ""
     daily_limit: int = 500
     signature: str = "Best regards,\nThe Growth Team\nwww.example.com"
     track_opens: bool = True
+    has_password: bool = False
 
 class WhatsAppSettingsModel(BaseModel):
     auto_reply: bool = True

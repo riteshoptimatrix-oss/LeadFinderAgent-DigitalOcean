@@ -445,11 +445,19 @@ export default function EmailCampaignWizard() {
                     </div>
                   </div>
                 ) : smtpProfiles.length === 0 ? (
-                  <div className="p-6 bg-red-50 text-red-700 rounded-xl border border-red-200 flex items-start gap-3">
-                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div className="p-6 bg-amber-50 text-amber-800 rounded-xl border border-amber-200 flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
                     <div>
-                      <h4 className="font-bold">No SMTP Accounts Found</h4>
-                      <p className="text-sm mt-1">You must configure an SMTP account in the Email AI Dashboard before running a campaign.</p>
+                      <h4 className="font-bold">No SMTP Relay Configured</h4>
+                      <p className="text-sm mt-1">Configure your SMTP server once in Settings to dispatch campaigns automatically.</p>
+                      <button
+                        type="button"
+                        onClick={() => window.location.href = '/dashboard/settings?tab=email'}
+                        className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-sm transition-all"
+                      >
+                        <Server className="w-3.5 h-3.5" />
+                        Configure SMTP in Settings
+                      </button>
                     </div>
                   </div>
                 ) : (

@@ -1,12 +1,12 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { Loader2, Camera, Upload, Building2, Phone, Mail, User as UserIcon, ShieldAlert } from 'lucide-react';
+import { Loader2, Building2, Phone, Mail, User as UserIcon, ShieldAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuthStore } from '@/src/features/auth/store';
 
@@ -14,8 +14,6 @@ const profileSchema = z.object({
   full_name: z.string().min(2, 'Full name must be at least 2 characters').optional().or(z.literal('')),
   company_name: z.string().optional().or(z.literal('')),
   mobile_number: z.string().optional().or(z.literal('')),
-  country: z.string().optional().or(z.literal('')),
-  state: z.string().optional().or(z.literal('')),
   role: z.string().optional(),
   avatar: z.string().optional(),
 });
@@ -37,39 +35,16 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
   const userRole = (user?.role || authUser?.role || '')?.toLowerCase();
   const isAdmin = userRole === 'admin' || user?.is_superuser === true;
 
-  const { register, handleSubmit, setValue, watch, formState: { errors, isDirty } } = useForm<ProfileFormValues>({
+  const { register, handleSubmit, formState: { errors, isDirty } } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
     values: {
       full_name: user?.full_name || '',
       company_name: user?.company_name || '',
       mobile_number: user?.mobile_number || '',
-      country: user?.country || '',
-      state: user?.state || '',
-      role: user?.role || 'USER', 
+      role: user?.role || 'USER',
       avatar: user?.avatar || '',
     }
   });
-
-  const avatar = watch('avatar');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setValue('avatar', reader.result as string, { shouldDirty: true });
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-
-  const removeAvatar = () => {
-    setValue('avatar', '', { shouldDirty: true });
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
 
   React.useEffect(() => {
     setHasUnsavedChanges(isDirty);
@@ -114,14 +89,15 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
       </div>
 
       <form id="profile-form" onSubmit={handleSubmit(onSubmit)} className="space-y-8">
-        
+
         {/* Personal Details */}
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="border-b border-gray-100 px-6 py-5 bg-gray-50/50">
             <h3 className="text-sm font-bold text-gray-900">Personal Information</h3>
           </div>
           <div className="p-6 sm:p-8 space-y-6">
-            
+
+            {/* Row 1: Full Name & Email Address */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Full Name</label>
@@ -152,6 +128,7 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
               </div>
             </div>
 
+            {/* Row 2: Company Name & Phone Number */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Company Name</label>
@@ -179,35 +156,8 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
                 </div>
               </div>
             </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Country</label>
-                <div className="relative">
-                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    {...register('country')}
-                    className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 outline-none transition-all focus:border-gray-300 focus:ring-4 focus:ring-gray-100"
-                    placeholder="India"
-                  />
-                </div>
-              </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">State/Province</label>
-                <div className="relative">
-                  <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                  <input
-                    type="text"
-                    {...register('state')}
-                    className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 outline-none transition-all focus:border-gray-300 focus:ring-4 focus:ring-gray-100"
-                    placeholder="Maharashtra"
-                  />
-                </div>
-              </div>
-            </div>
-            
+            {/* Row 3: Account Role */}
             <div className="grid grid-cols-1 gap-6">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Account Role</label>
@@ -245,7 +195,7 @@ export default function ProfileSettings({ setHasUnsavedChanges }: { setHasUnsave
             </div>
 
           </div>
-          
+
           <div className="border-t border-gray-100 bg-gray-50/50 px-6 py-4 flex justify-end">
             <button
               type="submit"

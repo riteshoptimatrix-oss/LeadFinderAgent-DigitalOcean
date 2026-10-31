@@ -1,16 +1,74 @@
 from typing import Optional
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 class SMTPSettings(BaseModel):
     user_id: Optional[str] = None
-    smtp_host: Optional[str] = None
-    smtp_port: Optional[int] = None
+    smtp_host: Optional[str] = "smtp.gmail.com"
+    smtp_port: Optional[int] = 587
     smtp_user: Optional[str] = None
     smtp_pass: Optional[str] = None
-    smtp_encryption: Optional[str] = "TLS" # TLS, SSL, NONE
+    smtp_encryption: Optional[str] = "TLS" # TLS, SSL, STARTTLS, NONE
     smtp_from_email: Optional[str] = None
     smtp_sender_name: Optional[str] = None
     smtp_reply_to: Optional[str] = None
+    smtp_status: Optional[str] = "NOT_CONFIGURED" # NOT_CONFIGURED, TESTING, CONNECTED, AUTH_FAILED, CONNECTION_FAILED
+    last_tested_at: Optional[datetime] = None
+    last_test_error: Optional[str] = None
+    daily_limit: Optional[int] = 500
+    signature: Optional[str] = "Best regards,\nThe Growth Team\nwww.example.com"
+    track_opens: Optional[bool] = True
+    has_password: Optional[bool] = False
+
+class SMTPSettingsResponse(BaseModel):
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_pass: str = ""
+    smtp_encryption: str = "TLS"
+    smtp_from_email: str = ""
+    smtp_sender_name: str = ""
+    smtp_status: str = "NOT_CONFIGURED"
+    last_tested_at: Optional[datetime] = None
+    last_test_error: Optional[str] = None
+    daily_limit: int = 500
+    signature: str = "Best regards,\nThe Growth Team\nwww.example.com"
+    track_opens: bool = True
+    has_password: bool = False
+
+class SMTPSettingsUpdate(BaseModel):
+    smtp_host: Optional[str] = "smtp.gmail.com"
+    smtp_port: Optional[int] = 587
+    smtp_user: Optional[str] = None
+    smtp_pass: Optional[str] = None
+    smtp_encryption: Optional[str] = "TLS"
+    smtp_from_email: Optional[str] = None
+    smtp_sender_name: Optional[str] = None
+    daily_limit: Optional[int] = 500
+    signature: Optional[str] = None
+    track_opens: Optional[bool] = None
+
+class SMTPTestRequest(BaseModel):
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = 587
+    smtp_user: Optional[str] = None
+    smtp_pass: Optional[str] = None
+    smtp_encryption: Optional[str] = "TLS"
+    smtp_from_email: Optional[str] = None
+    smtp_sender_name: Optional[str] = None
+    send_test: bool = False
+    recipient: Optional[str] = None
+
+class SMTPTestResponse(BaseModel):
+    success: bool
+    status: str # CONNECTED, AUTH_FAILED, CONNECTION_FAILED
+    message: str
+    host: Optional[str] = None
+    port: Optional[int] = None
+    mode: Optional[str] = None
+    test_email_sent: bool = False
+    recipient: Optional[str] = None
+    error: Optional[str] = None
 
 class WhatsAppSettings(BaseModel):
     user_id: Optional[str] = None

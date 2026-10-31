@@ -151,7 +151,7 @@ export default function Sidebar() {
       title: 'AUTOMATION',
       items: [
         {
-          name: 'WhatsApp AI',
+          name: 'WhatsApp Automation',
           href: '/dashboard/whatsapp-ai',
           icon: WhatsAppIcon,
           badgeBox: {
@@ -161,7 +161,7 @@ export default function Sidebar() {
           }
         },
         {
-          name: 'Calling AI',
+          name: 'Calling AI Agent',
           status: 'In Progress',
           href: '/dashboard/calling-ai',
           icon: Phone,
@@ -172,7 +172,7 @@ export default function Sidebar() {
           }
         },
         {
-          name: 'Email AI',
+          name: 'Email Automation',
           href: '/dashboard/email-ai',
           icon: Mail,
           badgeBox: {

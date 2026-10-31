@@ -16,6 +16,8 @@ from app.api.dependencies import get_current_user
 from app.models.user import UserInDB
 from app.core.websocket import manager
 from app.core.logger import logger
+from app.core.security_crypto import encrypt_string, decrypt_string
+from app.services.smtp_service import run_smtp_verification_sync, get_user_smtp_config, save_user_smtp_config
 from app.models.email_ai import (
     EmailAISmtpCreate, EmailAISmtpUpdate,
     EmailAITemplateCreate, EmailAITemplateUpdate,
@@ -27,9 +29,13 @@ router = APIRouter()
 def serialize_doc(doc: dict) -> dict:
     if not doc:
         return doc
-    if "_id" in doc:
-        doc["_id"] = str(doc["_id"])
-    return doc
+    d = dict(doc)
+    if "_id" in d:
+        d["_id"] = str(d["_id"])
+    if "password" in d:
+        d["has_password"] = bool(d["password"])
+        d["password"] = "••••••••••••••••" if d["password"] else ""
+    return d
 
 def get_user_match_filter(current_user: UserInDB) -> List[Dict[str, Any]]:
     uid = str(current_user.id)
@@ -59,6 +65,12 @@ async def get_smtp_profiles(
             "$or": user_match + [{"is_system": True, "user_id": None}]
         }
     profiles = await db["email_ai_smtp"].find(query).to_list(100)
+    if not profiles and str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        # Fallback: check if user configured SMTP in Settings
+        config = await get_user_smtp_config(db, str(current_user.id), decrypt_pwd=False)
+        if config and config.get("has_password"):
+            await save_user_smtp_config(db, str(current_user.id), config)
+            profiles = await db["email_ai_smtp"].find(query).to_list(100)
     return [serialize_doc(p) for p in profiles]
 
 @router.post("/smtp", response_model=Dict[Any, Any])
@@ -72,13 +84,11 @@ async def create_smtp_profile(
     new_profile["created_at"] = datetime.now(timezone.utc)
     new_profile["updated_at"] = datetime.now(timezone.utc)
     
-    # Auto-clean Google App Password spaces if provided
+    # Auto-clean Google App Password spaces and encrypt at rest
     raw_pwd = str(new_profile.get("password") or "").strip()
     host = str(new_profile.get("host") or "").lower()
-    if "gmail" in host and len(raw_pwd.replace(" ", "")) == 16:
-        new_profile["password"] = raw_pwd.replace(" ", "")
-    else:
-        new_profile["password"] = raw_pwd
+    clean_pwd = raw_pwd.replace(" ", "") if ("gmail" in host and len(raw_pwd.replace(" ", "")) == 16) else raw_pwd
+    new_profile["password"] = encrypt_string(clean_pwd)
 
     if new_profile.get("is_default"):
         await db["email_ai_smtp"].update_many(
@@ -303,18 +313,21 @@ async def test_smtp_profile(
     host = (profile.get("host") or "").strip()
     port = int(profile.get("port", 587))
     username = (profile.get("username") or "").strip()
-    password = str(profile.get("password") or "")
+    password = decrypt_string(str(profile.get("password") or ""))
     encryption = (profile.get("encryption") or "TLS").upper().strip()
     timeout = int(profile.get("timeout", 15) or 15)
     from_email = (profile.get("from_email") or profile.get("email") or username).strip()
     from_name = (profile.get("from_name") or profile.get("name") or "").strip()
 
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
+    res = await loop.run_in_executor(
         None,
-        _run_smtp_verification_sync,
+        run_smtp_verification_sync,
         host, port, encryption, username, password, from_email, from_name, timeout, send_test, recipient
     )
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("message", "SMTP test failed."))
+    return res
 
 class EmailAISmtpDirectTestRequest(BaseModel):
     host: str
@@ -325,7 +338,7 @@ class EmailAISmtpDirectTestRequest(BaseModel):
     from_email: Optional[str] = None
     from_name: Optional[str] = None
     timeout: int = 15
-    send_test: bool = True
+    send_test: bool = False
     recipient: Optional[str] = "nikunj.optimatrix@gmail.com"
 
 @router.post("/smtp/test-direct")
@@ -334,9 +347,9 @@ async def test_smtp_direct(
     current_user: UserInDB = Depends(get_current_user)
 ):
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(
+    res = await loop.run_in_executor(
         None,
-        _run_smtp_verification_sync,
+        run_smtp_verification_sync,
         request.host,
         request.port,
         request.encryption,
@@ -348,6 +361,9 @@ async def test_smtp_direct(
         request.send_test,
         request.recipient
     )
+    if not res.get("success"):
+        raise HTTPException(status_code=400, detail=res.get("message", "SMTP direct test failed."))
+    return res
 
 # ==========================================
 # Templates

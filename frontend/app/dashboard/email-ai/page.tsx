@@ -94,7 +94,7 @@ export default function EmailAIPage() {
     staleTime: 10000
   });
 
-  // Real-time synchronization event listener
+  // Real-time synchronization event listener (supports intra-page and cross-tab sync)
   useEffect(() => {
     const handleEmailSync = () => {
       queryClient.invalidateQueries({ queryKey: ['email-ai-header-analytics'] });
@@ -102,7 +102,21 @@ export default function EmailAIPage() {
       queryClient.invalidateQueries({ queryKey: ['email-ai-smtp'] });
     };
     window.addEventListener('email-ai-live-event', handleEmailSync);
-    return () => window.removeEventListener('email-ai-live-event', handleEmailSync);
+
+    let channel: BroadcastChannel | null = null;
+    try {
+      channel = new BroadcastChannel('leadfinder_smtp_sync');
+      channel.onmessage = () => {
+        handleEmailSync();
+      };
+    } catch (e) {}
+
+    return () => {
+      window.removeEventListener('email-ai-live-event', handleEmailSync);
+      if (channel) {
+        channel.close();
+      }
+    };
   }, [queryClient]);
 
   const activeSenders = Array.isArray(smtpProfiles) ? smtpProfiles.filter((s: any) => s.is_active !== false) : [];

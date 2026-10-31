@@ -1,9 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/src/features/auth/store';
 import {
   ArrowRight,
   BadgeCheck,
@@ -44,18 +42,7 @@ import {
 } from 'lucide-react';
 
 export default function HomePage() {
-  const { isAuthenticated, hasHydrated } = useAuthStore();
-  const router = useRouter();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
-
-  useEffect(() => {
-    if (!hasHydrated) return;
-    if (isAuthenticated) {
-      router.replace('/dashboard');
-    }
-  }, [isAuthenticated, hasHydrated, router]);
-
-  if (!hasHydrated) return null;
 
   const features = [
     {

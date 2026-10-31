@@ -83,7 +83,15 @@ api.interceptors.response.use(
           localStorage.removeItem('refresh_token');
           sessionStorage.removeItem('access_token');
           sessionStorage.removeItem('refresh_token');
-          window.location.href = '/login';
+          const isPublicPage =
+            window.location.pathname === '/' ||
+            window.location.pathname.startsWith('/login') ||
+            window.location.pathname.startsWith('/register') ||
+            window.location.pathname.startsWith('/forgot-password') ||
+            window.location.pathname.startsWith('/reset-password');
+          if (!isPublicPage) {
+            window.location.href = '/login';
+          }
         }
         return Promise.reject(err);
       } finally {

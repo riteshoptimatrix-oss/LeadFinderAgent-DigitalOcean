@@ -489,33 +489,37 @@ class EmailAIQueueWorker:
                                 raise
 
                 logger.info(f"[EmailAI-SMTP] Connected to {host}:{strat_port}. Authenticating as {username}...")
-                if username and clean_password:
-                    try:
-                        server.login(username, clean_password)
-                    except smtplib.SMTPServerDisconnected:
-                        if clean_password != raw_password:
-                            try:
-                                server = smtplib.SMTP_SSL(host, strat_port, timeout=timeout, context=context) if strat_mode == "SSL" else smtplib.SMTP(host, strat_port, timeout=timeout)
+                if not clean_password:
+                    raise smtplib.SMTPAuthenticationError(
+                        535,
+                        b"SMTP App Password is missing. Please configure your 16-character Google App Password in Settings -> Email Automation."
+                    )
+                try:
+                    server.login(username, clean_password)
+                except smtplib.SMTPServerDisconnected:
+                    if clean_password != raw_password:
+                        try:
+                            server = smtplib.SMTP_SSL(host, strat_port, timeout=timeout, context=context) if strat_mode == "SSL" else smtplib.SMTP(host, strat_port, timeout=timeout)
+                            server.ehlo()
+                            if strat_mode != "SSL" and encryption != "NONE":
+                                server.starttls(context=context)
                                 server.ehlo()
-                                if strat_mode != "SSL" and encryption != "NONE":
-                                    server.starttls(context=context)
-                                    server.ehlo()
-                                server.login(username, raw_password)
-                            except Exception:
-                                raise smtplib.SMTPAuthenticationError(
-                                    535,
-                                    b"Google/Gmail rejected credentials and closed the connection. "
-                                    b"Ensure you are using a 16-character Google App Password (not your Gmail account password) "
-                                    b"generated from Google Account Security -> 2-Step Verification -> App passwords."
-                                )
-                        else:
+                            server.login(username, raw_password)
+                        except Exception:
                             raise smtplib.SMTPAuthenticationError(
                                 535,
                                 b"Google/Gmail rejected credentials and closed the connection. "
                                 b"Ensure you are using a 16-character Google App Password (not your Gmail account password) "
                                 b"generated from Google Account Security -> 2-Step Verification -> App passwords."
                             )
-                    logger.info(f"[EmailAI-SMTP] Authenticated successfully as {username}")
+                    else:
+                        raise smtplib.SMTPAuthenticationError(
+                            535,
+                            b"Google/Gmail rejected credentials and closed the connection. "
+                            b"Ensure you are using a 16-character Google App Password (not your Gmail account password) "
+                            b"generated from Google Account Security -> 2-Step Verification -> App passwords."
+                        )
+                logger.info(f"[EmailAI-SMTP] Authenticated successfully as {username}")
 
                 # Send message using sendmail for raw envelope control
                 server.sendmail(envelope_sender, [to_email], msg.as_string())
@@ -526,6 +530,18 @@ class EmailAIQueueWorker:
                 logger.error(f"[EmailAI-SMTP] Authentication failed for {username}@{host}:{strat_port}: {e}")
                 last_error = f"Authentication failed for {username}. If using Gmail/Yahoo/Outlook, please use an App Password (not your normal account password)."
                 break  # Don't try other ports if authentication was rejected
+
+            except smtplib.SMTPResponseException as e:
+                logger.error(f"[EmailAI-SMTP] SMTP response exception {e.smtp_code} from {host}:{strat_port}: {e.smtp_error}")
+                if e.smtp_code == 530 or b"5.7.0" in (e.smtp_error or b"") or "Authentication Required" in str(e):
+                    last_error = (
+                        f"Google/Gmail 530 Authentication Required: Outbound email rejected because SMTP was not authenticated. "
+                        f"Ensure you have 2-Step Verification ON in your Google Account and generated a 16-character Google App Password, "
+                        f"then save it in Settings -> Email Automation."
+                    )
+                else:
+                    last_error = f"SMTP Server error ({e.smtp_code}): {e.smtp_error}"
+                break
 
             except smtplib.SMTPRecipientsRefused as e:
                 logger.error(f"[EmailAI-SMTP] Recipient refused {to_email}: {e}")

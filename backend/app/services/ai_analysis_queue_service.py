@@ -1,5 +1,5 @@
 from bson import ObjectId
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 from app.db.database import get_db
@@ -67,7 +67,6 @@ class AIAnalysisQueueService:
         if jobs:
             await job_collection.insert_many(jobs)
             queue_status = AIAnalysisState.WAITING
-            from datetime import timezone
             now_utc = datetime.now(timezone.utc)
             lead_oids = []
             for j in jobs:
@@ -104,7 +103,6 @@ class AIAnalysisQueueService:
         await queue_collection.insert_one(queue_dict)
 
         # ── Real-time: announce the freshly created queue ──
-        from datetime import datetime
         try:
             await manager.broadcast_to_job(str(queue_id), {
                 "type": "QUEUE_CREATED",

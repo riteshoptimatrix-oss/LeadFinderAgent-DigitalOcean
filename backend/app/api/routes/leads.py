@@ -15,6 +15,12 @@ from app.db.database import get_db
 from app.api.dependencies import get_current_user, RequireRole
 from app.models.user import UserInDB
 from app.models.lead import LeadCreate, LeadResponse, PaginatedLeadResponse, build_lead_response
+from app.core.analysis_status import (
+    ACTIVE_ANALYSIS_JOB_STATUSES,
+    ACTIVE_ANALYSIS_QUEUE_STATUSES,
+    ANALYSIS_STALE_SECONDS,
+    RUNNING_ANALYSIS_JOB_STATUSES,
+)
 from app.core.logger import logger
 
 router = APIRouter()
@@ -65,27 +71,36 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
 
     if latest_job:
         job_status = str(latest_job.get("status") or "").upper()
-        active_statuses = {"WAITING", "QUEUED", "PENDING", "RUNNING", "STARTED", "COLLECTING", "ANALYZING", "SCORING", "SAVING", "RETRY"}
 
-        if job_status in active_statuses:
-            job_updated = latest_job.get("updated_at") or latest_job.get("started_at") or latest_job.get("created_at")
-            if job_updated:
-                if isinstance(job_updated, str):
-                    try:
-                        job_updated = datetime.fromisoformat(job_updated.replace('Z', '+00:00'))
-                    except Exception:
-                        job_updated = None
-                if isinstance(job_updated, datetime) and job_updated.tzinfo is None:
-                    job_updated = job_updated.replace(tzinfo=timezone.utc)
-                age_seconds = (now - job_updated).total_seconds() if isinstance(job_updated, datetime) else 0
-            else:
-                age_seconds = 0
+        if job_status in ACTIVE_ANALYSIS_JOB_STATUSES:
+            is_running = job_status in RUNNING_ANALYSIS_JOB_STATUSES
+            age_seconds = 0
 
-            if age_seconds > 300:
-                # Active job is stale/hung beyond 5 minutes -> fail it
+            # Waiting/queued jobs are not stale just because a large queue has
+            # not reached them yet. Only apply the timeout to jobs that a
+            # worker has actually claimed and started processing.
+            if is_running:
+                job_updated = latest_job.get("updated_at") or latest_job.get("started_at") or latest_job.get("created_at")
+                if job_updated:
+                    if isinstance(job_updated, str):
+                        try:
+                            job_updated = datetime.fromisoformat(job_updated.replace('Z', '+00:00'))
+                        except Exception:
+                            job_updated = None
+                    if isinstance(job_updated, datetime) and job_updated.tzinfo is None:
+                        job_updated = job_updated.replace(tzinfo=timezone.utc)
+                    age_seconds = (now - job_updated).total_seconds() if isinstance(job_updated, datetime) else 0
+
+            if is_running and age_seconds > ANALYSIS_STALE_SECONDS:
+                # Running job has not reported progress within the worker's
+                # stale threshold -> treat as permanently failed.
                 await db["ai_analysis_jobs"].update_one(
                     {"_id": latest_job["_id"]},
-                    {"$set": {"status": "FAILED", "error_message": "Analysis timed out after 300s.", "updated_at": now}}
+                    {"$set": {
+                        "status": "FAILED",
+                        "error_message": f"Analysis timed out after {ANALYSIS_STALE_SECONDS}s.",
+                        "updated_at": now,
+                    }}
                 )
                 new_status = "Completed" if has_score else "Failed"
                 stage_label = "Completed" if has_score else "Analysis timed out. Please retry."
@@ -105,8 +120,8 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
                     }}
                 )
             else:
-                # Sync real-time progress and stage from active job
-                canonical_status = "Analyzing" if job_status in ["STARTED", "COLLECTING", "ANALYZING", "SCORING", "SAVING", "RUNNING"] else "Queued"
+                # Sync real-time progress and stage from the active job.
+                canonical_status = "Analyzing" if is_running else "Queued"
                 ai["analysis_status"] = canonical_status
                 ai["status"] = canonical_status
                 ai["progress"] = latest_job.get("progress") if latest_job.get("progress") is not None else (25 if canonical_status == "Analyzing" else 10)
@@ -167,7 +182,7 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
             has_active_queue = False
             if queue_id:
                 q_obj = ObjectId(queue_id) if ObjectId.is_valid(str(queue_id)) else str(queue_id)
-                q = await db["ai_analysis_queues"].find_one({"_id": q_obj, "status": {"$in": ["WAITING", "RUNNING", "STARTED", "PENDING"]}})
+                q = await db["ai_analysis_queues"].find_one({"_id": q_obj, "status": {"$in": list(ACTIVE_ANALYSIS_QUEUE_STATUSES)}})
                 if q:
                     q_updated = q.get("updated_at") or q.get("created_at")
                     if isinstance(q_updated, str):
@@ -178,9 +193,9 @@ async def _reconcile_lead_ai_status(lead: dict, db: AsyncIOMotorDatabase) -> dic
                     if isinstance(q_updated, datetime) and q_updated.tzinfo is None:
                         q_updated = q_updated.replace(tzinfo=timezone.utc)
                     q_age = (now - q_updated).total_seconds() if isinstance(q_updated, datetime) else 999
-                    has_active_queue = q_age <= 300
+                    has_active_queue = q_age <= ANALYSIS_STALE_SECONDS
 
-            if (not started_at or age_seconds > 300) and not has_active_queue:
+            if (not started_at or age_seconds > ANALYSIS_STALE_SECONDS) and not has_active_queue:
                 ai["analysis_status"] = "Failed"
                 ai["status"] = "Failed"
                 ai["stage"] = "Analysis incomplete. Please retry."
@@ -955,19 +970,27 @@ async def start_analysis(
     if not website.startswith('http'):
         website = "http://" + website
 
-    from datetime import timezone
-    # Check for genuinely active jobs; if stale (>300s), fail it so a fresh analysis runs
+    # Check for genuinely active jobs. Queued jobs stay queued regardless of
+    # age; only a running job without progress beyond the stale threshold is
+    # superseded by a fresh request.
     now = datetime.now(timezone.utc)
     active_job = await db["ai_analysis_jobs"].find_one({
         "lead_id": str(id),
-        "status": {"$in": ["WAITING", "STARTED", "COLLECTING", "ANALYZING", "SCORING", "SAVING", "QUEUED"]}
+        "status": {"$in": list(ACTIVE_ANALYSIS_JOB_STATUSES)}
     }, sort=[("_id", -1)])
     if active_job:
+        job_status = str(active_job.get("status") or "").upper()
         job_updated = active_job.get("updated_at") or active_job.get("started_at") or active_job.get("created_at")
+        if isinstance(job_updated, str):
+            try:
+                job_updated = datetime.fromisoformat(job_updated.replace('Z', '+00:00'))
+            except Exception:
+                job_updated = None
         if job_updated and job_updated.tzinfo is None:
             job_updated = job_updated.replace(tzinfo=timezone.utc)
         age = (now - job_updated).total_seconds() if job_updated else 999
-        if age <= 300:
+        is_waiting = job_status not in RUNNING_ANALYSIS_JOB_STATUSES
+        if is_waiting or age <= ANALYSIS_STALE_SECONDS:
             return StartAnalysisResponse(
                 lead_id=str(id),
                 website_url=website,
@@ -975,10 +998,10 @@ async def start_analysis(
                 worker_id="Worker-Active"
             )
         else:
-            # Stale job auto-failed
+            # Stale running job auto-failed
             await db["ai_analysis_jobs"].update_one(
                 {"_id": active_job["_id"]},
-                {"$set": {"status": "FAILED", "error_message": "Stale job superseded by fresh analysis request.", "updated_at": now}}
+                {"$set": {"status": "FAILED", "error_message": f"Stale job superseded after {ANALYSIS_STALE_SECONDS}s without progress.", "updated_at": now}}
             )
 
     from app.services.ai_analysis_queue_service import AIAnalysisQueueService

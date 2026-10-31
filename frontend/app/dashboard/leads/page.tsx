@@ -39,6 +39,7 @@ import { toast } from 'sonner';
 import type { SearchSession } from '@/src/components/search-sessions/SearchSessionsModal';
 import SearchSessionBanner from '@/src/components/search-sessions/SearchSessionBanner';
 import { formatLocation } from '@/src/lib/utils';
+import { getLeadAnalysisDisplayState, getLeadAnalysisState } from '@/src/lib/leadAnalysisStatus';
 
 // Dynamically import heavy drawer and modals to keep the initial page chunk light and fast
 const LeadAnalysisDrawer = dynamic(() => import('@/src/components/leads/LeadAnalysisDrawer'), { ssr: false });
@@ -46,133 +47,19 @@ const BulkAIAnalysisMonitor = dynamic(() => import('@/src/components/ai-analysis
 const BulkAnalysisModal = dynamic(() => import('@/src/components/ai-analysis/BulkAnalysisModal'), { ssr: false });
 const SearchSessionsModal = dynamic(() => import('@/src/components/search-sessions/SearchSessionsModal'), { ssr: false });
 
-// Helper to calculate time elapsed for running jobs
-function formatStartedAgo(dateStr?: string | null): string {
-  if (!dateStr) return 'just now';
+function loadTrackedAnalysisStarts(): Record<string, number> {
+  if (typeof window === 'undefined') return {};
   try {
-    const started = new Date(dateStr).getTime();
+    const stored = sessionStorage.getItem('optimatrix_analyzing_leads');
+    if (!stored) return {};
+    const parsed: Record<string, number> = JSON.parse(stored);
     const now = Date.now();
-    const diffMs = now - started;
-    if (diffMs < 0 || isNaN(diffMs)) return 'just now';
-    const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 1) return 'just now';
-    if (diffMins === 1) return '1 min ago';
-    if (diffMins < 60) return `${diffMins} mins ago`;
-    const diffHours = Math.floor(diffMins / 60);
-    return `${diffHours} hr${diffHours > 1 ? 's' : ''} ago`;
+    return Object.fromEntries(
+      Object.entries(parsed).filter(([, ts]) => now - Number(ts) < 300000)
+    );
   } catch {
-    return 'just now';
+    return {};
   }
-}
-
-// Helper to compute AI Analysis display state from backend-persisted fields
-function getLeadAnalysisState(lead: any) {
-  const ai = lead.ai_analysis;
-  if (!ai) {
-    return {
-      status: 'not_analyzed',
-      label: 'Not Analyzed',
-      progress: 0,
-      startedAt: null,
-    };
-  }
-
-  const rawStatus = (ai.analysis_status || ai.status || '').toLowerCase();
-  const rawProgress = typeof ai.progress === 'number' ? ai.progress : 0;
-  const startedAt = ai.analysis_started_at || ai.started_at || null;
-
-  const hasPositiveScore = Boolean(
-    (lead.ai_score && lead.ai_score > 0) ||
-    (ai.overall_score && ai.overall_score > 0) ||
-    (ai.overall_ai_score && ai.overall_ai_score > 0) ||
-    (lead.lead_score && lead.lead_score > 0)
-  );
-
-  // Completed states: completed, done, partial_success
-  if (['completed', 'done', 'partial_success'].includes(rawStatus)) {
-    return {
-      status: 'completed',
-      label: 'Completed',
-      progress: 100,
-      startedAt,
-    };
-  }
-
-  // If score is present and not actively running
-  if (hasPositiveScore && !['running', 'started', 'collecting', 'analyzing', 'scoring', 'saving'].includes(rawStatus)) {
-    return {
-      status: 'completed',
-      label: 'Completed',
-      progress: 100,
-      startedAt,
-    };
-  }
-
-  // Guard against stale stuck states: if started > 600 seconds (10 min) ago
-  const isStale = Boolean(startedAt && (Date.now() - new Date(startedAt).getTime() > 600000));
-  if (isStale && ['queued', 'waiting', 'running', 'in_progress', 'started', 'collecting', 'analyzing'].includes(rawStatus)) {
-    if (hasPositiveScore) {
-      return {
-        status: 'completed',
-        label: 'Completed',
-        progress: 100,
-        startedAt,
-      };
-    }
-    return {
-      status: 'failed',
-      label: 'Failed',
-      progress: 0,
-      startedAt,
-    };
-  }
-
-  // Queued / waiting states
-  if (['queued', 'waiting'].includes(rawStatus)) {
-    return {
-      status: 'queued',
-      label: 'Queued',
-      progress: Math.max(rawProgress, 10),
-      startedAt,
-    };
-  }
-
-  // Active running / analyzing states
-  if (['running', 'in_progress', 'started', 'collecting', 'analyzing', 'scoring', 'saving'].includes(rawStatus)) {
-    return {
-      status: 'analyzing',
-      label: 'Analyzing...',
-      progress: Math.max(rawProgress, 25),
-      startedAt,
-    };
-  }
-
-  // Processing state
-  if (rawStatus === 'processing') {
-    return {
-      status: 'processing',
-      label: 'Processing',
-      progress: Math.max(rawProgress, 45),
-      startedAt,
-    };
-  }
-
-  // Failed / error states
-  if (['failed', 'error', 'failed_timeout', 'cancelled'].includes(rawStatus)) {
-    return {
-      status: 'failed',
-      label: 'Failed',
-      progress: rawProgress || 0,
-      startedAt,
-    };
-  }
-
-  return {
-    status: 'not_analyzed',
-    label: 'Not Analyzed',
-    progress: 0,
-    startedAt: null,
-  };
 }
 
 function LeadsPageContent() {
@@ -201,38 +88,25 @@ function LeadsPageContent() {
 
   // Currently starting analysis indicator per lead
   const [startingAnalysisId, setStartingAnalysisId] = useState<string | null>(null);
-  
+  const [analysisStartedAt, setAnalysisStartedAt] = useState<Record<string, number>>(loadTrackedAnalysisStarts);
+
   // Load analyzing IDs from sessionStorage to survive page refresh
-  const [analyzingLeadIds, setAnalyzingLeadIds] = useState<Set<string>>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = sessionStorage.getItem('optimatrix_analyzing_leads');
-        if (stored) {
-          const parsed: Record<string, number> = JSON.parse(stored);
-          const now = Date.now();
-          const valid = Object.entries(parsed)
-            .filter(([_, ts]) => now - Number(ts) < 300000)
-            .map(([id]) => id);
-          return new Set(valid);
-        }
-      } catch {}
-    }
-    return new Set();
-  });
+  const [analyzingLeadIds, setAnalyzingLeadIds] = useState<Set<string>>(
+    () => new Set(Object.keys(loadTrackedAnalysisStarts()))
+  );
 
   // Sync analyzingLeadIds to sessionStorage whenever it changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
         const entries: Record<string, number> = {};
-        const now = Date.now();
         analyzingLeadIds.forEach(id => {
-          entries[id] = now;
+          entries[id] = analysisStartedAt[id] || Date.now();
         });
         sessionStorage.setItem('optimatrix_analyzing_leads', JSON.stringify(entries));
       } catch {}
     }
-  }, [analyzingLeadIds]);
+  }, [analyzingLeadIds, analysisStartedAt]);
 
   // Lead Analysis Drawer state
   const [selectedDrawerLead, setSelectedDrawerLead] = useState<any | null>(null);
@@ -545,13 +419,10 @@ function LeadsPageContent() {
       const res = await api.get(`/leads?${params.toString()}`);
       return res.data;
     },
-    // Auto-poll every 3s if any lead is actively analyzing/queued or bulk is active, else 15s
+    // Auto-poll every 3s while any analysis is non-terminal or bulk is active, else 15s
     refetchInterval: (query: any) => {
       const currentLeads = query.state.data?.data || [];
-      const hasActiveLead = currentLeads.some((l: any) => {
-        const s = (l.ai_analysis?.analysis_status || l.ai_analysis?.status || '').toLowerCase();
-        return s === 'running' || s === 'queued' || s === 'processing' || s === 'in_progress';
-      });
+      const hasActiveLead = currentLeads.some((l: any) => getLeadAnalysisState(l).isActive);
       return hasActiveLead || Boolean(activeBulkQueue) ? 3000 : 15000;
     },
   });
@@ -593,12 +464,18 @@ function LeadsPageContent() {
       return;
     }
     const leadId = lead._id;
+    setAnalysisStartedAt(prev => ({ ...prev, [leadId]: Date.now() }));
     setStartingAnalysisId(leadId);
     setAnalyzingLeadIds(prev => new Set(prev).add(leadId));
     try {
       const res = await api.post(`/leads/${leadId}/start-analysis`);
       const resData = res.data;
       if (resData?.worker_id === 'skipped') {
+        setAnalysisStartedAt(prev => {
+          const next = { ...prev };
+          delete next[leadId];
+          return next;
+        });
         setAnalyzingLeadIds(prev => {
           const next = new Set(prev);
           next.delete(leadId);
@@ -615,6 +492,11 @@ function LeadsPageContent() {
         queryClient.invalidateQueries({ queryKey: ['lead', leadId] });
       }
     } catch (err: any) {
+      setAnalysisStartedAt(prev => {
+        const next = { ...prev };
+        delete next[leadId];
+        return next;
+      });
       setAnalyzingLeadIds(prev => {
         const next = new Set(prev);
         next.delete(leadId);
@@ -626,12 +508,21 @@ function LeadsPageContent() {
     }
   };
 
-  // Auto-clear active analyzing tracking when lead finishes analysis
+  // Clear local tracking as soon as the backend confirms a terminal state
   useEffect(() => {
     if (analyzingLeadIds.size > 0 && leads.length > 0) {
       leads.forEach((l: any) => {
-        const state = getLeadAnalysisState(l);
-        if (state.status === 'completed' && analyzingLeadIds.has(l._id)) {
+        if (!analyzingLeadIds.has(l._id)) return;
+        const state = getLeadAnalysisDisplayState(l, {
+          isTracked: true,
+          ignoreTerminalBefore: analysisStartedAt[l._id],
+        });
+        if (state.isTerminal) {
+          setAnalysisStartedAt(prev => {
+            const next = { ...prev };
+            delete next[l._id];
+            return next;
+          });
           setAnalyzingLeadIds(prev => {
             const next = new Set(prev);
             next.delete(l._id);
@@ -640,7 +531,7 @@ function LeadsPageContent() {
         }
       });
     }
-  }, [leads, analyzingLeadIds]);
+  }, [leads, analyzingLeadIds, analysisStartedAt]);
 
   // Navigate to individual lead detail page
   const handleOpenLeadDetail = (leadId: string, e?: React.MouseEvent) => {
@@ -1389,20 +1280,12 @@ function LeadsPageContent() {
                     : 'L';
 
                   const palette = avatarPalettes[idx % avatarPalettes.length];
-                  const rawAnalysisState = getLeadAnalysisState(lead);
-                  const isActivelyAnalyzing = Boolean(
-                    analyzingLeadIds.has(lead._id) ||
-                    startingAnalysisId === lead._id ||
-                    ['queued', 'analyzing', 'processing', 'running', 'started'].includes(rawAnalysisState.status)
-                  );
-                  const analysisState = isActivelyAnalyzing && rawAnalysisState.status !== 'completed' && rawAnalysisState.status !== 'failed'
-                    ? {
-                      status: 'analyzing',
-                      label: 'Analyzing...',
-                      progress: Math.max(rawAnalysisState.progress, 15),
-                      startedAt: rawAnalysisState.startedAt || new Date().toISOString()
-                    }
-                    : rawAnalysisState;
+                  const analysisState = getLeadAnalysisDisplayState(lead, {
+                    isTracked: analyzingLeadIds.has(lead._id),
+                    isStarting: startingAnalysisId === lead._id,
+                    ignoreTerminalBefore: analysisStartedAt[lead._id],
+                  });
+                  const isActivelyAnalyzing = analysisState.isActive;
                   const isSelectedInDrawer = selectedDrawerLead?._id === lead._id && drawerOpen;
 
                   return (
@@ -1527,42 +1410,35 @@ function LeadsPageContent() {
                             {analysisState.status === 'not_analyzed' && (
                               <>
                                 <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
-                                <span className="text-xs font-medium text-slate-600">Not Analyzed</span>
+                                <span className="text-xs font-medium text-slate-600">{analysisState.label}</span>
                               </>
                             )}
 
-                            {analysisState.status === 'queued' && (
+                            {(analysisState.status === 'pending' || analysisState.status === 'queued') && (
                               <>
-                                <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-                                <span className="text-xs font-medium text-slate-600">Queued</span>
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${analysisState.status === 'pending' ? 'bg-amber-400' : 'bg-amber-500'}`} />
+                                <span className="text-xs font-medium text-slate-600">{analysisState.label}</span>
                               </>
                             )}
 
                             {analysisState.status === 'analyzing' && (
                               <div className="flex items-center gap-1.5">
                                 <div className="w-3 h-3 border-2 border-blue-600 border-t-transparent rounded-full animate-spin shrink-0" />
-                                <span className="text-xs font-medium text-slate-800">Analyzing...</span>
+                                <span className="text-xs font-medium text-slate-800">{analysisState.label}</span>
                               </div>
-                            )}
-
-                            {analysisState.status === 'processing' && (
-                              <>
-                                <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0" />
-                                <span className="text-xs font-medium text-slate-600">Processing</span>
-                              </>
                             )}
 
                             {analysisState.status === 'completed' && (
                               <>
                                 <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" />
-                                <span className="text-xs font-medium text-slate-600">Completed</span>
+                                <span className="text-xs font-medium text-slate-600">{analysisState.label}</span>
                               </>
                             )}
 
                             {analysisState.status === 'failed' && (
                               <>
                                 <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
-                                <span className="text-xs font-medium text-rose-600">Failed</span>
+                                <span className="text-xs font-medium text-rose-600">{analysisState.label}</span>
                               </>
                             )}
                           </div>
@@ -1598,8 +1474,8 @@ function LeadsPageContent() {
                                 </>
                               )}
                             </button>
-                          ) : analysisState.status === 'queued' || analysisState.status === 'analyzing' || analysisState.status === 'processing' || isActivelyAnalyzing ? (
-                            /* While running/queued/processing: Persistent Analyzing... button with spinner.
+                          ) : analysisState.isActive ? (
+                            /* While pending/queued/analyzing: Persistent Analyzing... button with spinner.
                                Clicking opens AI drawer to inspect live progress without interrupting job. */
                             <button
                               onClick={(e) => handleOpenAnalysisDrawer(lead, false, e)}
@@ -1620,27 +1496,15 @@ function LeadsPageContent() {
                               <span>AI Insights</span>
                             </button>
                           ) : (
-                            /* When failed: Shows Retry Analysis button (or Analyzing... if user clicked retry) */
+                            /* When failed: Shows Retry Analysis button */
                             <button
                               onClick={(e) => handleStartAnalysis(lead, e)}
-                              disabled={!lead.website || isActivelyAnalyzing}
-                              title={isActivelyAnalyzing ? "Analysis in progress." : "Analysis failed. Click to retry analysis."}
-                              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-2xs transition-all active:scale-95 cursor-pointer ${isActivelyAnalyzing
-                                ? 'border-blue-200 bg-blue-50/80 text-blue-700'
-                                : 'border-rose-200 bg-rose-50/60 text-rose-700 hover:bg-rose-100/60'
-                                }`}
+                              disabled={!lead.website}
+                              title="Analysis failed. Click to retry analysis."
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold shadow-2xs transition-all active:scale-95 cursor-pointer border-rose-200 bg-rose-50/60 text-rose-700 hover:bg-rose-100/60"
                             >
-                              {isActivelyAnalyzing ? (
-                                <>
-                                  <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" />
-                                  <span>Analyzing...</span>
-                                </>
-                              ) : (
-                                <>
-                                  <RefreshCw className="w-3.5 h-3.5 text-rose-600" />
-                                  <span>Retry Analysis</span>
-                                </>
-                              )}
+                              <RefreshCw className="w-3.5 h-3.5 text-rose-600" />
+                              <span>Retry Analysis</span>
                             </button>
                           )}
 
@@ -1670,20 +1534,12 @@ function LeadsPageContent() {
               ? displayName.split(' ').map((n: string) => n[0]).join('').slice(0, 2).toUpperCase()
               : 'L';
             const palette = avatarPalettes[idx % avatarPalettes.length];
-            const rawAnalysisState = getLeadAnalysisState(lead);
-            const isActivelyAnalyzing = Boolean(
-              analyzingLeadIds.has(lead._id) ||
-              startingAnalysisId === lead._id ||
-              ['queued', 'analyzing', 'processing', 'running', 'started'].includes(rawAnalysisState.status)
-            );
-            const analysisState = isActivelyAnalyzing && rawAnalysisState.status !== 'completed' && rawAnalysisState.status !== 'failed'
-              ? {
-                status: 'analyzing',
-                label: 'Analyzing...',
-                progress: Math.max(rawAnalysisState.progress, 15),
-                startedAt: rawAnalysisState.startedAt || new Date().toISOString()
-              }
-              : rawAnalysisState;
+            const analysisState = getLeadAnalysisDisplayState(lead, {
+              isTracked: analyzingLeadIds.has(lead._id),
+              isStarting: startingAnalysisId === lead._id,
+              ignoreTerminalBefore: analysisStartedAt[lead._id],
+            });
+            const isActivelyAnalyzing = analysisState.isActive;
 
             return (
               <div
@@ -1774,7 +1630,7 @@ function LeadsPageContent() {
                           </>
                         )}
                       </button>
-                    ) : analysisState.status === 'queued' || analysisState.status === 'analyzing' || analysisState.status === 'processing' || isActivelyAnalyzing ? (
+                    ) : analysisState.isActive ? (
                       <button
                         onClick={(e) => handleOpenAnalysisDrawer(lead, false, e)}
                         className="flex-1 px-3 py-2 rounded-xl bg-blue-50 border border-blue-200 text-xs font-semibold text-blue-700 shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
@@ -1791,21 +1647,10 @@ function LeadsPageContent() {
                     ) : (
                       <button
                         onClick={(e) => handleStartAnalysis(lead, e)}
-                        disabled={!lead.website || isActivelyAnalyzing}
-                        className={`flex-1 px-3 py-2 rounded-xl border text-xs font-semibold shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer ${isActivelyAnalyzing
-                          ? 'bg-blue-50 border-blue-200 text-blue-700'
-                          : 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100'
-                          }`}
+                        disabled={!lead.website}
+                        className="flex-1 px-3 py-2 rounded-xl border text-xs font-semibold shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
                       >
-                        {isActivelyAnalyzing ? (
-                          <>
-                            <Loader2 className="w-3.5 h-3.5 text-blue-600 animate-spin" /> Analyzing...
-                          </>
-                        ) : (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 text-rose-600" /> Retry
-                          </>
-                        )}
+                        <RefreshCw className="w-3.5 h-3.5 text-rose-600" /> Retry
                       </button>
                     )}
                     <button

@@ -42,6 +42,7 @@ from app.db.database import get_db
 from app.models.ai_analysis import AIAnalysisState, WSEventType
 from app.core.state_machine import StateMachine, apply_and_persist, TransitionRecord
 from app.core.state_machine.machines import AI_ANALYSIS_JOB
+from app.core.analysis_status import ANALYSIS_STALE_SECONDS
 from app.core.logger import logger
 from app.core.websocket import manager
 from app.services.lead_enrichment_service import lead_enrichment_service, LeadEnrichmentData, to_object_id, persist_ai_analysis, verify_ai_analysis_persisted
@@ -146,7 +147,7 @@ OPPORTUNITY_TIMEOUT = 30       # Lead intelligence + sales opportunity
 SCORING_TIMEOUT = 45           # Business Intelligence scoring
 SAVE_TIMEOUT = 30              # Persisting final results to MongoDB
 JOB_GLOBAL_TIMEOUT = 600       # 10 minutes — entire job must finish within this
-STALE_JOB_THRESHOLD = 900      # 15 minutes — auto-fail jobs stuck longer than this
+STALE_JOB_THRESHOLD = ANALYSIS_STALE_SECONDS  # auto-fail jobs stuck longer than this
 
 # States where a job is actively being processed by a phase
 ACTIVE_JOB_STATES = {

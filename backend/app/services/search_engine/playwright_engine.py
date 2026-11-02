@@ -109,7 +109,7 @@ class PlaywrightEngine:
                 await route.abort()
             elif any(blocked in req.url for blocked in [
                 "google-analytics.com", "analytics", "doubleclick.net",
-                "googletagmanager.com", "play.google.com/log", "ggpht.com"
+                "googletagmanager.com", "play.google.com/log", "ggpht.com", "/maps/vt", "geometry", "/maps/preview/log204"
             ]):
                 await route.abort()
             else:
@@ -476,7 +476,7 @@ class PlaywrightEngine:
 
             # Extract details using concurrent worker pool (2 concurrent tabs: optimal for 2 vCPU / 4 GB RAM)
             if new_hrefs:
-                sem = asyncio.Semaphore(3)
+                sem = asyncio.Semaphore(5)
 
                 async def _extract_place(target_href: str):
                     async with sem:

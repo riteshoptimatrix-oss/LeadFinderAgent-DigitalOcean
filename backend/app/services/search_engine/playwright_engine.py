@@ -77,7 +77,7 @@ class PlaywrightEngine:
         return await self._start_browser_internal()
 
     async def _start_browser_internal(self):
-        logger.info("[ENGINE] Starting Playwright Chromium...")
+        logger.info("[ENGINE] Starting Playwright Chromium (Turbo Mode: Images & Fonts Disabled)...")
         self.playwright = await async_playwright().start()
         self.browser = await self.playwright.chromium.launch(
             headless=True,
@@ -85,15 +85,39 @@ class PlaywrightEngine:
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
-                "--disable-gpu"
+                "--disable-gpu",
+                "--blink-settings=imagesEnabled=false",
+                "--disable-remote-fonts",
+                "--disable-background-networking",
+                "--disable-default-apps",
+                "--disable-extensions",
+                "--disable-sync",
+                "--mute-audio",
+                "--no-first-run",
             ]
         )
         self.context = await self.browser.new_context(
             viewport={'width': 1280, 'height': 800},
             user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         )
+
+        # Abort images, media, fonts, and trackers at network layer across all tabs
+        async def _block_heavy_resources(route):
+            req = route.request
+            rtype = req.resource_type
+            if rtype in ["image", "media", "font"]:
+                await route.abort()
+            elif any(blocked in req.url for blocked in [
+                "google-analytics.com", "analytics", "doubleclick.net",
+                "googletagmanager.com", "play.google.com/log", "ggpht.com"
+            ]):
+                await route.abort()
+            else:
+                await route.continue_()
+
+        await self.context.route("**/*", _block_heavy_resources)
         self.page = await self.context.new_page()
-        logger.info("[ENGINE] Browser started successfully.")
+        logger.info("[ENGINE] Turbo browser started successfully.")
         
     async def close(self):
         """Closes every running resource: pages, context, browser and playwright."""
@@ -315,7 +339,7 @@ class PlaywrightEngine:
                     }
                 }'''
             )
-            await asyncio.sleep(0.4)
+            await asyncio.sleep(0.15)
         except PlaywrightError:
             pass
 
@@ -435,7 +459,7 @@ class PlaywrightEngine:
         while True:
             links = self.page.locator('div[role="feed"] a[href*="/maps/place"]')
             count = await links.count()
-            new_links_found = False
+            new_hrefs = []
 
             for i in range(count):
                 link = links.nth(i)
@@ -446,44 +470,61 @@ class PlaywrightEngine:
                 if not href or href in processed_links:
                     continue
                 processed_links.add(href)
-                new_links_found = True
+                new_hrefs.append(href)
 
-                # Extract using a new tab to avoid losing search feed state
-                new_page = None
+            new_links_found = len(new_hrefs) > 0
+
+            # Extract details using concurrent worker pool (2 concurrent tabs: optimal for 2 vCPU / 4 GB RAM)
+            if new_hrefs:
+                sem = asyncio.Semaphore(3)
+
+                async def _extract_place(target_href: str):
+                    async with sem:
+                        wp = None
+                        try:
+                            wp = await self.context.new_page()
+                            # Fast goto with images & fonts blocked (finishes in ~400-800ms)
+                            await wp.goto(target_href, wait_until="domcontentloaded", timeout=12000)
+
+                            # Fast check for detail title
+                            try:
+                                await wp.wait_for_function('''() => {
+                                    const h1s = Array.from(document.querySelectorAll('h1'));
+                                    return h1s.some(h1 => h1.innerText.trim().toLowerCase() !== 'results' && h1.innerText.trim().length > 0);
+                                }''', timeout=4000)
+                                try:
+                                    await wp.wait_for_selector('[data-item-id]', timeout=800)
+                                except PlaywrightError:
+                                    pass
+                                await asyncio.sleep(0.1)
+                            except PlaywrightError:
+                                await asyncio.sleep(0.15)
+
+                            c_url = wp.url
+                            c_html = await wp.content()
+                            return c_html, c_url
+                        except Exception as e:
+                            logger.warning(f"[ENGINE] Failed to extract details for {target_href}: {e}")
+                            return None
+                        finally:
+                            if wp is not None:
+                                try:
+                                    await wp.close()
+                                except Exception:
+                                    pass
+
+                tasks = [asyncio.create_task(_extract_place(h)) for h in new_hrefs]
                 try:
-                    new_page = await self.page.context.new_page()
-                    await new_page.goto(href, wait_until="domcontentloaded", timeout=15000)
-
-                    # Wait for the detail panel to load properly
-                    try:
-                        await new_page.wait_for_function('''() => {
-                            const h1s = Array.from(document.querySelectorAll('h1'));
-                            return h1s.some(h1 => h1.innerText.trim().toLowerCase() !== 'results' && h1.innerText.trim().length > 0);
-                        }''', timeout=8000)
-                        # Quick wait for dynamic content (phone, website, address) to populate
-                        try:
-                            await new_page.wait_for_selector('[data-item-id]', timeout=1500)
-                        except PlaywrightError:
-                            pass
-                        await asyncio.sleep(0.3)
-                    except PlaywrightError:
-                        logger.warning("[ENGINE] Timeout waiting for detail panel h1 in new tab. Proceeding anyway.")
-                        await asyncio.sleep(0.5)
-
-                    current_url = new_page.url
-                    detail_html = await new_page.content()
-                    await new_page.close()
-                    new_page = None
-
-                    logger.info(f"[ENGINE] Discovered business {len(processed_links)} (target {limit}). Extracting details...")
-                    yield detail_html, current_url
-                except Exception as e:
-                    logger.warning(f"[ENGINE] Failed to extract details for {href}: {e}")
-                    if new_page is not None:
-                        try:
-                            await new_page.close()
-                        except Exception:
-                            pass
+                    for task in asyncio.as_completed(tasks):
+                        res = await task
+                        if res is not None:
+                            d_html, d_url = res
+                            logger.info(f"[ENGINE] Fast-extracted business ({len(processed_links)} tracked, target {limit})...")
+                            yield d_html, d_url
+                finally:
+                    for t in tasks:
+                        if not t.done():
+                            t.cancel()
 
             # End-of-list marker: Google explicitly signals there are no more results
             try:
@@ -506,7 +547,7 @@ class PlaywrightEngine:
             )
 
             scroll_moved = await self._scroll_feed(feed_locator)
-            await asyncio.sleep(1.5)  # Wait for lazy loading
+            await asyncio.sleep(0.7)  # Optimized wait for next feed batch
 
             if not scroll_moved:
                 consecutive_unmoved_cycles += 1

@@ -34,6 +34,21 @@ export default function LoginPage() {
 
       const { access_token, refresh_token, role } = response.data;
 
+      // Save tokens immediately so storage and subsequent calls have fresh credentials
+      if (rememberMe) {
+        localStorage.setItem('remember_me', 'true');
+        localStorage.setItem('access_token', access_token);
+        localStorage.setItem('refresh_token', refresh_token);
+        sessionStorage.removeItem('access_token');
+        sessionStorage.removeItem('refresh_token');
+      } else {
+        localStorage.removeItem('remember_me');
+        sessionStorage.setItem('access_token', access_token);
+        sessionStorage.setItem('refresh_token', refresh_token);
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+      }
+
       const meRes = await api.get('/auth/me', {
         headers: { Authorization: `Bearer ${access_token}` }
       });

@@ -158,7 +158,7 @@ class RefreshTokenRequest(BaseModel):
     refresh_token: str
 
 @router.post("/refresh", response_model=Token)
-@limiter.limit("5/minute")
+@limiter.limit("30/minute")
 async def refresh_token(
     request: Request,
     body: RefreshTokenRequest,
@@ -173,13 +173,24 @@ async def refresh_token(
         raise HTTPException(status_code=403, detail="Refresh token expired")
         
     user_id = session_dict["user_id"]
+    from bson.objectid import ObjectId
+    # Check if admin or user to include correct role in claims
+    user = await db["admins"].find_one({"_id": ObjectId(user_id)})
+    role = "admin" if user else "user"
+    if not user:
+        user = await db["users"].find_one({"_id": ObjectId(user_id)})
+    
+    if not user or not user.get("is_active", True):
+        raise HTTPException(status_code=401, detail="User not found or inactive")
+
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = security.create_access_token(user_id, expires_delta=access_token_expires)
+    access_token = security.create_access_token(user_id, expires_delta=access_token_expires, additional_claims={"role": role})
     
     return {
         "access_token": access_token,
         "refresh_token": body.refresh_token,
         "token_type": "bearer",
+        "role": role,
     }
 
 @router.post("/logout")

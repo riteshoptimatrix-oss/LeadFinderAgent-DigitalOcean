@@ -13,24 +13,31 @@ export default function AuthGuard({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!hasHydrated) return;
 
-    if (!isAuthenticated) {
+    const token = typeof window !== 'undefined'
+      ? (localStorage.getItem('access_token') || sessionStorage.getItem('access_token'))
+      : null;
+
+    if (!isAuthenticated || !token) {
+      useAuthStore.getState().logout();
       router.replace('/login');
-    } else {
-      // Validate session with backend silently
-      api.get('/auth/me').then(res => {
-        const realUser = { id: res.data.id || res.data._id, email: res.data.email };
-        const current = useAuthStore.getState().user;
-        if (current && (current.id !== realUser.id || current.email !== realUser.email)) {
-          useAuthStore.setState({ user: realUser });
-        }
-      }).catch(() => {
-        // Axios interceptor will handle 401 and refresh, 
-        // if refresh fails it logs out.
-      }).finally(() => {
-        setIsChecking(false);
-      });
+      setIsChecking(false);
+      return;
     }
-  }, [isAuthenticated, hasHydrated, router, pathname]);
+
+    // Validate session with backend silently
+    api.get('/auth/me').then(res => {
+      const realUser = { id: res.data.id || res.data._id, email: res.data.email };
+      const current = useAuthStore.getState().user;
+      if (current && (current.id !== realUser.id || current.email !== realUser.email)) {
+        useAuthStore.setState({ user: realUser });
+      }
+    }).catch(() => {
+      // Axios interceptor will handle 401 and refresh, 
+      // if refresh fails it logs out and clears storage.
+    }).finally(() => {
+      setIsChecking(false);
+    });
+  }, [isAuthenticated, hasHydrated, router]);
 
   if (isChecking) {
     return null; // Return absolutely nothing while checking auth to prevent UI flashes

@@ -42,66 +42,6 @@ const searchSchema = z.object({
 
 type SearchFormValues = z.infer<typeof searchSchema>;
 
-// Ahmedabad (GJ, IN) localities used as a curated area dropdown instead of the
-// free-text Area field whenever India > Gujarat > Ahmedabad is selected.
-const AHMEDABAD_LOCALITIES = [
-  'Naroda', 'Nikol', 'Odhav', 'Satellite', 'Prahlad Nagar', 'Vastral', 'Bopal',
-  'South Bopal (SoBo)', 'Shela', 'Shilaj', 'Thaltej', 'Bodakdev', 'Vastrapur',
-  'Navrangpura', 'Naranpura', 'Memnagar', 'Gurukul', 'Ghatlodiya', 'Gota', 'Sola',
-  'Science City', 'Bhadaj', 'Ognaj', 'Chandlodiya', 'Chanakyapuri', 'Sabarmati',
-  'Ranip', 'New Ranip', 'Motera', 'Chandkheda', 'Tragad', 'Zundal', 'Shahibaug',
-  'Camp Area', 'Asarwa', 'Meghaninagar', 'Dudheshwar', 'Madhupura', 'Subhash Bridge',
-  'Usmanpura', 'Paldi', 'Ambawadi', 'Law Garden', 'CG Road', 'Ellisbridge',
-  'Mithakhali', 'Gulbai Tekra', 'Panjrapole', 'Nehrunagar', 'Jivraj Park', 'Vasna',
-  'Vejalpur', 'Anandnagar', 'Shyamal', 'Jodhpur Tekra', 'Makarba', 'Sarkhej',
-  'Juhapura', 'Maktampura', 'Sanathal', 'Moraiya', 'Changodar', 'Bapunagar',
-  'India Colony', 'Thakkarbapanagar', 'Saijpur Bogha', 'Kubernagar', 'Sardarnagar',
-  'Hansol', 'Kathwada', 'Singarva', 'Ramol', 'Hathijan', 'Vinzol', 'Amraiwadi',
-  'Gomtipur', 'Rakhial', 'Saraspur', 'Viratnagar', 'Bhaipura', 'Hatkeshwar',
-  'Khokhra', 'CTM', 'Jasoda Nagar', 'Maninagar', 'Kankaria', 'Ghodasar', 'Isanpur',
-  'Vatva', 'Narol', 'Lambha', 'Danilimda', 'Behrampura', 'Kalupur', 'Shahpur',
-  'Dariyapur', 'Jamalpur', 'Khadia', 'Astodia', 'Lal Darwaja'
-];
-
-// Abrama (GJ, IN) localities — curated dropdown whenever India > Gujarat > Abrama.
-const ABRAMA_LOCALITIES = [
-  'Abrama Main Bazaar', 'Child Tracking System', 'Khara Abrama', 'Wikipedia',
-  'Abrama Station Road', 'Vachhla Falia', 'Bhagda Falia', 'Halpati Falia',
-  'Desai Falia', 'Patel Falia', 'Tandalja Road Pocket', 'Shanti Nagar',
-  'Kranti Nagar', 'Ambika Nagar', 'Radha Krishna Society Area',
-  'Pramukh Green Enclave', 'Sai Krupa Housing Pocket', 'Madhav Vihar Layout',
-  'Krishna Avenue', 'Soham Villa Zone', 'Housing', 'Kedar Heights Area',
-  'Shriram Nagar', 'New Abrama Extension', 'Old Abrama Gam (Village Core)',
-  'Dudhiya Talav Connector Road Area', 'Jalalpore Link Road Pocket',
-  'College Road Area (near Abrama Technical & Agricultural Institute)',
-  'School Falia', 'Pipeline Road Area', 'Salt Pan Area (Historical Salt Bed Zones)',
-  'Canal Road Pocket', 'Vashier Valley Connector Area'
-];
-
-// Adalaj (GJ, IN) localities — curated dropdown whenever India > Gujarat > Adalaj.
-const ADALAJ_LOCALITIES = [
-  'Adalaj Gam (Old Village Core)', 'Adalaj Stepwell (Vav) Area',
-  'Trimandir Campus Area', 'Adalaj Chokdi (Cross Roads)',
-  'SG Highway – Adalaj Corridor', 'Gandhinagar – Ahmedabad Highway Belt',
-  'Por Road Area', 'Koba – Adalaj Link Road Area', 'Jamiyatpura Road Belt',
-  'Adalaj Station Road Area', 'Canal Road Pocket', 'Patel Falia', 'Rabari Vas',
-  'Thakor Vas', 'Prajapati Vas', 'Vankar Vas', 'Brahmin Falia', 'Devipujak Vas',
-  'Old Panchayat Office Area', 'Swaminarayan Mandir Belt', 'Shree Ram Nagar Area',
-  'Ambika Nagar Area', 'Sai Baba Nagar Area', 'Shiv Shakti Nagar Area',
-  'Tirupati Housing Belt', 'Siddhi Vinayak Zone', 'Trimandir Enclaves Zone',
-  'Adalaj Industrial Belt (GIDC Pocket)', 'NH-147 Warehousing Zone',
-  'Sughad – Adalaj Border Area', 'Koteshwar Link Belt', 'Shertha Road Outer Pocket',
-  'Zundal – Adalaj Extension Belt', 'Kudasan Link Corridor', 'Sargasan Approach Area'
-];
-
-// Curated locality dropdown per city (GJ, IN). Only these cities unlock it;
-// every other city keeps the plain free-text Area field.
-const LOCALITY_MAP: Record<string, string[]> = {
-  'Ahmedabad': AHMEDABAD_LOCALITIES,
-  'Abrama': ABRAMA_LOCALITIES,
-  'Adalaj': ADALAJ_LOCALITIES,
-};
-
 function getUnicodeFlag(countryCode: string): string {
   if (!countryCode || countryCode.length !== 2) return "";
   try {
@@ -431,28 +371,6 @@ export default function SearchPage() {
     }));
   }, [cities]);
 
-  // Curated locality dropdown: shown ONLY for India > Gujarat > a mapped city
-  // (Ahmedabad, Abrama). Any other location keeps the free-text Area field.
-  const activeLocalities = selectedCountryCode === 'IN' && selectedStateCode === 'GJ'
-    ? (LOCALITY_MAP[watchCity] || null)
-    : null;
-
-  const localityOptions = useMemo(() => {
-    return (activeLocalities || []).map((locality) => ({
-      label: locality,
-      value: locality
-    }));
-  }, [activeLocalities]);
-
-  // When the user leaves a mapped city, release the locality constraint so the
-  // free-text area input is usable again, but preserve any already-chosen value.
-  const watchAreaIsLocality = watchArea && (activeLocalities || []).includes(watchArea);
-  useEffect(() => {
-    if (!activeLocalities && watchAreaIsLocality) {
-      setValue('area', '');
-    }
-  }, [activeLocalities, watchAreaIsLocality, setValue]);
-
   const selectedCountryName = useMemo(() => {
     if (!selectedCountryCode) return '';
     return Country.getCountryByCode(selectedCountryCode)?.name || '';
@@ -669,36 +587,19 @@ export default function SearchPage() {
                 )}
               />
 
-              {activeLocalities ? (
-                <Controller
-                  name="area"
-                  control={control}
-                  render={({ field }) => (
-                    <SearchableSelect
-                      label="Area / Locality"
-                      options={localityOptions}
-                      value={field.value || ''}
-                      onChange={field.onChange}
-                      placeholder={`Select a locality in ${watchCity}`}
-                      disabled={searchMutation.isPending}
-                    />
-                  )}
+              <div className="space-y-2">
+                <label className="block text-sm font-semibold text-slate-800 flex items-center justify-between">
+                  Area / Neighborhood
+                  <span className="text-xs font-normal text-slate-400">Optional</span>
+                </label>
+                <input
+                  type="text"
+                  {...register('area')}
+                  disabled={searchMutation.isPending}
+                  className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 text-sm text-slate-900 placeholder:text-slate-400 transition-all disabled:opacity-60 disabled:bg-slate-50 font-medium"
+                  placeholder="e.g. Downtown"
                 />
-              ) : (
-                <div className="space-y-2">
-                  <label className="block text-sm font-semibold text-slate-800 flex items-center justify-between">
-                    Area / Neighborhood
-                    <span className="text-xs font-normal text-slate-400">Optional</span>
-                  </label>
-                  <input
-                    type="text"
-                    {...register('area')}
-                    disabled={searchMutation.isPending}
-                    className="w-full px-4 py-3 bg-white border border-slate-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900 focus:border-slate-900 text-sm text-slate-900 placeholder:text-slate-400 transition-all disabled:opacity-60 disabled:bg-slate-50 font-medium"
-                    placeholder="e.g. Downtown"
-                  />
-                </div>
-              )}
+              </div>
             </div>
           </div>
 

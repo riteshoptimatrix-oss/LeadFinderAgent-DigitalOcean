@@ -937,6 +937,177 @@ async def get_global_logs(
     logs_flat.sort(key=lambda x: str(x.get("processed_at") or ""), reverse=True)
     return logs_flat[:100]
 
+@router.get("/campaigns/{campaign_id}/emails")
+async def get_campaign_emails(
+    campaign_id: str,
+    status: Optional[str] = None,
+    search: Optional[str] = None,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db)
+):
+    """Fetch complete list of sent/failed/processed emails and lead details for a campaign."""
+    try:
+        oid = ObjectId(campaign_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid campaign_id")
+
+    filter_q: Dict[str, Any] = {"_id": oid}
+    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        filter_q["$or"] = get_user_match_filter(current_user)
+
+    campaign = await db["email_ai_campaigns"].find_one(filter_q)
+    if not campaign:
+        campaign = await db["email_ai_campaigns"].find_one({"_id": oid})
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    campaign_name = campaign.get("name") or campaign.get("info", {}).get("name") or f"Campaign {campaign_id[:8]}"
+    logs = campaign.get("logs", [])
+    
+    # 1. Fetch any jobs from email_ai_queue
+    queue_jobs = await db["email_ai_queue"].find({"campaign_id": campaign_id}).to_list(1000)
+    queue_map = {str(j.get("lead_id")): j for j in queue_jobs if j.get("lead_id")}
+
+    # 2. Collect all lead IDs preserving order
+    lead_ids_ordered = []
+    seen_ids = set()
+
+    for log in logs:
+        lid = str(log.get("lead_id", ""))
+        if lid and lid not in seen_ids:
+            lead_ids_ordered.append(lid)
+            seen_ids.add(lid)
+
+    for lid in queue_map.keys():
+        if lid not in seen_ids:
+            lead_ids_ordered.append(lid)
+            seen_ids.add(lid)
+
+    for lid in campaign.get("target_leads", []):
+        s_lid = str(lid)
+        if s_lid and s_lid not in seen_ids:
+            lead_ids_ordered.append(s_lid)
+            seen_ids.add(s_lid)
+
+    # 3. Batch query lead documents
+    valid_oids = [ObjectId(lid) for lid in lead_ids_ordered if ObjectId.is_valid(lid)]
+    lead_doc_map = {}
+    if valid_oids:
+        leads_cursor = db["leads"].find(
+            {"_id": {"$in": valid_oids}},
+            {"business_name": 1, "name": 1, "email": 1, "emails": 1, "phone": 1, "city": 1, "state": 1, "category": 1}
+        )
+        leads_list = await leads_cursor.to_list(len(valid_oids) + 20)
+        lead_doc_map = {str(l["_id"]): l for l in leads_list}
+
+    # Map logs by lead_id for quick lookup
+    logs_map = {}
+    for log in logs:
+        lid = str(log.get("lead_id", ""))
+        if lid:
+            logs_map[lid] = log
+
+    # 4. Build consolidated email records
+    email_records = []
+    for lid in lead_ids_ordered:
+        lead_doc = lead_doc_map.get(lid, {})
+        log_entry = logs_map.get(lid, {})
+        queue_entry = queue_map.get(lid, {})
+
+        # Determine status
+        raw_status = (
+            log_entry.get("status")
+            or queue_entry.get("status")
+            or "Pending"
+        )
+        st_lower = str(raw_status).lower()
+        if st_lower in ["sent", "delivered", "success"]:
+            norm_status = "Delivered"
+        elif st_lower in ["failed", "error"]:
+            norm_status = "Failed"
+        elif st_lower in ["skipped", "cancelled"]:
+            norm_status = "Skipped"
+        elif st_lower in ["sending", "processing"]:
+            norm_status = "Sending"
+        else:
+            norm_status = "Pending"
+
+        # Determine error explanation
+        error_msg = (
+            log_entry.get("error")
+            or queue_entry.get("error_message")
+            or (queue_entry.get("logs", [-1])[-1] if queue_entry.get("logs") and norm_status == "Failed" else None)
+        )
+
+        # Recipient email
+        email_addr = (
+            lead_doc.get("email")
+            or (lead_doc.get("emails", [None])[0] if isinstance(lead_doc.get("emails"), list) and lead_doc.get("emails") else None)
+            or log_entry.get("email")
+            or "No Email Found"
+        )
+
+        proc_at = (
+            log_entry.get("processed_at")
+            or (queue_entry.get("updated_at").isoformat() if queue_entry.get("updated_at") else None)
+            or (campaign.get("completed_at").isoformat() if campaign.get("completed_at") else None)
+            or (campaign.get("created_at").isoformat() if campaign.get("created_at") else None)
+        )
+
+        biz_name = (
+            lead_doc.get("business_name")
+            or lead_doc.get("name")
+            or "Unknown Business"
+        )
+
+        duration = log_entry.get("duration", 0)
+
+        record = {
+            "lead_id": lid,
+            "business_name": biz_name,
+            "email": email_addr,
+            "phone": lead_doc.get("phone", ""),
+            "city": lead_doc.get("city", ""),
+            "status": norm_status,
+            "error": error_msg,
+            "processed_at": proc_at,
+            "duration": round(float(duration), 2) if duration else 0
+        }
+
+        # Apply search and status filters if provided
+        if status and status.upper() != "ALL":
+            if norm_status.upper() != status.upper():
+                continue
+
+        if search:
+            search_low = search.lower()
+            if (
+                search_low not in biz_name.lower()
+                and search_low not in email_addr.lower()
+                and search_low not in str(error_msg or "").lower()
+            ):
+                continue
+
+        email_records.append(record)
+
+    total_count = len(lead_ids_ordered)
+    delivered_count = sum(1 for r in email_records if r["status"] == "Delivered")
+    failed_count = sum(1 for r in email_records if r["status"] == "Failed")
+    skipped_count = sum(1 for r in email_records if r["status"] == "Skipped")
+
+    return {
+        "campaign_id": campaign_id,
+        "campaign_name": campaign_name,
+        "status": campaign.get("status", "UNKNOWN"),
+        "created_at": campaign.get("created_at"),
+        "completed_at": campaign.get("completed_at"),
+        "total_targets": total_count,
+        "sent_count": campaign.get("stats", {}).get("sent", delivered_count),
+        "failed_count": campaign.get("stats", {}).get("failed", failed_count),
+        "skipped_count": campaign.get("stats", {}).get("skipped", skipped_count),
+        "emails": email_records
+    }
+
 @router.get("/campaigns/{campaign_id}/export")
 async def export_campaign(
     campaign_id: str,

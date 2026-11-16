@@ -66,6 +66,40 @@ const formatTime = (seconds?: number) => {
 
 const TERMINAL_STATUSES = ['COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'];
 
+const parseLogEntry = (log: any) => {
+  let rawMsg = '';
+  let timeStr = '';
+  let stage = '';
+
+  if (typeof log === 'string') {
+    rawMsg = log.trim();
+    const match = rawMsg.match(/^\[(.*?)\]\s*(.*)$/);
+    if (match) {
+      timeStr = match[1];
+      rawMsg = match[2].trim();
+    }
+  } else if (log && typeof log === 'object') {
+    rawMsg = (log.message || log.msg || '').trim();
+    stage = log.stage || log.event_type || '';
+    if (log.timestamp) {
+      const parsed = new Date(
+        typeof log.timestamp === 'number' || !isNaN(Number(log.timestamp))
+          ? Number(log.timestamp) * 1000
+          : log.timestamp
+      );
+      if (!isNaN(parsed.getTime())) {
+        timeStr = parsed.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      }
+    }
+  }
+
+  return {
+    rawMsg,
+    timeStr,
+    stage
+  };
+};
+
 export default function JobProgressPage() {
   const searchParams = useSearchParams();
   const params = useParams();
@@ -114,10 +148,23 @@ export default function JobProgressPage() {
       return res.data || { data: [], total: 0 };
     },
     enabled: Boolean(id),
-    staleTime: 5000,
+    refetchInterval: (query) => {
+      const jobData = liveData || initialJob;
+      const isTerm = jobData && ['COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'].includes(jobData.status);
+      return isTerm ? false : 3000;
+    },
+    staleTime: 2000,
   });
 
-  const totalCampaignLeads = jobLeadsData?.total ?? job?.completed_leads ?? job?.total_saved ?? 0;
+  const totalCampaignLeads = Math.max(
+    (jobLeadsData?.data?.length || 0),
+    (liveLeads?.length || 0),
+    jobLeadsData?.total ?? 0,
+    job?.actual_collected ?? 0,
+    job?.completed_leads ?? 0,
+    job?.total_saved ?? 0,
+    job?.saved ?? 0
+  );
 
   const handleExport = async (format: 'csv' | 'excel') => {
     try {
@@ -290,8 +337,10 @@ export default function JobProgressPage() {
             'STATISTICS_UPDATED', 'SEARCH_HISTORY_UPDATED',
             'BUSINESS_OPENED', 'DETAILS_LOADING', 'PHONE_FOUND', 'WEBSITE_FOUND',
             'ADDRESS_FOUND', 'SOCIAL_FOUND', 'LEAD_CREATED', 'VALIDATION_PENDING',
-            'EXTRACTION_COMPLETED', 'EMAIL_FOUND', 'job_stopped'
-          ].includes(payload.event_type)) {
+            'EXTRACTION_COMPLETED', 'EMAIL_FOUND', 'job_stopped', 'new_lead',
+            'business_discovered', 'lead_saved'
+          ].includes(payload.event_type || payload.type)) {
+            queryClient.invalidateQueries({ queryKey: ['jobSavedLeads', id] });
             queryClient.invalidateQueries({ queryKey: ['searchHistory'] });
             queryClient.invalidateQueries({ queryKey: ['leads'] });
             queryClient.invalidateQueries({ queryKey: ['searchJob', id] });
@@ -300,7 +349,7 @@ export default function JobProgressPage() {
           }
 
           // Format log message
-          let logMsg = null;
+          let logMsg: string | null = null;
           let eventTimestamp = new Date();
           if (payload.timestamp) {
             const parsed = new Date(
@@ -312,21 +361,26 @@ export default function JobProgressPage() {
               eventTimestamp = parsed;
             }
           }
-          const timeStr = eventTimestamp.toLocaleTimeString();
+          const timeStr = eventTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
           if (payload.type === 'event' && payload.event_type) {
-            logMsg = `[${timeStr}] ${payload.message || ''}`;
+            if (payload.message && payload.message.trim()) {
+              logMsg = `[${timeStr}] ${payload.message.trim()}`;
+            }
           } else if (payload.type === 'log') {
             const logEntry = payload.log;
-            logMsg = typeof logEntry === 'string' ? logEntry : logEntry?.message;
+            const text = typeof logEntry === 'string' ? logEntry : logEntry?.message;
+            if (text && text.trim()) logMsg = text.trim();
           } else if (payload.event_type === 'LOG') {
             const logEntry = payload.data?.log || payload.log;
-            logMsg = typeof logEntry === 'string' ? logEntry : logEntry?.message;
+            const text = typeof logEntry === 'string' ? logEntry : logEntry?.message;
+            if (text && text.trim()) logMsg = text.trim();
           }
 
           if (['BUSINESS_OPENED', 'DETAILS_LOADING', 'PHONE_FOUND', 'WEBSITE_FOUND',
             'ADDRESS_FOUND', 'SOCIAL_FOUND', 'EMAIL_FOUND', 'LEAD_CREATED',
-            'VALIDATION_PENDING', 'EXTRACTION_COMPLETED'].includes(payload.event_type)) {
+            'VALIDATION_PENDING', 'EXTRACTION_COMPLETED', 'business_discovered',
+            'lead_saved', 'duplicate_found', 'lead_failed'].includes(payload.event_type)) {
             const eventData = payload.data || {};
             if (payload.event_type === 'PHONE_FOUND' && eventData.phone) {
               logMsg = `[${timeStr}] 📞 Found phone: ${eventData.phone}`;
@@ -341,6 +395,14 @@ export default function JobProgressPage() {
               logMsg = `[${timeStr}] 🔗 Found social: ${socialNames.join(', ')}`;
             } else if (payload.event_type === 'LEAD_CREATED' && eventData.name) {
               logMsg = `[${timeStr}] ✅ Lead created: ${eventData.name} (Valid: ${eventData.is_valid})`;
+            } else if (payload.event_type === 'business_discovered' && eventData.business?.name) {
+              logMsg = `[${timeStr}] 🔍 Discovered: ${eventData.business.name}`;
+            } else if (payload.event_type === 'lead_saved' && eventData.business?.name) {
+              logMsg = `[${timeStr}] 💾 Saved lead: ${eventData.business.name}`;
+            } else if (payload.event_type === 'duplicate_found' && eventData.business?.name) {
+              logMsg = `[${timeStr}] ⚠️ Duplicate skipped: ${eventData.business.name}`;
+            } else if (payload.event_type === 'lead_failed' && eventData.reason) {
+              logMsg = `[${timeStr}] ❌ Rejected: ${eventData.reason}`;
             }
           }
 
@@ -507,7 +569,7 @@ export default function JobProgressPage() {
               ...(incoming.worker_states || {})
             };
 
-            const newLogs = logMsg ? [...(current.logs || []), logMsg] : (current.logs || []);
+            const newLogs = (logMsg && logMsg.trim()) ? [...(current.logs || []), logMsg.trim()] : (current.logs || []);
 
             return {
               ...current,
@@ -631,9 +693,9 @@ export default function JobProgressPage() {
   });
 
   const copyAllLogs = () => {
-    if (!job?.logs?.length) return;
-    const text = job.logs
-      .map((l: any) => typeof l === 'string' ? l : (l?.message || JSON.stringify(l)))
+    if (!normalizedLogs.length) return;
+    const text = normalizedLogs
+      .map((l: any) => l.timeStr ? `[${l.timeStr}] ${l.rawMsg}` : l.rawMsg)
       .join('\n');
     navigator.clipboard.writeText(text);
     setCopiedLogs(true);
@@ -675,18 +737,139 @@ export default function JobProgressPage() {
     });
   }, [allLeadsList, leadSearchQuery]);
 
-  // Filtered logs
-  const filteredLogs = useMemo(() => {
+  // Normalized non-empty logs with parsed timestamps and messages
+  const normalizedLogs = useMemo(() => {
     const rawLogs = job?.logs || [];
-    return rawLogs.filter((log: any) => {
-      const msg = typeof log === 'string' ? log : (log?.message || JSON.stringify(log));
+    return rawLogs
+      .map((log: any, index: number) => ({ ...parseLogEntry(log), originalIndex: index }))
+      .filter((l: any) => l.rawMsg.length > 0);
+  }, [job?.logs]);
+
+  // Tab counts for all log categories
+  const logCounts = useMemo(() => {
+    let discoveries = 0;
+    let warnings = 0;
+    let errors = 0;
+
+    normalizedLogs.forEach((log: any) => {
+      const lowerMsg = log.rawMsg.toLowerCase();
+      const lowerStage = (log.stage || '').toLowerCase();
+
+      if (
+        lowerStage === 'error' ||
+        lowerStage === 'failed' ||
+        lowerMsg.includes('error') ||
+        lowerMsg.includes('failed') ||
+        lowerMsg.includes('fatal') ||
+        lowerMsg.includes('exception')
+      ) {
+        errors++;
+      } else if (
+        lowerStage === 'warning' ||
+        lowerStage === 'rejected' ||
+        lowerStage === 'duplicate' ||
+        lowerStage === 'rejected_cap' ||
+        lowerMsg.includes('warning') ||
+        lowerMsg.includes('rejected') ||
+        lowerMsg.includes('duplicate') ||
+        lowerMsg.includes('skipped') ||
+        lowerMsg.includes('filtered')
+      ) {
+        warnings++;
+      } else if (
+        lowerStage.includes('extract') ||
+        lowerStage.includes('saving') ||
+        lowerStage.includes('validat') ||
+        lowerStage.includes('discover') ||
+        lowerStage.includes('scan') ||
+        lowerMsg.includes('extracting') ||
+        lowerMsg.includes('saving') ||
+        lowerMsg.includes('validating') ||
+        lowerMsg.includes('found') ||
+        lowerMsg.includes('discovered') ||
+        lowerMsg.includes('saved') ||
+        lowerMsg.includes('lead created') ||
+        lowerMsg.includes('candidate')
+      ) {
+        discoveries++;
+      }
+    });
+
+    return {
+      all: normalizedLogs.length,
+      discoveries,
+      warnings,
+      errors
+    };
+  }, [normalizedLogs]);
+
+  // Filtered logs based on active tab
+  const filteredLogs = useMemo(() => {
+    return normalizedLogs.filter((log: any) => {
       if (logFilter === 'all') return true;
-      if (logFilter === 'discoveries') return msg.includes('Found') || msg.includes('✅') || msg.includes('Lead created');
-      if (logFilter === 'warnings') return msg.includes('Rejected') || msg.toLowerCase().includes('warning') || msg.includes('duplicate');
-      if (logFilter === 'errors') return msg.toLowerCase().includes('error') || msg.toLowerCase().includes('failed');
+
+      const lowerMsg = log.rawMsg.toLowerCase();
+      const lowerStage = (log.stage || '').toLowerCase();
+
+      if (logFilter === 'errors') {
+        return (
+          lowerStage === 'error' ||
+          lowerStage === 'failed' ||
+          lowerMsg.includes('error') ||
+          lowerMsg.includes('failed') ||
+          lowerMsg.includes('fatal') ||
+          lowerMsg.includes('exception')
+        );
+      }
+
+      if (logFilter === 'warnings') {
+        return (
+          lowerStage === 'warning' ||
+          lowerStage === 'rejected' ||
+          lowerStage === 'duplicate' ||
+          lowerStage === 'rejected_cap' ||
+          lowerMsg.includes('warning') ||
+          lowerMsg.includes('rejected') ||
+          lowerMsg.includes('duplicate') ||
+          lowerMsg.includes('skipped') ||
+          lowerMsg.includes('filtered')
+        );
+      }
+
+      if (logFilter === 'discoveries') {
+        const isErrOrWarn =
+          lowerStage === 'error' ||
+          lowerStage === 'failed' ||
+          lowerStage === 'warning' ||
+          lowerStage === 'rejected' ||
+          lowerStage === 'duplicate' ||
+          lowerMsg.includes('error') ||
+          lowerMsg.includes('failed') ||
+          lowerMsg.includes('duplicate') ||
+          lowerMsg.includes('rejected');
+
+        if (isErrOrWarn) return false;
+
+        return (
+          lowerStage.includes('extract') ||
+          lowerStage.includes('saving') ||
+          lowerStage.includes('validat') ||
+          lowerStage.includes('discover') ||
+          lowerStage.includes('scan') ||
+          lowerMsg.includes('extracting') ||
+          lowerMsg.includes('saving') ||
+          lowerMsg.includes('validating') ||
+          lowerMsg.includes('found') ||
+          lowerMsg.includes('discovered') ||
+          lowerMsg.includes('saved') ||
+          lowerMsg.includes('lead created') ||
+          lowerMsg.includes('candidate')
+        );
+      }
+
       return true;
     });
-  }, [job?.logs, logFilter]);
+  }, [normalizedLogs, logFilter]);
 
   if (isLoading) {
     return (
@@ -1439,17 +1622,27 @@ export default function JobProgressPage() {
 
             {/* Filter Pills for Logs */}
             <div className="px-4 py-2 border-b border-slate-100 bg-slate-50/50 flex items-center gap-1.5 text-[11px] overflow-x-auto">
-              {(['all', 'discoveries', 'warnings', 'errors'] as const).map(tab => (
+              {[
+                { id: 'all', label: 'All', count: logCounts.all },
+                { id: 'discoveries', label: 'Discoveries', count: logCounts.discoveries },
+                { id: 'warnings', label: 'Warnings', count: logCounts.warnings },
+                { id: 'errors', label: 'Errors', count: logCounts.errors },
+              ].map(tab => (
                 <button
-                  key={tab}
-                  onClick={() => setLogFilter(tab)}
-                  className={`px-2.5 py-1 rounded-lg font-semibold uppercase tracking-wider transition-all ${
-                    logFilter === tab
+                  key={tab.id}
+                  onClick={() => setLogFilter(tab.id as any)}
+                  className={`px-2.5 py-1 rounded-lg font-semibold uppercase tracking-wider transition-all flex items-center gap-1.5 ${
+                    logFilter === tab.id
                       ? 'bg-white text-slate-900 shadow-2xs border border-slate-200'
                       : 'text-slate-400 hover:text-slate-700'
                   }`}
                 >
-                  {tab}
+                  <span>{tab.label}</span>
+                  <span className={`text-[10px] font-mono px-1.5 py-0.2 rounded-md ${
+                    logFilter === tab.id ? 'bg-slate-100 text-slate-800' : 'bg-slate-200/60 text-slate-500'
+                  }`}>
+                    {tab.count}
+                  </span>
                 </button>
               ))}
             </div>
@@ -1458,30 +1651,34 @@ export default function JobProgressPage() {
             <div className="flex-1 p-4 overflow-y-auto font-mono text-[11px] space-y-2 custom-scrollbar bg-slate-50/80 border-t border-slate-100 text-slate-800">
               {filteredLogs.length > 0 ? (
                 filteredLogs.map((log: any, i: number) => {
-                  let msg = "";
-                  let ts = "";
-                  if (typeof log === 'string') {
-                    msg = log;
-                  } else if (log) {
-                    msg = log.message || JSON.stringify(log);
-                    let logDate: Date | null = null;
-                    if (log.timestamp) {
-                      const parsed = new Date(
-                        typeof log.timestamp === 'number' || !isNaN(Number(log.timestamp))
-                          ? Number(log.timestamp) * 1000
-                          : log.timestamp
-                      );
-                      if (!isNaN(parsed.getTime())) {
-                        logDate = parsed;
-                      }
-                    }
-                    ts = logDate ? logDate.toISOString().split('T')[1].split('.')[0] : "";
-                  }
+                  const isLifecycle = log.rawMsg.includes("LIFECYCLE_LOG");
+                  const lowerMsg = log.rawMsg.toLowerCase();
+                  const lowerStage = (log.stage || '').toLowerCase();
 
-                  const isLifecycle = msg.includes("LIFECYCLE_LOG");
-                  const isError = msg.toLowerCase().includes("error") || msg.toLowerCase().includes("failed");
-                  const isRejected = msg.includes("Rejected");
-                  const isSuccess = msg.includes("✅") || msg.includes("Found");
+                  const isError =
+                    lowerStage === 'error' ||
+                    lowerStage === 'failed' ||
+                    lowerMsg.includes('error') ||
+                    lowerMsg.includes('failed') ||
+                    lowerMsg.includes('fatal');
+
+                  const isRejected =
+                    lowerStage === 'warning' ||
+                    lowerStage === 'rejected' ||
+                    lowerStage === 'duplicate' ||
+                    lowerMsg.includes('rejected') ||
+                    lowerMsg.includes('duplicate') ||
+                    lowerMsg.includes('skipped');
+
+                  const isSuccess =
+                    lowerStage.includes('saving') ||
+                    lowerStage.includes('discover') ||
+                    lowerStage.includes('extract') ||
+                    log.rawMsg.includes('✅') ||
+                    lowerMsg.includes('saved') ||
+                    lowerMsg.includes('discovered') ||
+                    lowerMsg.includes('extracting') ||
+                    lowerMsg.includes('lead created');
 
                   return (
                     <div
@@ -1498,19 +1695,87 @@ export default function JobProgressPage() {
                           : 'text-slate-700 bg-white border border-slate-200/60 hover:bg-slate-100/70'
                       }`}
                     >
-                      {ts && (
+                      {log.timeStr && (
                         <span className="text-slate-400 shrink-0 select-none text-[10px] mt-0.5 font-bold">
-                          [{ts}]
+                          [{log.timeStr}]
                         </span>
                       )}
-                      <span className="break-all">{msg}</span>
+                      <span className="break-all">{log.rawMsg}</span>
                     </div>
                   );
                 })
               ) : (
-                <div className="h-full flex flex-col items-center justify-center text-slate-500 gap-2.5">
-                  <Loader2 className="w-5 h-5 animate-spin opacity-40 text-blue-400" />
-                  <span className="text-xs">Waiting for engine output stream...</span>
+                <div className="h-full min-h-[300px] flex flex-col items-center justify-center p-8 text-center text-slate-500 gap-3">
+                  {logFilter === 'warnings' ? (
+                    <>
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-2xs">
+                        <ShieldCheck className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-bold text-slate-700">No Warnings Encountered</p>
+                        <p className="text-[11px] text-slate-400 max-w-xs">
+                          All scanned candidates passed business quality validation and deduplication filters without warning.
+                        </p>
+                      </div>
+                    </>
+                  ) : logFilter === 'errors' ? (
+                    <>
+                      <div className="w-12 h-12 rounded-2xl bg-emerald-50 border border-emerald-100 flex items-center justify-center text-emerald-600 shadow-2xs">
+                        <CheckCircle2 className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-bold text-slate-700">Zero Execution Errors</p>
+                        <p className="text-[11px] text-slate-400 max-w-xs">
+                          The scraper and browser engine executed smoothly without any runtime or extraction exceptions.
+                        </p>
+                      </div>
+                    </>
+                  ) : logFilter === 'discoveries' ? (
+                    isTerminalStatus ? (
+                      <>
+                        <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-2xs">
+                          <Building2 className="w-6 h-6" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-slate-700">Discovery Telemetry Complete</p>
+                          <p className="text-[11px] text-slate-400 max-w-xs">
+                            {allLeadsList.length > 0
+                              ? `${allLeadsList.length} leads successfully extracted and persisted. View full records on the left panel.`
+                              : 'No candidate businesses were extracted during this search session.'}
+                          </p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-12 h-12 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600 shadow-2xs animate-pulse">
+                          <Loader2 className="w-6 h-6 animate-spin" />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-slate-700">Awaiting Discoveries...</p>
+                          <p className="text-[11px] text-slate-400 max-w-xs">
+                            The scraper is querying the directory. Discovered and validated leads will log here in real time.
+                          </p>
+                        </div>
+                      </>
+                    )
+                  ) : isTerminalStatus ? (
+                    <>
+                      <div className="w-12 h-12 rounded-2xl bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 shadow-2xs">
+                        <Terminal className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-bold text-slate-700">Search Run Completed</p>
+                        <p className="text-[11px] text-slate-400 max-w-xs">
+                          Execution telemetry stream has finalized.
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin opacity-40 text-blue-500" />
+                      <span className="text-xs text-slate-400">Waiting for engine output stream...</span>
+                    </>
+                  )}
                 </div>
               )}
               <div ref={logsEndRef} className="h-4" />

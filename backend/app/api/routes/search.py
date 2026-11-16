@@ -172,6 +172,33 @@ async def cancel_search_job(job_id: str, current_user: Any = Depends(get_current
     return await stop_search_job(job_id, current_user)
 
 
+@router.post("/{job_id}/retry", response_model=Dict[str, Any])
+async def retry_search_job(job_id: str, current_user: Any = Depends(get_current_user)):
+    """
+    Resume or retry a search campaign for remaining target leads.
+    Preserves all existing leads and skips duplicates.
+    """
+    from app.db.database import get_db
+    from bson.objectid import ObjectId
+
+    db = get_db()
+    job = await db["search_jobs"].find_one({"_id": ObjectId(job_id) if len(job_id) == 24 else job_id})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if getattr(current_user, "role", "") != "ADMIN" and job.get("user_id") != str(current_user.id):
+        raise HTTPException(status_code=403, detail="Forbidden: not owner")
+
+    try:
+        user_id = str(current_user.id) if hasattr(current_user, 'id') else None
+        result = await search_api.retry_job(job_id, user_id=user_id)
+        return result
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retry job: {str(e)}"
+        )
+
+
 @router.get("/{job_id}/consistency", response_model=Dict[str, Any])
 async def get_job_consistency(job_id: str, current_user: Any = Depends(get_current_user)):
     """

@@ -64,7 +64,7 @@ const formatTime = (seconds?: number) => {
   return `${m}m ${s}s`;
 };
 
-const TERMINAL_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'];
+const TERMINAL_STATUSES = ['COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'];
 
 export default function JobProgressPage() {
   const searchParams = useSearchParams();
@@ -95,7 +95,7 @@ export default function JobProgressPage() {
     },
     refetchInterval: (query) => {
       const data = query.state.data;
-      if (data && ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'].includes(data.status)) {
+      if (data && ['COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'].includes(data.status)) {
         return false;
       }
       return wsConnected ? false : 3000;
@@ -139,7 +139,7 @@ export default function JobProgressPage() {
   };
 
   // Pipeline Consistency Validation Report
-  const isTerminal = job && ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'].includes(job.status);
+  const isTerminal = job && ['COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'].includes(job.status);
   const { data: consistencyReport } = useQuery({
     queryKey: ['consistency', id],
     queryFn: async () => {
@@ -418,13 +418,23 @@ export default function JobProgressPage() {
             if (payload.event_type === 'SEARCH_STARTED') {
               updates.status = 'RUNNING';
             } else if (payload.event_type === 'SEARCH_COMPLETED') {
-              updates.status = 'COMPLETED';
               const completedData = payload.data || {};
+              const targetReached = completedData.target_reached ?? payload.target_reached;
+              const finalStatus = payload.status || completedData.status || (targetReached ? 'COMPLETED' : 'PARTIALLY_COMPLETED');
+              updates.status = finalStatus;
+
               if (completedData.progress !== undefined) {
                 updates.progress = completedData.progress;
+              } else if (payload.progress !== undefined) {
+                updates.progress = payload.progress;
               } else {
-                updates.progress = 100;
+                updates.progress = targetReached ? 100 : Math.min(100, Math.round(((completedData.businesses_found || 0) / (targetLeads || 1)) * 100));
               }
+
+              if (completedData.current_step) updates.current_step = completedData.current_step;
+              else if (payload.current_step) updates.current_step = payload.current_step;
+              else if (payload.message) updates.current_step = payload.message;
+
               if (completedData.businesses_found !== undefined) {
                 updates.completed_leads = completedData.businesses_found;
                 updates.total_leads = completedData.businesses_found;
@@ -433,13 +443,19 @@ export default function JobProgressPage() {
               if (completedData.actual_collected !== undefined) updates.actual_collected = completedData.actual_collected;
               if (completedData.target_reached !== undefined) updates.target_reached = completedData.target_reached;
               if (completedData.source_exhausted !== undefined) updates.source_exhausted = completedData.source_exhausted;
+              if (completedData.requested_provider !== undefined) updates.requested_provider = completedData.requested_provider;
+              if (completedData.active_provider !== undefined) updates.active_provider = completedData.active_provider;
+              if (completedData.fallback_used !== undefined) updates.fallback_used = completedData.fallback_used;
             } else if (payload.event_type === 'SEARCH_FAILED') {
               updates.status = 'FAILED';
+              if (payload.message) updates.current_step = payload.message;
             } else if (payload.event_type === 'SEARCH_PROGRESS' && payload.data) {
               const d = payload.data;
               if (d.status !== undefined) updates.status = d.status;
               if (d.current_state !== undefined) updates.status = d.current_state;
               if (d.progress !== undefined) updates.progress = d.progress;
+              if (d.current_step !== undefined) updates.current_step = d.current_step;
+              if (d.current_action !== undefined) updates.current_action = d.current_action;
               if (d.businesses_found !== undefined) {
                 updates.total_leads = d.businesses_found;
                 updates.completed_leads = d.businesses_found;
@@ -466,22 +482,24 @@ export default function JobProgressPage() {
             const current = prev || initialJobRef.current || {};
             let incoming = updates;
             if (current.status && TERMINAL_STATUSES.includes(current.status)) {
-              incoming = { ...updates };
-              delete incoming.status;
-              delete incoming.progress;
-              delete incoming.current_step;
-              delete incoming.current_action;
-              delete incoming.current_business;
-              delete incoming.total_found;
-              delete incoming.total_leads;
-              delete incoming.accepted_leads;
-              delete incoming.rejected_leads;
-              delete incoming.completed_leads;
-              delete incoming.failed_leads;
-              delete incoming.duplicates_removed;
-              delete incoming.businesses_processed;
-              delete incoming.duration_seconds;
-              delete incoming.estimated_remaining_time;
+              if (!TERMINAL_STATUSES.includes(incoming.status)) {
+                incoming = { ...updates };
+                delete incoming.status;
+                delete incoming.progress;
+                delete incoming.current_step;
+                delete incoming.current_action;
+                delete incoming.current_business;
+                delete incoming.total_found;
+                delete incoming.total_leads;
+                delete incoming.accepted_leads;
+                delete incoming.rejected_leads;
+                delete incoming.completed_leads;
+                delete incoming.failed_leads;
+                delete incoming.duplicates_removed;
+                delete incoming.businesses_processed;
+                delete incoming.duration_seconds;
+                delete incoming.estimated_remaining_time;
+              }
             }
 
             const mergedWorkerStates = {
@@ -556,12 +574,14 @@ export default function JobProgressPage() {
     }
   }, [job?.logs, autoScrollLogs]);
 
-  const isTerminalStatus = job && ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'].includes(job.status);
+  const isTerminalStatus = job && ['COMPLETED', 'PARTIALLY_COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT', 'STOPPED'].includes(job.status);
   const displayDuration = job?.duration_seconds || 0;
 
   const targetLeads = job?.requested_target ?? job?.limit ?? 100;
   const completedLeads = job?.completed_leads || 0;
-  const progressPercent = Math.min(100, Math.max(0, job?.progress ?? Math.round((completedLeads / (targetLeads || 1)) * 100)));
+  const progressPercent = targetLeads > 0
+    ? Math.min(100, Math.max(0, job?.progress !== undefined && (job.status === 'COMPLETED' || job.status === 'PARTIALLY_COMPLETED') ? job.progress : Math.round((completedLeads / targetLeads) * 100)))
+    : 100;
 
   // Velocity calculation
   const leadsPerMin = displayDuration > 5 && completedLeads > 0
@@ -588,6 +608,28 @@ export default function JobProgressPage() {
     }
   });
 
+  const retryMutation = useMutation({
+    mutationFn: async () => {
+      const jobId = job?._id || id;
+      if (!jobId) throw new Error('Job ID is missing');
+      const res = await api.post(`/search/${jobId}/retry`);
+      return res.data;
+    },
+    onSuccess: (data) => {
+      toast.success(data?.message || 'Resuming search for remaining leads...');
+      terminalRef.current = false;
+      setLiveData(null);
+      queryClient.invalidateQueries({ queryKey: ['searchJob', id] });
+      queryClient.invalidateQueries({ queryKey: ['jobSavedLeads', id] });
+      queryClient.invalidateQueries({ queryKey: ['searchHistory'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboardStats'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboardCharts'] });
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Failed to resume search.');
+    }
+  });
+
   const copyAllLogs = () => {
     if (!job?.logs?.length) return;
     const text = job.logs
@@ -606,10 +648,18 @@ export default function JobProgressPage() {
     setTimeout(() => setCopiedPhoneId(null), 1800);
   };
 
-  // Combined leads list (prioritizing live stream during active search, falling back to saved records on reload)
+  // Combined leads list (deduplicating database and live stream so nothing is missed)
   const allLeadsList = useMemo<any[]>(() => {
-    if (liveLeads.length > 0) return liveLeads;
-    return (jobLeadsData?.data || []) as any[];
+    const map = new Map<string, any>();
+    (jobLeadsData?.data || []).forEach((lead: any) => {
+      const key = lead._id || lead.id || lead.google_maps_url || lead.url || ((lead.name || '') + (lead.address || ''));
+      if (key) map.set(key, lead);
+    });
+    liveLeads.forEach((lead: any) => {
+      const key = lead._id || lead.id || lead.google_maps_url || lead.url || ((lead.name || '') + (lead.address || ''));
+      if (key) map.set(key, { ...(map.get(key) || {}), ...lead });
+    });
+    return Array.from(map.values());
   }, [liveLeads, jobLeadsData]);
 
   // Filtered discoveries
@@ -704,10 +754,20 @@ export default function JobProgressPage() {
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                     COMPLETED
                   </span>
+                ) : job.status === 'PARTIALLY_COMPLETED' ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
+                    <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />
+                    PARTIALLY COMPLETED
+                  </span>
                 ) : job.status === 'STOPPED' ? (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 shadow-2xs">
                     <StopCircle className="w-3.5 h-3.5 text-amber-600" />
                     STOPPED
+                  </span>
+                ) : (job.status === 'QUEUED' || job.status === 'PENDING') ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-200 shadow-2xs">
+                    <Clock className="w-3.5 h-3.5 text-slate-500" />
+                    PENDING
                   </span>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-rose-50 text-rose-700 border border-rose-200 shadow-2xs">
@@ -762,6 +822,23 @@ export default function JobProgressPage() {
               <span className="hidden sm:inline">Export CSV</span>
             </button>
 
+            {/* Retry / Resume Search Button for Partially Completed, Stopped, or Failed Jobs */}
+            {isTerminalStatus && job.status !== 'COMPLETED' && (
+              <button
+                onClick={() => retryMutation.mutate()}
+                disabled={retryMutation.isPending}
+                className="px-4 py-2 text-xs font-bold rounded-xl text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 transition-all flex items-center gap-2 disabled:opacity-50 hover:shadow-2xs cursor-pointer"
+                title={`Continue search for remaining ${Math.max(0, targetLeads - completedLeads)} leads without duplicating existing`}
+              >
+                {retryMutation.isPending ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3.5 h-3.5" />
+                )}
+                Resume Search
+              </button>
+            )}
+
             {/* Stop Job Button */}
             {!isTerminalStatus && (
               <button
@@ -790,12 +867,17 @@ export default function JobProgressPage() {
           </div>
         </div>
 
-        {/* Compact Search Query Parameter Strip (Replaces the huge 33% empty card!) */}
+        {/* Compact Search Query Parameter Strip */}
         <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-slate-100 text-xs">
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80 text-slate-700 font-medium">
             <Radio className="w-3.5 h-3.5 text-blue-600" />
             <span className="text-slate-400 font-normal">Provider:</span>
-            <span className="font-semibold text-slate-900">{job.provider || 'Google Maps'}</span>
+            <span className="font-semibold text-slate-900">{job.requested_provider || job.provider || 'Google Maps'}</span>
+            {job.fallback_used && (
+              <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded border border-blue-100" title={job.fallback_reason || 'Routed via Google Maps index'}>
+                via {job.active_provider || 'Google Maps'}
+              </span>
+            )}
           </div>
 
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 border border-slate-200/80 text-slate-700 font-medium">
@@ -827,16 +909,35 @@ export default function JobProgressPage() {
         </div>
       </div>
 
-      {/* Warning banner if source exhausted */}
-      {job.source_exhausted && job.status === 'COMPLETED' && (
+      {/* Warning banner if source exhausted or partially completed */}
+      {(job.source_exhausted || job.status === 'PARTIALLY_COMPLETED') && (job.status === 'COMPLETED' || job.status === 'PARTIALLY_COMPLETED') && (
         <div className="flex items-start gap-3 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-800 shadow-2xs">
           <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5 text-amber-600" />
-          <div className="space-y-0.5">
-            <p className="font-bold text-sm">Source exhausted — Target not fully reached</p>
-            <p className="text-xs text-amber-700">
-              Google Maps ran out of unique usable results for this search area. Extracted{' '}
+          <div className="space-y-1 flex-1">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="font-bold text-sm">Source exhausted — Target not fully reached</p>
+              <button
+                onClick={() => retryMutation.mutate()}
+                disabled={retryMutation.isPending}
+                className="px-3 py-1 text-xs font-bold rounded-lg text-amber-900 bg-amber-200/70 hover:bg-amber-200 border border-amber-300 transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer shadow-2xs"
+              >
+                {retryMutation.isPending ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3 h-3" />
+                )}
+                Resume Search ({Math.max(0, targetLeads - (job.actual_collected ?? completedLeads))} remaining)
+              </button>
+            </div>
+            <p className="text-xs text-amber-700 leading-relaxed">
+              {job.active_provider || job.fallback_provider || job.provider || 'Selected provider'} ran out of unique usable results for this search area. Extracted{' '}
               <strong>{job.actual_collected ?? completedLeads}</strong> of requested{' '}
               <strong>{targetLeads}</strong> leads.
+              {job.fallback_used && (
+                <span className="block mt-1 text-[11px] text-amber-700 font-medium">
+                  Note: Query for <strong>{job.requested_provider || job.provider}</strong> was fulfilled via the <strong>{job.active_provider || 'Google Maps'}</strong> directory index.
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -859,7 +960,19 @@ export default function JobProgressPage() {
               </div>
               <p className="text-base font-bold text-slate-800 flex items-center gap-2">
                 {!isTerminalStatus && <Loader2 className="w-4 h-4 animate-spin text-blue-600 shrink-0" />}
-                {job.current_step || job.current_action || 'Initializing Scraper & Browser Engine...'}
+                {job.status === 'COMPLETED'
+                  ? (completedLeads === 0
+                      ? 'Search Completed — 0 Results Found'
+                      : (job.current_step || 'Target Reached — All Requested Leads Collected'))
+                  : job.status === 'PARTIALLY_COMPLETED'
+                  ? (job.current_step || 'Source Exhausted — Partially Completed')
+                  : job.status === 'STOPPED'
+                  ? (job.current_step || 'Search Stopped by User')
+                  : job.status === 'FAILED'
+                  ? (job.error_message || job.current_step || 'Search Failed')
+                  : (job.status === 'QUEUED' || job.status === 'PENDING')
+                  ? 'Initializing Scraper & Browser Engine...'
+                  : (job.current_step || job.current_action || 'Executing Scraper & Extracting Leads...')}
               </p>
             </div>
 
@@ -881,6 +994,8 @@ export default function JobProgressPage() {
               className={`h-full rounded-full transition-all duration-500 ease-out relative ${
                 job.status === 'FAILED'
                   ? 'bg-red-500'
+                  : job.status === 'PARTIALLY_COMPLETED'
+                  ? 'bg-amber-500'
                   : 'bg-gradient-to-r from-blue-600 via-indigo-600 to-emerald-500'
               }`}
               style={{ width: `${progressPercent}%` }}
@@ -970,7 +1085,17 @@ export default function JobProgressPage() {
               </span>
             </div>
             <p className="text-xs font-medium text-slate-500 mt-2">
-              {isTerminalStatus ? 'Completed run' : 'Real-time scraper'}
+              {job.status === 'COMPLETED'
+                ? 'Completed run'
+                : job.status === 'PARTIALLY_COMPLETED'
+                ? 'Partially completed run'
+                : job.status === 'STOPPED'
+                ? 'Stopped run'
+                : job.status === 'FAILED'
+                ? 'Failed run'
+                : isTerminalStatus
+                ? 'Finished run'
+                : 'Real-time scraper'}
             </p>
           </div>
         </div>
@@ -1257,7 +1382,7 @@ export default function JobProgressPage() {
                     <p className="text-xs text-slate-400 leading-relaxed">
                       {isTerminalStatus
                         ? 'This session has finished. You can view all saved leads in the leads dashboard.'
-                        : 'The scraper is querying Google Maps and loading business profiles. Verified results will stream into this feed live.'}
+                        : `The scraper is querying ${job.requested_provider || job.provider || 'the selected source'} and loading business profiles. Verified results will stream into this feed live.`}
                     </p>
                   </div>
                 </div>
@@ -1425,7 +1550,14 @@ export default function JobProgressPage() {
                 <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3 text-xs">
                   <div className="flex justify-between items-center">
                     <span className="text-slate-500">Search Engine Provider</span>
-                    <span className="font-bold text-slate-900">{job.provider || 'Google Maps'}</span>
+                    <span className="font-bold text-slate-900">
+                      {job.requested_provider || job.provider || 'Google Maps'}
+                      {job.fallback_used && (
+                        <span className="ml-1 text-[11px] font-normal text-blue-600">
+                          (via {job.active_provider || 'Google Maps'})
+                        </span>
+                      )}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-slate-500">Keyword / Industry</span>
@@ -1532,8 +1664,8 @@ export default function JobProgressPage() {
         </div>
       )}
 
-      {/* Search Completed Modal */}
-      {job.status === 'COMPLETED' && showCompletedModal && (
+      {/* Search Completed / Partially Completed Modal */}
+      {(job.status === 'COMPLETED' || job.status === 'PARTIALLY_COMPLETED') && showCompletedModal && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-all">
           <div className="bg-white rounded-3xl p-8 max-w-xl w-full shadow-2xl border border-slate-200 relative overflow-hidden animate-in fade-in zoom-in-95 duration-300">
             {/* Close Button */}
@@ -1547,13 +1679,23 @@ export default function JobProgressPage() {
 
             {/* Header / Celebration */}
             <div className="text-center space-y-3 mb-8">
-              <div className="w-16 h-16 mx-auto rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-600 flex items-center justify-center shadow-sm">
-                <CheckCircle2 className="w-8 h-8" />
+              <div className={`w-16 h-16 mx-auto rounded-2xl flex items-center justify-center shadow-sm ${
+                job.status === 'PARTIALLY_COMPLETED'
+                  ? 'bg-amber-50 border border-amber-200 text-amber-600'
+                  : 'bg-emerald-50 border border-emerald-200 text-emerald-600'
+              }`}>
+                {job.status === 'PARTIALLY_COMPLETED' ? (
+                  <AlertTriangle className="w-8 h-8" />
+                ) : (
+                  <CheckCircle2 className="w-8 h-8" />
+                )}
               </div>
-              <h2 className="text-2xl font-black text-slate-900 tracking-tight">Search Completed!</h2>
+              <h2 className="text-2xl font-black text-slate-900 tracking-tight">
+                {job.status === 'PARTIALLY_COMPLETED' ? 'Search Partially Completed' : 'Search Completed!'}
+              </h2>
               <p className="text-sm text-slate-500 max-w-md mx-auto">
-                {job.source_exhausted
-                  ? `Google Maps ran out of unique results — collected ${job.actual_collected ?? completedLeads} of ${targetLeads} requested leads.`
+                {job.status === 'PARTIALLY_COMPLETED' || job.source_exhausted
+                  ? `${job.active_provider || job.fallback_provider || job.provider || 'Selected provider'} ran out of unique usable results for this search area. Extracted ${job.actual_collected ?? completedLeads} of ${targetLeads} requested leads.`
                   : 'All qualified leads have been extracted, validated, and saved to your database.'}
               </p>
             </div>
@@ -1575,6 +1717,23 @@ export default function JobProgressPage() {
 
             {/* Primary Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-3">
+              {job.status === 'PARTIALLY_COMPLETED' && (
+                <button
+                  onClick={() => {
+                    setShowCompletedModal(false);
+                    retryMutation.mutate();
+                  }}
+                  disabled={retryMutation.isPending}
+                  className="flex-1 px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-bold text-center text-sm transition-all flex items-center justify-center gap-2 shadow-sm shadow-amber-500/20 cursor-pointer disabled:opacity-50"
+                >
+                  {retryMutation.isPending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="w-4 h-4" />
+                  )}
+                  Resume Search ({Math.max(0, targetLeads - completedLeads)} remaining)
+                </button>
+              )}
               <Link
                 href={`/dashboard/leads?job_id=${id || job?._id}`}
                 className="flex-1 px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-center text-sm transition-all flex items-center justify-center gap-2 shadow-sm shadow-blue-500/20"

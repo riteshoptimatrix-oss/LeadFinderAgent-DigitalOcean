@@ -230,19 +230,28 @@ class PlaywrightEngine:
         feed_selectors = [
             'div[role="feed"]',
             'a[href*="/maps/place"]',
+            'h1.DUwDvf',
+            'div[role="main"]',
         ]
+        if "/maps/place/" in self.page.url:
+            logger.info("[ENGINE] Direct place detail page loaded.")
+            return True
+
         loop = asyncio.get_running_loop()
         deadline = loop.time() + timeout
         last_error = None
 
         while loop.time() < deadline:
+            if "/maps/place/" in self.page.url:
+                logger.info("[ENGINE] Direct place detail page loaded.")
+                return True
             for selector in feed_selectors:
                 try:
                     await self.page.wait_for_selector(selector, timeout=5000)
                     return True
                 except PlaywrightError as e:
                     last_error = e
-            await asyncio.sleep(2.0)
+            await asyncio.sleep(1.0)
 
         # Last resort: reload once and wait again for the feed
         logger.warning("[ENGINE] Feed not found on first load, reloading page and retrying...")
@@ -451,6 +460,15 @@ class PlaywrightEngine:
 
         feed_locator = self.page.locator('div[role="feed"]')
         processed_links = set()
+
+        # Check if Google Maps landed directly on a single place page
+        if "/maps/place/" in self.page.url:
+            current_place_url = self.page.url
+            processed_links.add(current_place_url)
+            logger.info(f"[ENGINE] Detected direct single place view ({current_place_url}). Extracting directly...")
+            yield await self.page.content(), current_place_url
+            return
+
         consecutive_empty_cycles = 0
         consecutive_unmoved_cycles = 0
         max_empty_cycles = max(1, int(getattr(search_config, "MAX_CONSECUTIVE_EMPTY_CYCLES", 6) or 6))

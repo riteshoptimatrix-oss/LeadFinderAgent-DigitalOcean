@@ -426,20 +426,21 @@ class QueryExpander:
         else:
             add_query(keyword)
 
-        # If target limit is small (e.g. <= 20) and not exhaustive, Tier 1 might be enough
-        if target_limit <= 20 and not exhaustive:
-            return queries
-
         # ---------------- Tier 2: Industry Synonyms in Target City ----------------
         synonyms = cls.get_synonyms_for_keyword(keyword)
         # For city-level synonym searches
         base_loc = f"{city}, {state}" if (city and state) else (city or loc_str)
 
         if base_loc:
-            # Add top synonyms in this exact city
-            for syn in synonyms[:15]:
+            # Include top synonyms in this exact city to ensure small targets (<20) can be met
+            syn_count = 6 if (target_limit <= 20 and not exhaustive) else 15
+            for syn in synonyms[:syn_count]:
                 add_query(f"{syn} in {base_loc}")
                 add_query(f"{syn} near {base_loc}")
+
+        # If target limit is small (<= 20) and not exhaustive, Tier 1 + Tier 2 synonyms are prioritized
+        if target_limit <= 20 and not exhaustive:
+            return queries
 
         # ---------------- Tier 3: Directional / Sub-zones in Target City ----------------
         if city:

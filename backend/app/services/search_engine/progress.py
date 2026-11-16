@@ -21,6 +21,11 @@ class Progress:
             raise Exception("Database connection unavailable")
             
         now = datetime.now(timezone.utc)
+        fallback_used = bool(provider and provider != "Google Maps")
+        fallback_reason = (
+            f"{provider} directory index routed through Google Maps high-fidelity business database."
+            if fallback_used else None
+        )
         job_doc = {
             "keyword": keyword,
             "area": area,
@@ -28,12 +33,21 @@ class Progress:
             "state": state,
             "country": country,
             "provider": provider,
+            "requested_provider": provider,
+            "active_provider": "Google Maps",
+            "fallback_used": fallback_used,
+            "fallback_reason": fallback_reason,
+            "fallback_provider": "Google Maps" if fallback_used else None,
             "limit": limit,
             "exhaustive": bool(exhaustive),
             "grid_size": int(grid_size or 3),
             "target_cap": target_cap,
             "user_id": user_id,
             "status": "QUEUED",
+            "current_step": f"Job queued for {provider or 'Google Maps'}",
+            "current_action": f"Job queued for {provider or 'Google Maps'}",
+            "current_stage": "QUEUED",
+            "current_phase": "QUEUED",
             "progress": 0,
             "total_found": 0,
             "accepted_leads": 0,
@@ -42,7 +56,7 @@ class Progress:
             "completed_leads": 0,
             "duration_seconds": 0,
             "estimated_remaining_time": 0,
-            "logs": [{"stage": "CREATED", "message": f"Job created (Target Cap: {target_cap})", "timestamp": now}],
+            "logs": [{"stage": "CREATED", "message": f"Job created (Provider: {provider}, Target Cap: {target_cap})", "timestamp": now}],
             "created_at": now,
             "updated_at": now
         }
@@ -50,14 +64,21 @@ class Progress:
         result = await db["search_jobs"].insert_one(job_doc)
         return str(result.inserted_id)
 
-    async def update_status(self, job_id: str, status: str, stage: str = None, message: str = None):
+    async def update_status(
+        self,
+        job_id: str,
+        status: str,
+        stage: str = None,
+        message: str = None,
+        allow_from_terminal: bool = False,
+    ):
         """
         Updates the job status and appends a log entry.
 
         Guards against race conditions: if the job has already reached a
         terminal state (STOPPED, COMPLETED, FAILED, CANCELLED, TIMEOUT) a
         delayed non-terminal update is ignored, so STOPPED can never be
-        overwritten back to RUNNING.
+        overwritten back to RUNNING (unless allow_from_terminal is True, e.g. for resume/retry).
         """
         db = get_db()
         if db is None:
@@ -71,11 +92,17 @@ class Progress:
                 "updated_at": datetime.now(timezone.utc)
             }
         }
+        if message:
+            update_doc["$set"]["current_step"] = message
+            update_doc["$set"]["current_action"] = message
+        if stage:
+            update_doc["$set"]["current_stage"] = stage
+            update_doc["$set"]["current_phase"] = stage
         
         query = {"_id": ObjectId(job_id)}
-        if status not in TERMINAL_STATES:
+        if status not in TERMINAL_STATES and not allow_from_terminal:
             query["status"] = {"$nin": list(TERMINAL_STATES)}
-        elif status != "STOPPED":
+        elif status != "STOPPED" and not allow_from_terminal:
             # STOPPED is the strongest terminal state: once a job is STOPPED,
             # a competing COMPLETED/FAILED/CANCELLED/TIMEOUT update is ignored.
             query["status"] = {"$ne": "STOPPED"}
@@ -100,6 +127,24 @@ class Progress:
             query,
             update_doc
         )
+
+        try:
+            from .ws import search_ws_manager
+            await search_ws_manager.broadcast_event(
+                job_id,
+                event_type="SEARCH_PROGRESS",
+                message=message or f"Status: {status}",
+                data={
+                    "status": status,
+                    "stage": stage,
+                    "current_step": message,
+                    "current_action": message,
+                    "current_stage": stage,
+                    "current_phase": stage,
+                }
+            )
+        except Exception:
+            pass
 
     async def mark_stopped(self, job_id: str, reason: str = "Stopped by user", logs: list = None):
         """
@@ -131,6 +176,10 @@ class Progress:
                 "stopped_at": now,
                 "completed_at": now,
                 "stop_reason": reason,
+                "current_step": reason or "Stopped by user",
+                "current_action": reason or "Stopped by user",
+                "current_stage": "STOPPED",
+                "current_phase": "STOPPED",
                 "progress": job.get("progress", 0),
                 "updated_at": now
             }
@@ -234,10 +283,19 @@ class Progress:
             elapsed_seconds = (now - created_at).total_seconds()
 
         completion_reason = "TARGET_REACHED" if target_reached else "SOURCE_EXHAUSTED"
+        final_step = message or (
+            "Target reached! Successfully saved all requested leads."
+            if target_reached else
+            f"Source exhausted — Collected {actual_saved} of {limit} requested leads."
+        )
 
         update_doc = {
             "$set": {
                 "status": status,
+                "current_step": final_step,
+                "current_action": final_step,
+                "current_stage": status,
+                "current_phase": status,
                 "progress": progress_pct,
                 "total_found": found,
                 "accepted_leads": accepted,

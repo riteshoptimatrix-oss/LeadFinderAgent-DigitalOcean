@@ -14,7 +14,7 @@ from typing import Dict
 
 logger = logging.getLogger(__name__)
 
-TERMINAL_STATES = ("COMPLETED", "FAILED", "CANCELLED", "STOPPED", "TIMEOUT")
+TERMINAL_STATES = ("COMPLETED", "PARTIALLY_COMPLETED", "FAILED", "CANCELLED", "STOPPED", "TIMEOUT")
 
 
 class StopRegistry:

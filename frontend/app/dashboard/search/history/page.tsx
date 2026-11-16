@@ -324,12 +324,13 @@ export default function SearchHistoryPage() {
                         <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider
                           ${job.status === 'RUNNING' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : ''}
                           ${job.status === 'COMPLETED' ? 'bg-green-500/10 text-green-400 border border-green-500/20' : ''}
+                          ${job.status === 'PARTIALLY_COMPLETED' ? 'bg-amber-500/10 text-amber-600 border border-amber-500/30 font-extrabold' : ''}
                           ${job.status === 'FAILED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : ''}
-                          ${job.status === 'STOPPED' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : ''}
+                          ${job.status === 'STOPPED' ? 'bg-amber-500/10 text-amber-500 border border-amber-500/20' : ''}
                           ${job.status === 'CANCELLED' ? 'bg-neutral-500/10 text-[#6B7280] border border-neutral-500/20' : ''}
                           ${job.status === 'PENDING' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' : ''}
                         `}>
-                          {job.status}
+                          {job.status === 'PARTIALLY_COMPLETED' ? 'PARTIALLY COMPLETED' : job.status}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">

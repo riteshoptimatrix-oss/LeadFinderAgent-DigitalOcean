@@ -36,6 +36,7 @@ export default function CampaignsPage() {
     switch (status) {
       case 'RUNNING': return 'text-blue-400 bg-blue-500/10 border-blue-500/20';
       case 'COMPLETED': return 'text-green-400 bg-green-500/10 border-green-500/20';
+      case 'PARTIALLY_COMPLETED': return 'text-amber-500 bg-amber-500/10 border-amber-500/20';
       case 'FAILED': return 'text-red-400 bg-red-500/10 border-red-500/20';
       case 'PAUSED': return 'text-yellow-400 bg-yellow-500/10 border-yellow-500/20';
       case 'CANCELLED': return 'text-[#6B7280] bg-neutral-500/10 border-neutral-500/20';

@@ -17,7 +17,7 @@ export function StatusBadge({ status, className }: StatusBadgeProps) {
   
   if (["active", "success", "completed", "delivered", "verified"].includes(normalizedStatus)) {
     styles = "bg-emerald-900/30 text-emerald-400 border-emerald-900/50";
-  } else if (["pending", "in_progress", "running", "paused"].includes(normalizedStatus)) {
+  } else if (["pending", "in_progress", "running", "paused", "partially_completed", "partial"].includes(normalizedStatus)) {
     styles = "bg-amber-900/30 text-amber-400 border-amber-900/50";
   } else if (["error", "failed", "stopped", "bounced"].includes(normalizedStatus)) {
     styles = "bg-red-900/30 text-red-400 border-red-900/50";

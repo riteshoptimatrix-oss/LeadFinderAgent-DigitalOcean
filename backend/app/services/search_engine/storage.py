@@ -114,7 +114,7 @@ class Storage:
         else:
             return "Small Cap"
 
-    async def save_lead(self, job_id: str, raw_data: dict, area: str = None, city: str = None, state: str = None, country: str = None, user_id: str = None, target_cap: str = "ALL") -> str:
+    async def save_lead(self, job_id: str, raw_data: dict, area: str = None, city: str = None, state: str = None, country: str = None, user_id: str = None, target_cap: str = "ALL", provider: str = "Google Maps", requested_provider: str = None) -> str:
         """
         Saves an extracted business lead to the database.
         Returns one of: "INSERTED", "DUPLICATE", "REJECTED_CAP", "ERROR".
@@ -200,18 +200,27 @@ class Storage:
                 "opening_hours": data.get("opening_hours", []),
                 "images": data.get("images", []),
                 "fingerprint": fingerprint,
-                "source": "google_maps",
+                "source": (requested_provider or provider or "google_maps").lower().replace(" ", "_"),
+                "provider": requested_provider or provider or "Google Maps",
+                "active_provider": "Google Maps",
+                "requested_provider": requested_provider or provider or "Google Maps",
                 "processing_status": "SAVED",
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
             }
             
+            dup_conditions = dup_query["$or"]
+            if user_id:
+                query_to_run = {"user_id": user_id, "$or": dup_conditions}
+            else:
+                query_to_run = {"$or": dup_conditions}
+
             # Execute with ClientSession (Transaction) if supported
             # For standalone mongo, this might fail, so we wrap it
             try:
                 async with await db_instance.client.start_session() as session:
                     async with session.start_transaction():
-                        existing = await db["leads"].find_one(dup_query, session=session)
+                        existing = await db["leads"].find_one(query_to_run, session=session)
                         if existing:
                             return "DUPLICATE"
                             
@@ -223,7 +232,7 @@ class Storage:
                             
             except Exception as e:
                 logger.debug(f"[STORAGE] Transaction failed (possible standalone DB), falling back to standard ops: {e}")
-                existing = await db["leads"].find_one(dup_query)
+                existing = await db["leads"].find_one(query_to_run)
                 if existing:
                     return "DUPLICATE"
                     

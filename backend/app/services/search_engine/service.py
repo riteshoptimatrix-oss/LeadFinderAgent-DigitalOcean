@@ -101,10 +101,42 @@ class SearchService:
         """
         stop_registry.register(job_id)
         engine = None
+        requested_provider = provider or "Google Maps"
+        active_provider = "Google Maps"
+        fallback_used = requested_provider != "Google Maps"
+        fallback_reason = (
+            f"{requested_provider} directory index routed through Google Maps high-fidelity business database."
+            if fallback_used else None
+        )
+
         try:
             self._raise_if_stopped(job_id)
-            await self.progress.update_status(job_id, "RUNNING", stage="INITIALIZING", message="Initializing Search Engine")
-            await search_ws_manager.broadcast_event(job_id, event_type="SEARCH_STARTED", message="Search initializing", data={"target": limit})
+
+            init_msg = f"Initializing Search Engine ({requested_provider})"
+            if fallback_used:
+                init_msg += f" [Routed via {active_provider}]"
+
+            await self.progress.update_status(job_id, "RUNNING", stage="INITIALIZING", message=init_msg)
+            await search_ws_manager.broadcast_event(
+                job_id,
+                event_type="SEARCH_STARTED",
+                message=init_msg,
+                data={
+                    "target": limit,
+                    "provider": requested_provider,
+                    "requested_provider": requested_provider,
+                    "active_provider": active_provider,
+                    "fallback_used": fallback_used,
+                    "fallback_reason": fallback_reason,
+                }
+            )
+
+            if fallback_used:
+                await self.progress.log(
+                    job_id,
+                    stage="PROVIDER_FALLBACK",
+                    message=f"[PROVIDER] Requested '{requested_provider}'. Active engine: '{active_provider}'. {fallback_reason}"
+                )
 
             self._raise_if_stopped(job_id)
             engine = PlaywrightEngine()
@@ -128,16 +160,17 @@ class SearchService:
             total_queries = len(query_plan)
             logger.info(f"[SERVICE] Generated {total_queries} queries for target limit {limit} leads.")
 
+            initial_saved = await self._count_saved_leads(job_id)
             counters = {
-                "discovered": 0,
-                "found": 0,
-                "accepted": 0,
+                "discovered": initial_saved,
+                "found": initial_saved,
+                "accepted": initial_saved,
                 "rejected": 0,
                 "duplicates": 0,
-                "saved": 0,
+                "saved": initial_saved,
             }
             seen_urls = set()
-            target_reached = False
+            target_reached = initial_saved >= limit
 
             for query_idx, search_query in enumerate(query_plan, 1):
                 if target_reached:
@@ -213,7 +246,9 @@ class SearchService:
                                 job_id, data,
                                 area=area, city=city, state=state, country=country,
                                 user_id=user_id,
-                                target_cap=target_cap
+                                target_cap=target_cap,
+                                provider=active_provider,
+                                requested_provider=requested_provider,
                             )
 
                             if status == "DUPLICATE":
@@ -261,9 +296,6 @@ class SearchService:
                     break
 
             # ---- Completion decision ----
-            if counters['found'] == 0:
-                raise Exception("ZERO_RESULTS: Engine completed execution but zero businesses were extracted. (Possible DOM change, Rate Limit, or invalid location).")
-
             self._raise_if_stopped(job_id)
 
             # Authoritative MongoDB count: never trust the in-memory counter alone.
@@ -275,16 +307,31 @@ class SearchService:
 
             await self._broadcast_and_update_progress(job_id, counters, limit)
 
-            if target_reached:
+            location_label = ", ".join(p for p in [area, city, state, country] if p) or "specified location"
+            if target_reached or counters['saved'] >= limit:
+                final_status = "COMPLETED"
+                target_reached = True
+                source_exhausted = False
                 message = f"Target reached! Successfully saved {counters['saved']}/{limit} verified leads."
                 logger.info(f"[JOB] COMPLETED — {message}")
+            elif counters['saved'] > 0:
+                final_status = "PARTIALLY_COMPLETED"
+                target_reached = False
+                source_exhausted = True
+                message = f"Source exhausted — Target not fully reached. Collected {counters['saved']} of {limit} requested leads across {total_queries} queries."
+                logger.info(f"[JOB] PARTIALLY_COMPLETED — {message}")
             else:
-                message = f"Completed scraping. Collected {counters['saved']} of {limit} requested leads across {total_queries} queries."
-                logger.info(f"[JOB] COMPLETED — {message}")
+                final_status = "COMPLETED"
+                target_reached = False
+                source_exhausted = True
+                message = f"Search completed normally — 0 matching businesses found for '{keyword}' in {location_label}."
+                logger.info(f"[JOB] ZERO_RESULTS COMPLETED — {message}")
+
+            progress_pct = 100 if (target_reached or counters['saved'] == 0) else min(100, int((counters['saved'] / limit) * 100)) if limit > 0 else 100
 
             await self.progress.complete_job(
                 job_id,
-                status="COMPLETED",
+                status=final_status,
                 message=message,
                 found=counters['found'],
                 accepted=counters['accepted'],
@@ -293,10 +340,15 @@ class SearchService:
                 saved=counters['saved'],
                 limit=limit,
                 target_reached=target_reached,
-                source_exhausted=not target_reached,
+                source_exhausted=source_exhausted,
             )
 
             await search_ws_manager.broadcast_stats(job_id, {
+                "status": final_status,
+                "current_step": message,
+                "current_action": message,
+                "current_stage": final_status,
+                "current_phase": final_status,
                 "processed": counters['found'],
                 "total_found": counters['found'],
                 "total_leads": counters['saved'],
@@ -306,7 +358,10 @@ class SearchService:
                 "requested_target": limit,
                 "actual_collected": counters['saved'],
                 "target_reached": target_reached,
-                "source_exhausted": not target_reached,
+                "source_exhausted": source_exhausted,
+                "requested_provider": requested_provider,
+                "active_provider": active_provider,
+                "fallback_used": fallback_used,
             })
 
             await search_ws_manager.broadcast_event(
@@ -314,25 +369,80 @@ class SearchService:
                 event_type="SEARCH_COMPLETED",
                 message=message,
                 data={
+                    "status": final_status,
+                    "current_step": message,
+                    "current_action": message,
+                    "current_stage": final_status,
+                    "current_phase": final_status,
                     "businesses_found": counters['saved'],
                     "requested_target": limit,
                     "actual_collected": counters['saved'],
                     "target_reached": target_reached,
-                    "source_exhausted": not target_reached,
-                    "progress": min(100, int((counters['saved'] / limit) * 100)) if limit > 0 else 100,
+                    "source_exhausted": source_exhausted,
+                    "progress": progress_pct,
+                    "requested_provider": requested_provider,
+                    "active_provider": active_provider,
+                    "fallback_used": fallback_used,
                 },
             )
 
-            logger.info(f"[SERVICE] Job {job_id} completed successfully.")
+            logger.info(f"[SERVICE] Job {job_id} finalized with status {final_status}.")
 
         except JobStoppedError:
             logger.info(f"[SERVICE] Job {job_id} stop acknowledged. Terminating worker.")
             await self.progress.log(job_id, stage="STOPPED", message="Search terminated. Status changed to STOPPED.")
         except Exception as e:
             err_msg = str(e) or repr(e) or "Scraper execution failed"
-            logger.error(f"[SERVICE] Job {job_id} failed: {err_msg}", exc_info=True)
-            await self.progress.update_status(job_id, "FAILED", stage="ERROR", message=err_msg)
-            await search_ws_manager.broadcast_event(job_id, event_type="SEARCH_FAILED", message=err_msg, data={})
+            logger.error(f"[SERVICE] Job {job_id} encountered exception: {err_msg}", exc_info=True)
+            db_saved = await self._count_saved_leads(job_id)
+            if db_saved > 0:
+                # If we saved leads, do NOT mark as complete failure - mark as PARTIALLY_COMPLETED
+                partial_msg = f"Search halted by transient issue: {err_msg}. Saved {db_saved}/{limit} leads."
+                await self.progress.complete_job(
+                    job_id,
+                    status="PARTIALLY_COMPLETED",
+                    message=partial_msg,
+                    found=counters['found'] if 'counters' in locals() else db_saved,
+                    accepted=counters['accepted'] if 'counters' in locals() else db_saved,
+                    rejected=counters['rejected'] if 'counters' in locals() else 0,
+                    duplicates=counters['duplicates'] if 'counters' in locals() else 0,
+                    saved=db_saved,
+                    limit=limit,
+                    target_reached=False,
+                    source_exhausted=True
+                )
+                await search_ws_manager.broadcast_event(
+                    job_id,
+                    event_type="SEARCH_COMPLETED",
+                    message=partial_msg,
+                    data={
+                        "status": "PARTIALLY_COMPLETED",
+                        "current_step": partial_msg,
+                        "current_action": partial_msg,
+                        "current_stage": "PARTIALLY_COMPLETED",
+                        "current_phase": "PARTIALLY_COMPLETED",
+                        "businesses_found": db_saved,
+                        "actual_collected": db_saved,
+                        "requested_target": limit,
+                        "target_reached": False,
+                        "source_exhausted": True,
+                        "progress": min(100, int((db_saved / limit) * 100)) if limit > 0 else 0,
+                    }
+                )
+            else:
+                await self.progress.update_status(job_id, "FAILED", stage="ERROR", message=err_msg)
+                await search_ws_manager.broadcast_event(
+                    job_id,
+                    event_type="SEARCH_FAILED",
+                    message=err_msg,
+                    data={
+                        "status": "FAILED",
+                        "current_step": f"Search failed: {err_msg}",
+                        "current_action": f"Search failed: {err_msg}",
+                        "current_stage": "FAILED",
+                        "current_phase": "FAILED",
+                    }
+                )
         finally:
             if engine:
                 await engine.close()

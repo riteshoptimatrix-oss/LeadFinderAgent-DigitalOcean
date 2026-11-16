@@ -135,10 +135,18 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
             }
 
             if (eventType === 'SEARCH_COMPLETED') {
-              toast.success('Search Completed', {
-                description: 'A search job has finished running. Dashboard updated.',
-                duration: 5000
-              });
+              const isPartial = payload?.status === 'PARTIALLY_COMPLETED';
+              if (isPartial) {
+                toast.warning('Search Partially Completed', {
+                  description: payload?.current_step || 'Source ran out of unique leads before reaching the target.',
+                  duration: 5000
+                });
+              } else {
+                toast.success('Search Completed', {
+                  description: 'A search job has finished running. Dashboard updated.',
+                  duration: 5000
+                });
+              }
             }
 
             if (eventType === 'analysis_completed') {

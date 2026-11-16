@@ -22,14 +22,21 @@ class Parser:
         """
         soup = BeautifulSoup(html, 'html.parser')
         
-        # In detail view, the main title is usually an h1
-        h1_tags = soup.find_all('h1')
+        # In detail view, the main title is usually an h1 with specific Maps classes
         name = None
-        for h1 in h1_tags:
-            text = h1.get_text(strip=True)
-            if text and text.lower() != "results":
+        headline_el = soup.select_one('h1.DUwDvf, h1[class*="fontHeadlineLarge"], div[role="main"] h1')
+        if headline_el:
+            text = headline_el.get_text(strip=True)
+            if text and text.lower() not in ("results", "search", "directions", "overview"):
                 name = text
-                break
+
+        if not name:
+            h1_tags = soup.find_all('h1')
+            for h1 in h1_tags:
+                text = h1.get_text(strip=True)
+                if text and text.lower() not in ("results", "search", "directions", "overview"):
+                    name = text
+                    break
                 
         if not name:
             raise ParsingError("Missing critical element: valid h1 (Business Name) not found in DOM.")

@@ -125,3 +125,81 @@ class SearchEngineAPI:
         stop_registry.request_stop(job_id)
 
         return dict(stopped_job)
+
+    async def retry_job(self, job_id: str, user_id: str = None) -> Dict[str, Any]:
+        """
+        Resumes / retries an existing search campaign for the remaining target leads.
+        Preserves previously saved leads and avoids duplicates.
+        """
+        job = await self.progress.get_job(job_id)
+        if not job:
+            raise Exception("Job not found")
+
+        limit = int(job.get("limit") or job.get("requested_target") or 50)
+        from app.db.database import get_db
+        db = get_db()
+        db_saved = await db["leads"].count_documents({"source_job_id": job_id})
+
+        if db_saved >= limit:
+            return {
+                "status": "already_completed",
+                "message": f"Target already reached ({db_saved}/{limit} leads saved).",
+                "job_id": job_id
+            }
+
+        remaining_needed = limit - db_saved
+        keyword = job.get("keyword", "")
+        area = job.get("area", "")
+        city = job.get("city", "")
+        state = job.get("state", "")
+        country = job.get("country", "")
+        provider = job.get("requested_provider") or job.get("provider") or "Google Maps"
+        exhaustive = bool(job.get("exhaustive", False))
+        grid_size = int(job.get("grid_size", 3) or 3)
+        target_cap = str(job.get("target_cap") or "ALL")
+
+        # Unregister from stop registry if it was previously stopped
+        stop_registry.unregister(job_id)
+
+        # Clear source_exhausted flag
+        from bson.objectid import ObjectId
+        await db["search_jobs"].update_one(
+            {"_id": ObjectId(job_id)},
+            {"$set": {"source_exhausted": False}}
+        )
+
+        # Update status to QUEUED and append retry log
+        retry_msg = f"Resuming search for remaining {remaining_needed} leads (already saved {db_saved}/{limit})"
+        await self.progress.update_status(
+            job_id,
+            "QUEUED",
+            stage="RESUMING",
+            message=retry_msg,
+            allow_from_terminal=True
+        )
+
+        # Re-enqueue execution
+        await search_queue.enqueue(
+            self.service.execute_job,
+            job_id=job_id,
+            keyword=keyword,
+            area=area,
+            city=city,
+            state=state,
+            country=country,
+            limit=limit,
+            provider=provider,
+            user_id=user_id or job.get("user_id"),
+            exhaustive=exhaustive,
+            grid_size=grid_size,
+            target_cap=target_cap
+        )
+
+        return {
+            "status": "resumed",
+            "message": retry_msg,
+            "job_id": job_id,
+            "saved_count": db_saved,
+            "target": limit,
+            "remaining": remaining_needed
+        }

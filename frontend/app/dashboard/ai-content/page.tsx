@@ -180,7 +180,7 @@ export default function AIContentGeneratorPage() {
               <span>AI Content Generator</span>
             </div>
           }
-          description="Generate marketing emails, LinkedIn posts, captions, blogs, and promotional content powered by Gemini."
+          description="Generate marketing emails, LinkedIn posts, captions, blogs, and promotional content powered by Opti Matrix AI."
           action={null}
         />
       </div>

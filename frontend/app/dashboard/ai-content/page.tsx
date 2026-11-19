@@ -6,7 +6,6 @@ import { PageHeader } from '@/src/components/common/PageHeader';
 import ChatPanel from '@/src/components/ai-content/ChatPanel';
 import OutputPanel from '@/src/components/ai-content/OutputPanel';
 import ModifyModal from '@/src/components/ai-content/ModifyModal';
-import SessionStatusBanner from '@/src/components/ai-content/SessionStatusBanner';
 import { ChatMessage } from '@/src/components/ai-content/types';
 import { toast } from 'sonner';
 
@@ -191,9 +190,6 @@ export default function AIContentGeneratorPage() {
           }
         />
       </div>
-
-      {/* Persistent Gemini Session Status Banner */}
-      <SessionStatusBanner />
 
       {/* Two-Panel Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full items-start">

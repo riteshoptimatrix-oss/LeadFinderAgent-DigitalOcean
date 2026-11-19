@@ -44,6 +44,7 @@ class PlaywrightEngine:
         self.browser: Browser = None
         self.context: BrowserContext = None
         self.page: Page = None
+        self._worker_pages = []
 
         self._needs_proactor = False
         if sys.platform == "win32":
@@ -138,6 +139,13 @@ class PlaywrightEngine:
             await self._close_internal()
 
     async def _close_internal(self):
+        for wp in getattr(self, "_worker_pages", []):
+            try:
+                await wp.close()
+            except Exception:
+                pass
+        self._worker_pages = []
+
         if self.page:
             try:
                 await self.page.close()
@@ -245,13 +253,12 @@ class PlaywrightEngine:
             if "/maps/place/" in self.page.url:
                 logger.info("[ENGINE] Direct place detail page loaded.")
                 return True
-            for selector in feed_selectors:
-                try:
-                    await self.page.wait_for_selector(selector, timeout=5000)
-                    return True
-                except PlaywrightError as e:
-                    last_error = e
-            await asyncio.sleep(1.0)
+            try:
+                await self.page.wait_for_selector('div[role="feed"], a[href*="/maps/place"], h1.DUwDvf, div[role="main"]', timeout=3000)
+                return True
+            except PlaywrightError as e:
+                last_error = e
+            await asyncio.sleep(0.4)
 
         # Last resort: reload once and wait again for the feed
         logger.warning("[ENGINE] Feed not found on first load, reloading page and retrying...")
@@ -492,57 +499,75 @@ class PlaywrightEngine:
 
             new_links_found = len(new_hrefs) > 0
 
-            # Extract details using concurrent worker pool (2 concurrent tabs: optimal for 2 vCPU / 4 GB RAM)
+            # Extract details using persistent worker pool (3 concurrent tabs: optimal for 2 vCPU / 4 GB RAM)
             if new_hrefs:
-                sem = asyncio.Semaphore(5)
+                # Ensure worker pages are ready in pool
+                desired_workers = 3
+                while len(self._worker_pages) < desired_workers:
+                    try:
+                        wp = await self.context.new_page()
+                        self._worker_pages.append(wp)
+                    except Exception as e:
+                        logger.warning(f"[ENGINE] Failed to allocate worker tab: {e}")
+                        break
 
-                async def _extract_place(target_href: str):
-                    async with sem:
-                        wp = None
+                href_queue = asyncio.Queue()
+                for h in new_hrefs:
+                    href_queue.put_nowait(h)
+
+                result_queue = asyncio.Queue()
+
+                async def _worker_loop(wp: Page):
+                    while not href_queue.empty():
                         try:
-                            wp = await self.context.new_page()
-                            # Fast goto with images & fonts blocked (finishes in ~400-800ms)
-                            await wp.goto(target_href, wait_until="domcontentloaded", timeout=12000)
+                            target_href = href_queue.get_nowait()
+                        except asyncio.QueueEmpty:
+                            break
+                        try:
+                            if wp.is_closed():
+                                wp = await self.context.new_page()
 
-                            # Fast check for detail title
+                            await wp.goto(target_href, wait_until="domcontentloaded", timeout=10000)
+
+                            # Fast check for detail title or item
                             try:
-                                await wp.wait_for_function('''() => {
-                                    const h1s = Array.from(document.querySelectorAll('h1'));
-                                    return h1s.some(h1 => h1.innerText.trim().toLowerCase() !== 'results' && h1.innerText.trim().length > 0);
-                                }''', timeout=4000)
-                                try:
-                                    await wp.wait_for_selector('[data-item-id]', timeout=800)
-                                except PlaywrightError:
-                                    pass
-                                await asyncio.sleep(0.1)
+                                await wp.wait_for_selector('h1.DUwDvf, h1, [data-item-id]', timeout=2500)
                             except PlaywrightError:
-                                await asyncio.sleep(0.15)
+                                pass
 
                             c_url = wp.url
                             c_html = await wp.content()
-                            return c_html, c_url
+                            await result_queue.put((c_html, c_url))
                         except Exception as e:
                             logger.warning(f"[ENGINE] Failed to extract details for {target_href}: {e}")
-                            return None
                         finally:
-                            if wp is not None:
-                                try:
-                                    await wp.close()
-                                except Exception:
-                                    pass
+                            href_queue.task_done()
+                            await asyncio.sleep(0.12)  # Polite spacing to avoid IP throttle
 
-                tasks = [asyncio.create_task(_extract_place(h)) for h in new_hrefs]
-                try:
-                    for task in asyncio.as_completed(tasks):
-                        res = await task
-                        if res is not None:
-                            d_html, d_url = res
-                            logger.info(f"[ENGINE] Fast-extracted business ({len(processed_links)} tracked, target {limit})...")
-                            yield d_html, d_url
-                finally:
-                    for t in tasks:
-                        if not t.done():
-                            t.cancel()
+                # Run worker loops across pooled worker pages
+                active_workers = self._worker_pages[:desired_workers]
+                worker_tasks = [asyncio.create_task(_worker_loop(wp)) for wp in active_workers]
+
+                extracted_count = 0
+                total_to_extract = len(new_hrefs)
+
+                while extracted_count < total_to_extract and not (href_queue.empty() and result_queue.empty() and all(t.done() for t in worker_tasks)):
+                    try:
+                        res = await asyncio.wait_for(result_queue.get(), timeout=2.0)
+                        extracted_count += 1
+                        d_html, d_url = res
+                        logger.info(f"[ENGINE] Fast-extracted business ({len(processed_links)} tracked, target {limit})...")
+                        yield d_html, d_url
+                    except asyncio.TimeoutError:
+                        if href_queue.empty() and all(t.done() for t in worker_tasks):
+                            break
+
+                await asyncio.gather(*worker_tasks, return_exceptions=True)
+
+                while not result_queue.empty():
+                    d_html, d_url = result_queue.get_nowait()
+                    logger.info(f"[ENGINE] Fast-extracted business ({len(processed_links)} tracked, target {limit})...")
+                    yield d_html, d_url
 
             # End-of-list marker: Google explicitly signals there are no more results
             try:
@@ -565,7 +590,7 @@ class PlaywrightEngine:
             )
 
             scroll_moved = await self._scroll_feed(feed_locator)
-            await asyncio.sleep(0.7)  # Optimized wait for next feed batch
+            await asyncio.sleep(0.35)  # Fast responsive wait for next feed batch
 
             if not scroll_moved:
                 consecutive_unmoved_cycles += 1

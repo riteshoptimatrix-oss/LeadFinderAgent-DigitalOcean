@@ -29,6 +29,8 @@ class SearchService:
         self.storage = Storage()
         self.progress = Progress()
         self.validator = Validator()
+        self._last_db_progress_time = 0.0
+        self._last_saved_count = -1
 
     def _raise_if_stopped(self, job_id: str):
         """Aborts the worker immediately if a stop was requested."""
@@ -51,9 +53,11 @@ class SearchService:
             logger.warning(f"[SERVICE] Failed to query authoritative saved count: {e}")
             return 0
 
-    async def _broadcast_and_update_progress(self, job_id: str, counters: Dict[str, int], limit: int):
-        """Broadcasts live stats and persists granular progress counters."""
+    async def _broadcast_and_update_progress(self, job_id: str, counters: Dict[str, int], limit: int, force: bool = False):
+        """Broadcasts live stats and persists granular progress counters with debounce to protect DB."""
+        import time
         remaining = max(0, limit - counters['saved'])
+        # Always broadcast live stats over WebSocket for immediate UI responsiveness
         await search_ws_manager.broadcast_stats(job_id, {
             "processed": counters['found'],
             "total_found": counters['found'],
@@ -65,11 +69,16 @@ class SearchService:
             "actual_collected": counters['saved'],
             "remaining": remaining,
         })
-        await self.progress.update_progress(
-            job_id, found=counters['found'], accepted=counters['accepted'],
-            rejected=counters['rejected'], duplicates=counters['duplicates'],
-            saved=counters['saved'], limit=limit
-        )
+
+        now = time.time()
+        if force or counters['saved'] != self._last_saved_count or (now - self._last_db_progress_time) > 1.5:
+            self._last_db_progress_time = now
+            self._last_saved_count = counters['saved']
+            await self.progress.update_progress(
+                job_id, found=counters['found'], accepted=counters['accepted'],
+                rejected=counters['rejected'], duplicates=counters['duplicates'],
+                saved=counters['saved'], limit=limit
+            )
 
     async def execute_job(
         self,
@@ -211,8 +220,6 @@ class SearchService:
                     counters['discovered'] += 1
                     logger.info(f"[DISCOVERY] Discovered business #{counters['discovered']}: {current_url}")
 
-                    await self.progress.update_status(job_id, "RUNNING", stage="EXTRACTING_BUSINESSES", message=f"Extracting business {counters['found'] + 1}/{limit}")
-
                     try:
                         # Parse HTML
                         data = Parser.extract_business_cards(detail_html, current_url)
@@ -227,9 +234,7 @@ class SearchService:
                             f"phones={data.get('phone')}"
                         )
 
-                        # Process via Pipeline (Validator)
-                        await self.progress.update_status(job_id, "RUNNING", stage="VALIDATING", message=f"Validating {data.get('name', 'Unknown')}")
-
+                        # Process via Pipeline (Validator) - fast rule & cached check
                         is_valid, reason = self.validator.validate(keyword, data)
 
                         if not is_valid:
@@ -239,8 +244,6 @@ class SearchService:
                             await search_ws_manager.broadcast_event(job_id, "lead_failed", data={"reason": f"Validation Failed: {reason}", "business": data})
                         else:
                             counters['accepted'] += 1
-
-                            await self.progress.update_status(job_id, "RUNNING", stage="SAVING", message=f"Saving {data.get('name')}")
 
                             status = await self.storage.save_lead(
                                 job_id, data,
@@ -282,7 +285,7 @@ class SearchService:
                         continue
 
                     finally:
-                        # Update stats unconditionally after every business
+                        # Update stats unconditionally after every business (debounced DB write)
                         await self._broadcast_and_update_progress(job_id, counters, limit)
 
                     # The ONLY legitimate early-completion condition: the target of
@@ -305,7 +308,7 @@ class SearchService:
             if db_saved >= limit:
                 target_reached = True
 
-            await self._broadcast_and_update_progress(job_id, counters, limit)
+            await self._broadcast_and_update_progress(job_id, counters, limit, force=True)
 
             location_label = ", ".join(p for p in [area, city, state, country] if p) or "specified location"
             if target_reached or counters['saved'] >= limit:

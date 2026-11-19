@@ -354,6 +354,14 @@ async def connect_to_mongo():
         await db_instance.db["leads"].create_index([("city", pymongo.ASCENDING)])
         await db_instance.db["leads"].create_index([("google_rating", pymongo.DESCENDING)])
 
+        # Search engine & deduplication indexes
+        await db_instance.db["leads"].create_index([("source_job_id", pymongo.ASCENDING)])
+        await db_instance.db["leads"].create_index([("google_maps_url", pymongo.ASCENDING)], sparse=True)
+        await db_instance.db["leads"].create_index([("phone_digits", pymongo.ASCENDING)], sparse=True)
+        await db_instance.db["leads"].create_index([("website", pymongo.ASCENDING)], sparse=True)
+        await db_instance.db["leads"].create_index([("name", pymongo.ASCENDING), ("address", pymongo.ASCENDING)], sparse=True)
+        await db_instance.db["search_jobs"].create_index([("user_id", pymongo.ASCENDING), ("created_at", pymongo.DESCENDING)])
+
         # Phase 4 Indexes
         try:
             await db_instance.db["leads"].create_index([("fingerprint", pymongo.ASCENDING)], unique=True)

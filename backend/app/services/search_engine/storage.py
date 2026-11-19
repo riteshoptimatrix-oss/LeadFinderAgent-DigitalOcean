@@ -215,31 +215,14 @@ class Storage:
             else:
                 query_to_run = {"$or": dup_conditions}
 
-            # Execute with ClientSession (Transaction) if supported
-            # For standalone mongo, this might fail, so we wrap it
-            try:
-                async with await db_instance.client.start_session() as session:
-                    async with session.start_transaction():
-                        existing = await db["leads"].find_one(query_to_run, session=session)
-                        if existing:
-                            return "DUPLICATE"
-                            
-                        insert_res = await db["leads"].insert_one(lead_doc, session=session)
-                        # Read-after-write verification
-                        verify = await db["leads"].find_one({"_id": insert_res.inserted_id}, session=session)
-                        if not verify:
-                            raise Exception("Read-after-write verification failed")
-                            
-            except Exception as e:
-                logger.debug(f"[STORAGE] Transaction failed (possible standalone DB), falling back to standard ops: {e}")
-                existing = await db["leads"].find_one(query_to_run)
-                if existing:
-                    return "DUPLICATE"
-                    
-                insert_res = await db["leads"].insert_one(lead_doc)
-                verify = await db["leads"].find_one({"_id": insert_res.inserted_id})
-                if not verify:
-                    return "ERROR"
+            # Fast deduplication check using covered projection (_id only)
+            existing = await db["leads"].find_one(query_to_run, projection={"_id": 1})
+            if existing:
+                return "DUPLICATE"
+
+            insert_res = await db["leads"].insert_one(lead_doc)
+            if not getattr(insert_res, "acknowledged", False):
+                return "ERROR"
             
             logger.info(
                 f"PHONES_SAVED: job={job_id} business={name} lead_id={insert_res.inserted_id} "

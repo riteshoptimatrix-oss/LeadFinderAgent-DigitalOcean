@@ -24,7 +24,7 @@ export default function AIContentGeneratorPage() {
 
     const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     const userMsgId = `user-${Date.now()}`;
-    
+
     // Add user message to conversation
     setMessages(prev => [
       ...prev,
@@ -180,14 +180,8 @@ export default function AIContentGeneratorPage() {
               <span>AI Content Generator</span>
             </div>
           }
-          description="Generate and refine high-converting social media content through Gemini Web Playwright automation."
-          action={
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 shadow-2xs">
-                New Page
-              </span>
-            </div>
-          }
+          description="Generate and refine high-converting social media content."
+          action={null}
         />
       </div>
 

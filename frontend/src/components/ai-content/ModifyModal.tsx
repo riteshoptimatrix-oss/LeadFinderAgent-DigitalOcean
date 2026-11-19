@@ -73,7 +73,7 @@ export default function ModifyModal({
             <div>
               <h3 className="font-bold text-slate-900 text-base">Change this Output</h3>
               <p className="text-xs text-slate-500">
-                Instruct Gemini how to refine, restructure, or rewrite the generated post.
+                Instruct AI how to refine, restructure, or rewrite the generated post.
               </p>
             </div>
           </div>
@@ -160,7 +160,7 @@ export default function ModifyModal({
               {isModifying ? (
                 <>
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  Applying Changes via Gemini...
+                  Applying Changes via AI...
                 </>
               ) : (
                 <>

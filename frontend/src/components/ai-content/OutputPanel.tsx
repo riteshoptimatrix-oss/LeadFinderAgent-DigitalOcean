@@ -125,7 +125,7 @@ export default function OutputPanel({
               {isModifying ? 'Applying Requested Changes...' : 'Generating Social Media Post...'}
             </h3>
             <p className="text-xs text-slate-500 max-w-sm mt-1.5 leading-relaxed">
-              Playwright is driving Chromium through Gemini Web, streaming and validating the complete response.
+              Playwright is driving Chromium through AI, streaming and validating the complete response.
             </p>
 
             <div className="w-full max-w-md mt-6 space-y-2.5">

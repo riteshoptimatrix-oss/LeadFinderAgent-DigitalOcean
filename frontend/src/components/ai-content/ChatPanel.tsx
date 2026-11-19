@@ -59,7 +59,7 @@ export default function ChatPanel({
     setLocalError(null);
     const textToSend = trimmed;
     setQuery('');
-    
+
     // Reset textarea height
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -83,7 +83,7 @@ export default function ChatPanel({
   const handleTextareaInput = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setQuery(e.target.value);
     if (localError) setLocalError(null);
-    
+
     // Auto-expand textarea up to 160px
     const target = e.target;
     target.style.height = 'auto';
@@ -176,13 +176,12 @@ export default function ChatPanel({
                   </div>
                 )}
                 <div
-                  className={`max-w-[85%] rounded-2xl p-4 text-xs leading-relaxed ${
-                    isUser
-                      ? 'bg-slate-900 text-white rounded-br-xs shadow-xs'
-                      : msg.error
+                  className={`max-w-[85%] rounded-2xl p-4 text-xs leading-relaxed ${isUser
+                    ? 'bg-slate-900 text-white rounded-br-xs shadow-xs'
+                    : msg.error
                       ? 'bg-rose-50 text-rose-800 border border-rose-200/80'
                       : 'bg-slate-100 text-slate-800 rounded-bl-xs border border-slate-200/60'
-                  }`}
+                    }`}
                 >
                   <div className="flex items-center justify-between gap-3 mb-1 opacity-70 text-[10px]">
                     <span className="font-semibold uppercase tracking-wider">
@@ -210,7 +209,7 @@ export default function ChatPanel({
             </div>
             <div className="bg-slate-100 rounded-2xl rounded-bl-xs p-3 text-xs text-slate-600 border border-slate-200/60 flex items-center gap-2">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-600" />
-              <span>Generating response via Gemini Web...</span>
+              <span>Generating response via AI...</span>
             </div>
           </div>
         )}

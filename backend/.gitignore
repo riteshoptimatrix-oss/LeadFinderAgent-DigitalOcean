@@ -48,6 +48,9 @@ quick_test.py
 *~
 
 # Logs
+storage/gemini_profile/
+gemini_profile/
+wa_sessions/
 *.log
 logs/
 

@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Phone,
   Shield,
+  Sparkles,
   ChevronRight,
   ChevronLeft,
   ChevronDown
@@ -141,6 +142,16 @@ export default function Sidebar() {
     {
       title: 'AUTOMATION',
       items: [
+        {
+          name: 'AI Content Generator',
+          href: '/dashboard/ai-content',
+          icon: Sparkles,
+          badgeBox: {
+            bg: 'bg-emerald-50',
+            text: 'text-emerald-600',
+            border: 'border-emerald-100/60'
+          }
+        },
         {
           name: 'WhatsApp Automation',
           href: '/dashboard/whatsapp-ai',

@@ -22,6 +22,8 @@ coverage/
 backend/storage/screenshots/
 backend/storage/uploads/
 backend/storage/temp/
+backend/storage/gemini_profile/
+backend/wa_sessions/
 
 # Logs and local databases
 *.log

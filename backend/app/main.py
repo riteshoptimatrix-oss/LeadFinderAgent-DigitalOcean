@@ -412,6 +412,11 @@ async def lifespan(app: FastAPI):
         await timeout_watcher.stop()
     if stuck_worker_detector:
         await stuck_worker_detector.stop()
+    try:
+        from app.services.ai_content.gemini_service import gemini_service
+        await gemini_service.close()
+    except Exception as e:
+        logger.warning(f"Error closing Gemini browser service: {e}")
     await supervisor.stop_all(timeout=30)
     scheduler.shutdown()
     await close_mongo_connection()
@@ -481,11 +486,13 @@ app.include_router(notifications_routes.router, prefix=f"{app_settings.API_V1_ST
 
 from app.api.routes import admin_activity
 app.include_router(admin_activity.router, prefix=f"{app_settings.API_V1_STR}/admin", tags=["admin"])
-from app.api.routes import crm, whatsapp_ai, email_ai, email_ai_analytics
+from app.api.routes import crm, whatsapp_ai, email_ai, email_ai_analytics, ai_content
 app.include_router(crm.router, prefix=f"{app_settings.API_V1_STR}/crm", tags=["crm"])
 app.include_router(whatsapp_ai.router, prefix=f"{app_settings.API_V1_STR}/whatsapp-ai", tags=["whatsapp-ai"])
 app.include_router(email_ai.router, prefix=f"{app_settings.API_V1_STR}/email-ai", tags=["email-ai"])
 app.include_router(email_ai_analytics.router, prefix=f"{app_settings.API_V1_STR}/email-ai", tags=["email-ai-analytics"])
+app.include_router(ai_content.router, prefix=f"{app_settings.API_V1_STR}/ai-content", tags=["ai-content"])
+app.include_router(ai_content.router, prefix="/api/ai-content", tags=["ai-content"])
 from app.services.supervisor.dashboard import router as supervisor_router
 app.include_router(supervisor_router, prefix="", tags=["supervisor"])
 app.include_router(advanced_analysis.router, prefix="/api/advanced-analysis", tags=["advanced-analysis"])

@@ -3,27 +3,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { 
-  Search, 
-  Plus, 
-  ChevronDown, 
-  Bell, 
-  LayoutGrid, 
-  Settings, 
-  Shield, 
-  LogOut, 
-  Phone, 
-  Mail, 
+import {
+  Search,
+  Plus,
+  ChevronDown,
+  LayoutGrid,
+  Settings,
+  Shield,
+  LogOut,
+  Phone,
+  Mail,
   Menu,
-  CheckCircle2,
   Users,
-  History,
-  Sparkles,
-  ExternalLink,
-  X,
-  CheckCheck,
-  Trash2,
-  Clock
+  History
 } from 'lucide-react';
 import { useAuthStore } from '@/src/features/auth/store';
 import { useSidebarStore } from '@/src/lib/sidebarStore';
@@ -31,221 +23,37 @@ import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { cn } from '@/src/lib/utils';
 
-// Authentic WhatsApp SVG Icon
+// Authentic WhatsApp SVG Icon (Bootstrap Icons bi-whatsapp)
 function WhatsAppIcon({ className = "w-4 h-4" }: { className?: string }) {
   return (
-    <svg 
-      viewBox="0 0 24 24" 
-      fill="none" 
-      stroke="currentColor" 
-      strokeWidth="2" 
-      strokeLinecap="round" 
-      strokeLinejoin="round" 
+    <svg
+      viewBox="0 0 16 16"
+      fill="currentColor"
       className={className}
     >
-      <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-      <path 
-        d="M8.5 9.5c.3 1.3 1.2 2.2 2.5 2.5l.8-.8a.7.7 0 0 1 .8-.1l1.8.6a.7.7 0 0 1 .5.7v1.1a1 1 0 0 1-1 1c-3.3 0-6-2.7-6-6a1 1 0 0 1 1-1h1.1a.7.7 0 0 1 .7.5l.6 1.8a.7.7 0 0 1-.1.8l-.8.8z" 
-        fill="currentColor" 
-        stroke="none" 
-      />
+      <path d="M13.601 2.326A7.85 7.85 0 0 0 7.994 0C3.627 0 .068 3.558.064 7.926c0 1.399.366 2.76 1.057 3.965L0 16l4.204-1.102a7.9 7.9 0 0 0 3.79.965h.004c4.368 0 7.926-3.558 7.93-7.93A7.9 7.9 0 0 0 13.6 2.326zM7.994 14.521a6.6 6.6 0 0 1-3.356-.92l-.24-.144-2.494.654.666-2.433-.156-.251a6.56 6.56 0 0 1-1.007-3.505c0-3.626 2.957-6.584 6.591-6.584a6.56 6.56 0 0 1 4.66 1.931 6.56 6.56 0 0 1 1.928 4.66c-.004 3.639-2.961 6.592-6.592 6.592m3.615-4.934c-.197-.099-1.17-.578-1.353-.646-.182-.065-.315-.099-.445.099-.133.197-.513.646-.627.775-.114.133-.232.148-.43.05-.197-.1-.836-.308-1.592-.985-.59-.525-.985-1.175-1.103-1.372-.114-.198-.011-.304.088-.403.087-.088.197-.232.296-.346.1-.114.133-.198.198-.33.065-.134.034-.248-.015-.347-.05-.099-.445-1.076-.612-1.47-.16-.389-.323-.335-.445-.34-.114-.007-.247-.007-.38-.007a.73.73 0 0 0-.529.247c-.182.198-.691.677-.691 1.654s.71 1.916.81 2.049c.098.133 1.394 2.132 3.383 2.992.47.205.84.326 1.129.418.475.152.904.129 1.246.08.38-.058 1.171-.48 1.338-.943.164-.464.164-.86.114-.943-.049-.084-.182-.133-.38-.232" />
     </svg>
-  );
-}
-
-// Logo emblem fallback
-function OptiMatrixEmblem({ className = "w-7 h-7" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 40 40" fill="none" className={className} xmlns="http://www.w3.org/2000/svg">
-      <path d="M20 2C16 10 10 16 2 20C10 24 16 30 20 38C24 30 30 24 38 20C30 16 24 10 20 2Z" fill="url(#nav-grad)" />
-      <path d="M20 6C17 12 12 17 6 20C12 23 17 28 20 34C23 28 28 23 34 20C28 17 23 12 20 6Z" fill="url(#nav-grad2)" />
-      <defs>
-        <linearGradient id="nav-grad" x1="2" y1="2" x2="38" y2="38" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#38bdf8" />
-          <stop offset="0.33" stopColor="#3b82f6" />
-          <stop offset="0.66" stopColor="#ec4899" />
-          <stop offset="1" stopColor="#f59e0b" />
-        </linearGradient>
-        <linearGradient id="nav-grad2" x1="6" y1="6" x2="34" y2="34" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#60a5fa" />
-          <stop offset="0.5" stopColor="#a855f7" />
-          <stop offset="1" stopColor="#ef4444" />
-        </linearGradient>
-      </defs>
-    </svg>
-  );
-}
-
-interface NotificationItem {
-  id: string;
-  user_id: string;
-  type: string;
-  title: string;
-  message: string;
-  link?: string;
-  read: boolean;
-  metadata?: Record<string, any>;
-  created_at: string;
-}
-
-function formatTimeAgo(dateString?: string): string {
-  if (!dateString) return 'Just now';
-  try {
-    const now = new Date();
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'Recently';
-    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-    
-    if (diffInSeconds < 45) return 'Just now';
-    const diffInMinutes = Math.floor(diffInSeconds / 60);
-    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
-    const diffInHours = Math.floor(diffInMinutes / 60);
-    if (diffInHours < 24) return `${diffInHours}h ago`;
-    const diffInDays = Math.floor(diffInHours / 24);
-    if (diffInDays < 7) return `${diffInDays}d ago`;
-    return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-  } catch {
-    return 'Recently';
-  }
-}
-
-function NotificationIcon({ type }: { type: string }) {
-  const t = (type || '').toLowerCase();
-  if (t === 'lead') {
-    return (
-      <div className="w-8 h-8 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
-        <Users className="w-4 h-4" />
-      </div>
-    );
-  }
-  if (t === 'whatsapp') {
-    return (
-      <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
-        <WhatsAppIcon className="w-4 h-4" />
-      </div>
-    );
-  }
-  if (t === 'calling') {
-    return (
-      <div className="w-8 h-8 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
-        <Phone className="w-4 h-4" />
-      </div>
-    );
-  }
-  if (t === 'email') {
-    return (
-      <div className="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center shrink-0">
-        <Mail className="w-4 h-4" />
-      </div>
-    );
-  }
-  if (t === 'ai') {
-    return (
-      <div className="w-8 h-8 rounded-xl bg-violet-50 text-violet-600 flex items-center justify-center shrink-0">
-        <Sparkles className="w-4 h-4" />
-      </div>
-    );
-  }
-  return (
-    <div className="w-8 h-8 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center shrink-0">
-      <CheckCircle2 className="w-4 h-4 text-blue-600" />
-    </div>
   );
 }
 
 export default function Navbar() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
-  
-  const { 
-    toggleCollapse, 
-    toggleMobile 
+
+  const {
+    toggleCollapse,
+    toggleMobile
   } = useSidebarStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [addLeadOpen, setAddLeadOpen] = useState(false);
-  const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [appsOpen, setAppsOpen] = useState(false);
-  const [notificationFilter, setNotificationFilter] = useState<'all' | 'unread'>('all');
-  const [logoError, setLogoError] = useState(false);
 
   const searchInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const addLeadRef = useRef<HTMLDivElement>(null);
-  const notificationsRef = useRef<HTMLDivElement>(null);
   const appsRef = useRef<HTMLDivElement>(null);
-
-  const { 
-    data: notifData, 
-    refetch: refetchNotifications,
-    isLoading: notifsLoading 
-  } = useQuery({
-    queryKey: ['notifications'],
-    queryFn: async () => {
-      try {
-        const res = await api.get('/notifications?limit=30');
-        return res.data as {
-          notifications: NotificationItem[];
-          unread_count: number;
-          total: number;
-        };
-      } catch {
-        return { notifications: [], unread_count: 0, total: 0 };
-      }
-    },
-    refetchInterval: 15000,
-    refetchOnWindowFocus: true,
-  });
-
-  const unreadCount = notifData?.unread_count ?? 0;
-  const notificationsList = notifData?.notifications ?? [];
-  const filteredNotifications = notificationFilter === 'unread'
-    ? notificationsList.filter(n => !n.read)
-    : notificationsList;
-
-  const handleMarkAllRead = async () => {
-    try {
-      await api.post('/notifications/mark-all-read');
-      refetchNotifications();
-    } catch (err) {
-      console.error('Failed to mark all as read:', err);
-    }
-  };
-
-  const handleNotificationClick = async (item: NotificationItem) => {
-    if (!item.read) {
-      try {
-        await api.patch(`/notifications/${item.id}/read`);
-        refetchNotifications();
-      } catch (err) {
-        console.error('Failed to mark notification as read:', err);
-      }
-    }
-    setNotificationsOpen(false);
-    if (item.link) {
-      router.push(item.link);
-    }
-  };
-
-  const handleDeleteNotification = async (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    try {
-      await api.delete(`/notifications/${id}`);
-      refetchNotifications();
-    } catch (err) {
-      console.error('Failed to delete notification:', err);
-    }
-  };
-
-  const handleClearAll = async () => {
-    try {
-      await api.delete('/notifications');
-      refetchNotifications();
-    } catch (err) {
-      console.error('Failed to clear notifications:', err);
-    }
-  };
 
   const { data: userProfile } = useQuery({
     queryKey: ['userProfile'],
@@ -282,9 +90,6 @@ export default function Navbar() {
       if (addLeadRef.current && !addLeadRef.current.contains(target)) {
         setAddLeadOpen(false);
       }
-      if (notificationsRef.current && !notificationsRef.current.contains(target)) {
-        setNotificationsOpen(false);
-      }
       if (appsRef.current && !appsRef.current.contains(target)) {
         setAppsOpen(false);
       }
@@ -318,11 +123,11 @@ export default function Navbar() {
 
   return (
     <header className="h-[70px] border-b border-slate-100 bg-white/95 backdrop-blur-md sticky top-0 z-40 transition-colors px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-3 sm:gap-4 select-none">
-      
+
       {/* ======================================================== */}
-      {/* 1. LEFT SECTION: Hamburger Toggle + Logo + Vertical Line */}
+      {/* 1. LEFT SECTION: Hamburger Toggle */}
       {/* ======================================================== */}
-      <div className="flex items-center gap-2 sm:gap-3 shrink-0">
+      <div className="flex items-center shrink-0">
         {/* Hamburger Toggle Button */}
         <button
           type="button"
@@ -333,38 +138,6 @@ export default function Navbar() {
         >
           <Menu className="w-4 h-4 sm:w-[18px] sm:h-[18px]" strokeWidth={2.2} />
         </button>
-
-        {/* Brand Logo */}
-        <Link 
-          href="/dashboard"
-          className="flex items-center gap-2 transition-transform hover:opacity-95 shrink-0"
-          title="LeadFinderAgent Dashboard"
-        >
-          {!logoError ? (
-            <img 
-              src="/logo.png" 
-              alt="Opti Matrix - Turn Ideas into Reality" 
-              className="h-8 sm:h-9 w-auto max-w-[155px] object-contain"
-              onError={() => setLogoError(true)}
-            />
-          ) : (
-            <div className="flex items-center gap-2">
-              <OptiMatrixEmblem className="w-8 h-8 shrink-0" />
-              <div className="flex flex-col">
-                <div className="flex items-center text-[16px] sm:text-[17px] font-bold tracking-tight leading-tight">
-                  <span className="text-slate-900">Opti</span>
-                  <span className="text-[#dc2626] ml-1">Matrix</span>
-                </div>
-                <span className="text-[9px] text-slate-400 font-medium tracking-wide">
-                  Turn Ideas into Reality
-                </span>
-              </div>
-            </div>
-          )}
-        </Link>
-
-        {/* Vertical Separator */}
-        <div className="h-6 w-px bg-slate-200/80 mx-1 sm:mx-2 hidden md:block" />
       </div>
 
       {/* ======================================================== */}
@@ -399,7 +172,7 @@ export default function Navbar() {
       {/* 3. RIGHT SECTION: Add Lead + 3 AI Buttons + Bell + Grid + User */}
       {/* ======================================================== */}
       <div className="flex items-center gap-2 sm:gap-2.5 shrink-0">
-        
+
         {/* "+ Add Lead" Button with Dropdown Options */}
         <div className="relative" ref={addLeadRef}>
           <div className="flex items-center">
@@ -495,188 +268,6 @@ export default function Navbar() {
 
         {/* Vertical Separator */}
         <div className="h-6 w-px bg-slate-200/80 mx-1 hidden sm:block" />
-
-        {/* Notification Bell */}
-        <div className="relative" ref={notificationsRef}>
-          <button
-            type="button"
-            onClick={() => setNotificationsOpen((prev) => !prev)}
-            title={unreadCount > 0 ? `${unreadCount} unread notification${unreadCount > 1 ? 's' : ''}` : "Notifications"}
-            className={cn(
-              "w-9 h-9 rounded-full flex items-center justify-center transition-all duration-200 relative cursor-pointer active:scale-95",
-              notificationsOpen 
-                ? "bg-blue-50 text-blue-600 ring-2 ring-blue-100" 
-                : "hover:bg-slate-100/80 text-slate-500 hover:text-slate-800"
-            )}
-          >
-            <Bell className="w-4 h-4 sm:w-[18px] sm:h-[18px]" />
-            {unreadCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 min-w-[17px] h-[17px] px-1 bg-red-500 text-white text-[9.5px] font-bold rounded-full flex items-center justify-center ring-2 ring-white shadow-xs">
-                {unreadCount > 9 ? '9+' : unreadCount}
-              </span>
-            )}
-          </button>
-
-          {/* Notifications Dropdown */}
-          {notificationsOpen && (
-            <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white border border-slate-200/90 rounded-2xl shadow-2xl z-50 animate-fade-up overflow-hidden">
-              {/* Header */}
-              <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
-                <div className="flex items-center gap-2">
-                  <span className="text-[14px] font-bold text-slate-900">Notifications</span>
-                  {unreadCount > 0 ? (
-                    <span className="text-[11px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-2 py-0.5 rounded-full">
-                      {unreadCount} New
-                    </span>
-                  ) : (
-                    <span className="text-[11px] font-medium text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-full">
-                      All read
-                    </span>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-1">
-                  {unreadCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleMarkAllRead}
-                      title="Mark all as read"
-                      className="text-slate-500 hover:text-blue-600 text-xs font-semibold flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-blue-50 transition-colors cursor-pointer"
-                    >
-                      <CheckCheck className="w-3.5 h-3.5 text-blue-600" />
-                      <span className="hidden sm:inline">Mark read</span>
-                    </button>
-                  )}
-                  {notificationsList.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleClearAll}
-                      title="Clear all notifications"
-                      className="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Filter Tabs */}
-              <div className="flex items-center px-3 pt-2 pb-1.5 border-b border-slate-100 text-xs gap-1.5 bg-white">
-                <button
-                  type="button"
-                  onClick={() => setNotificationFilter('all')}
-                  className={cn(
-                    "px-3 py-1 rounded-lg font-semibold transition-colors cursor-pointer",
-                    notificationFilter === 'all'
-                      ? "bg-slate-100 text-slate-900"
-                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
-                  )}
-                >
-                  All ({notificationsList.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNotificationFilter('unread')}
-                  className={cn(
-                    "px-3 py-1 rounded-lg font-semibold transition-colors cursor-pointer flex items-center gap-1.5",
-                    notificationFilter === 'unread'
-                      ? "bg-blue-50 text-blue-700"
-                      : "text-slate-500 hover:text-slate-800 hover:bg-slate-50"
-                  )}
-                >
-                  Unread ({unreadCount})
-                </button>
-              </div>
-
-              {/* Notification List */}
-              <div className="max-h-[340px] overflow-y-auto divide-y divide-slate-100/90 overscroll-contain">
-                {notifsLoading && notificationsList.length === 0 ? (
-                  <div className="py-8 px-4 text-center text-xs text-slate-400">
-                    Loading notifications...
-                  </div>
-                ) : filteredNotifications.length === 0 ? (
-                  <div className="py-10 px-4 text-center flex flex-col items-center justify-center">
-                    <div className="w-11 h-11 rounded-2xl bg-slate-50 border border-slate-100 text-slate-400 flex items-center justify-center mb-2.5">
-                      <Bell className="w-5 h-5 opacity-40" />
-                    </div>
-                    <span className="text-[13px] font-semibold text-slate-700">No notifications</span>
-                    <span className="text-[11.5px] text-slate-400 mt-0.5 max-w-[220px]">
-                      {notificationFilter === 'unread' 
-                        ? "You have no unread notifications." 
-                        : "You're all caught up with your latest alerts and campaigns."}
-                    </span>
-                  </div>
-                ) : (
-                  filteredNotifications.map((item) => (
-                    <div
-                      key={item.id}
-                      onClick={() => handleNotificationClick(item)}
-                      className={cn(
-                        "group relative p-3 sm:p-3.5 flex items-start gap-3 transition-colors cursor-pointer text-left",
-                        !item.read ? "bg-blue-50/40 hover:bg-blue-50/70" : "bg-white hover:bg-slate-50/90"
-                      )}
-                    >
-                      <NotificationIcon type={item.type} />
-                      
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start justify-between gap-1">
-                          <span className={cn(
-                            "text-[12.5px] sm:text-[13px] leading-snug line-clamp-1",
-                            !item.read ? "font-bold text-slate-900" : "font-medium text-slate-800"
-                          )}>
-                            {item.title}
-                          </span>
-                          {!item.read && (
-                            <span className="w-2 h-2 rounded-full bg-blue-600 shrink-0 mt-1" />
-                          )}
-                        </div>
-
-                        <p className="text-[11.5px] text-slate-500 line-clamp-2 mt-0.5 leading-relaxed">
-                          {item.message}
-                        </p>
-
-                        <div className="flex items-center justify-between mt-1.5">
-                          <span className="text-[10px] text-slate-400 flex items-center gap-1 font-medium">
-                            <Clock className="w-3 h-3 text-slate-400" />
-                            {formatTimeAgo(item.created_at)}
-                          </span>
-
-                          <button
-                            type="button"
-                            onClick={(e) => handleDeleteNotification(e, item.id)}
-                            title="Dismiss notification"
-                            className="opacity-0 group-hover:opacity-100 transition-opacity p-1 text-slate-400 hover:text-red-500 rounded-md hover:bg-slate-100 shrink-0"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              {/* Footer */}
-              <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
-                <Link
-                  href="/dashboard/leads"
-                  onClick={() => setNotificationsOpen(false)}
-                  className="font-semibold text-blue-600 hover:text-blue-700 flex items-center gap-1 transition-colors"
-                >
-                  <span>View All Leads</span>
-                  <ExternalLink className="w-3 h-3" />
-                </Link>
-                <Link
-                  href="/dashboard"
-                  onClick={() => setNotificationsOpen(false)}
-                  className="text-slate-400 hover:text-slate-600 font-medium transition-colors"
-                >
-                  Dashboard Home
-                </Link>
-              </div>
-            </div>
-          )}
-        </div>
 
         {/* 9-Dots Grid (App Launcher) */}
         <div className="relative" ref={appsRef}>

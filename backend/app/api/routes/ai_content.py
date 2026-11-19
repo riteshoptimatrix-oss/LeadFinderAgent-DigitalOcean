@@ -31,7 +31,7 @@ async def generate_content(payload: GenerateContentRequest):
 
     try:
         logger.info(f"Received content generation request: {user_query[:60]}...")
-        result_text = await gemini_service.generate_social_media_post(user_query)
+        result_text = await gemini_service.generate_content(user_query)
         
         if not result_text:
             return GenerateContentResponse(

@@ -18,11 +18,12 @@ interface ModifyModalProps {
 }
 
 const QUICK_SUGGESTIONS = [
-  'Make it more engaging and casual',
-  'Make the tone strictly corporate & professional',
-  'Add 5 more industry hashtags',
-  'Shorten to under 100 words',
-  'Add a more compelling Call-to-Action'
+  'Convert into a high-converting marketing email',
+  'Turn into an engaging LinkedIn post with hook',
+  'Shorten into a catchy Instagram caption with hashtags',
+  'Expand into a structured blog post with headings',
+  'Add a promotional 20% discount offer and urgency CTA',
+  'Make the tone strictly corporate and professional'
 ];
 
 export default function ModifyModal({

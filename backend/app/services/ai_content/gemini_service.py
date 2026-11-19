@@ -21,48 +21,56 @@ from playwright.async_api import (
 logger = logging.getLogger("ai_content.gemini_service")
 
 
-SOCIAL_MEDIA_BASE_PROMPT = """Generate a high-quality, engaging, and professional social media post based on the following user input:
+CONTENT_GENERATOR_BASE_PROMPT = """You are a World-Class AI Marketing Copywriter and Strategic Content Creator.
 
-User Topic / Query: {user_query}
+Generate high-quality, professional, and high-converting marketing content based on the following user input:
 
-Requirements:
-Generate ONLY ONE complete, polished, ready-to-publish social media post.
-Start with a powerful, attention-grabbing hook.
-Understand the user's query and create content that is directly relevant to the given topic.
-Highlight the most relevant benefits, features, key points, or unique selling propositions (USPs), wherever applicable.
-Use engaging, natural, persuasive, and human-like language.
-Include relevant emojis naturally without overusing them.
-Add a clear and compelling Call-to-Action (CTA).
-Include 5–8 relevant and popular hashtags related to the topic.
-Keep the content concise, creative, and engaging.
-Make the post suitable for Instagram, Facebook, and LinkedIn.
-Maintain a modern, professional, audience-friendly tone.
-Adapt the writing style according to the nature of the user's topic.
-Do not invent product features, benefits, statistics, or claims that are not supported by the user's input.
+User Request / Topic: {user_query}
+
+Context & Format Guidelines:
+Intelligently detect or adapt to the user's requested format:
+- MARKETING EMAILS: Produce an attention-grabbing Subject Line, preview hook, engaging and persuasive body copy, clear value proposition, and an irresistible Call-to-Action (CTA).
+- LINKEDIN POSTS: Produce a scroll-stopping hook, clean line breaks for readability, valuable insights/takeaways, professional yet conversational tone, compelling CTA, and 3–6 targeted hashtags.
+- CAPTIONS / SOCIAL MEDIA: Produce an engaging opening line, vibrant and naturally placed emojis, concise and relatable copy, strong CTA, and 5–8 relevant hashtags (Instagram, Facebook, X).
+- BLOGS & ARTICLES: Produce a compelling Title, clear structured headings/subheadings, informative and well-reasoned body paragraphs, actionable takeaways, and a concluding CTA.
+- PROMOTIONAL CONTENT / AD COPY: Produce high-converting marketing copy highlighting unique selling propositions (USPs), customer benefits, persuasive urgency/incentives, and a bold CTA.
+- GENERAL / UNSPECIFIED TOPIC: Produce a versatile, high-impact marketing and promotional piece that highlights benefits, builds trust, and drives reader engagement.
+
+Core Quality Standards:
+1. Use persuasive, natural, audience-friendly, human-like language.
+2. Focus on real benefits, value propositions, and key solutions relevant to the topic.
+3. Structure with clean typography, proper line breaks, and bullet points where beneficial.
+4. Naturally include relevant emojis without overusing them.
+5. End with a clear and compelling Call-to-Action (CTA).
+6. Do not fabricate unverifiable statistics or claims not supported by the user's input.
 
 Strict Output Rules:
-Provide only ONE final social media post.
-Include ONE compelling caption with relevant hashtags.
-Do not provide multiple versions or alternative captions.
-Do not include explanations, suggestions, introductions, or unnecessary headings.
-Do not mention these instructions or the prompt.
-Return only the final, ready-to-publish content."""
+- Return ONLY the final, polished, ready-to-use content.
+- Do NOT provide conversational intros (e.g. "Sure! Here is your post", "Here is your email draft:").
+- Do NOT include explanations, suggestions, introductions, or mentions of these instructions.
+- Start directly with the content and end with the CTA/hashtags."""
 
 
-MODIFICATION_BASE_PROMPT = """Modify the following response based on the requested changes.
+# Backward compatibility alias
+SOCIAL_MEDIA_BASE_PROMPT = CONTENT_GENERATOR_BASE_PROMPT
 
-Existing Response: {response}
 
-Requested Changes: {user_query}
+MODIFICATION_BASE_PROMPT = """You are a World-Class AI Marketing Copywriter and Content Strategist.
+
+Modify the following existing content based on the user's requested changes.
+
+Existing Content:
+{response}
+
+Requested Changes:
+{user_query}
 
 Instructions:
-
-Apply only the changes requested by the user.
-Preserve the original meaning, context, tone, and structure wherever possible.
-Do not remove or modify existing information unless explicitly requested.
-Maintain consistency with the original response.
-If the user requests additions, integrate them naturally into the existing response.
-Return only the complete updated response, without explanations or extra commentary."""
+1. Apply only the changes requested by the user (e.g., change tone, format shift, length adjustment, adding specific offers, improving the hook/CTA, or revising hashtags/subject line).
+2. If shifting format (e.g., from a social post to an email, or expanding into a blog), adapt the structure seamlessly while retaining the core value proposition.
+3. Preserve the original meaning, context, tone, and factual details unless explicitly requested to change.
+4. Maintain high readability, natural persuasive flow, and professional polish.
+5. Return ONLY the complete updated content, without conversational intros, explanations, or commentary."""
 
 
 class GeminiBrowserService:
@@ -225,15 +233,19 @@ class GeminiBrowserService:
             logger.warning(f"Error checking login status: {e}")
             return False
 
-    async def generate_social_media_post(self, user_query: str) -> str:
+    async def generate_content(self, user_query: str) -> str:
         """
-        Executes the Social Media Generation workflow via Gemini Web.
+        Generates marketing emails, LinkedIn posts, captions, blogs, or promotional content via Gemini Web.
         """
         if not user_query or not user_query.strip():
             raise ValueError("User query cannot be empty.")
 
-        formatted_prompt = SOCIAL_MEDIA_BASE_PROMPT.format(user_query=user_query.strip())
+        formatted_prompt = CONTENT_GENERATOR_BASE_PROMPT.format(user_query=user_query.strip())
         return await self._send_prompt_and_extract_response(formatted_prompt)
+
+    async def generate_social_media_post(self, user_query: str) -> str:
+        """Backward-compatible alias for social media generation."""
+        return await self.generate_content(user_query)
 
     async def modify_content(self, existing_response: str, user_query: str) -> str:
         """

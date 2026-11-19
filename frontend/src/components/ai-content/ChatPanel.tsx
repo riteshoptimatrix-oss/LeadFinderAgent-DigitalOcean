@@ -22,10 +22,19 @@ interface ChatPanelProps {
 }
 
 const TOPIC_IDEAS = [
-  'Launch announcement for an AI CRM tool',
-  'Exclusive 20% discount on web development services',
-  'Tips for increasing LinkedIn organic reach in 2026',
-  'Why modern businesses must adopt automated lead generation'
+  'Marketing Email: Cold outreach email pitching B2B lead generation software to agency owners',
+  'LinkedIn Post: Thought leadership post on how AI agents are transforming sales workflows in 2026',
+  'Instagram Caption: Launching our new premium organic winter coffee blend with emojis and hashtags',
+  'Blog Post: 5 actionable strategies to increase organic website conversions without ads',
+  'Promotional Copy: Exclusive 30% discount announcement for early users of our AI tool'
+];
+
+const FORMAT_TAGS = [
+  { label: 'Marketing Email', prefix: 'Write a high-converting marketing email: ' },
+  { label: 'LinkedIn Post', prefix: 'Create an engaging LinkedIn post with hook: ' },
+  { label: 'Social Caption', prefix: 'Write an Instagram/Facebook caption with hashtags: ' },
+  { label: 'Blog Post', prefix: 'Write a structured, informative blog post: ' },
+  { label: 'Promotional Copy', prefix: 'Create compelling promotional ad copy with CTA: ' },
 ];
 
 export default function ChatPanel({
@@ -113,7 +122,7 @@ export default function ChatPanel({
               </span>
             </div>
             <p className="text-xs text-slate-500">
-              Enter any topic, idea, or product requirement
+              Emails, LinkedIn posts, captions, blogs & promos
             </p>
           </div>
         </div>
@@ -138,9 +147,9 @@ export default function ChatPanel({
             <div className="w-12 h-12 rounded-2xl bg-slate-50 border border-slate-200/80 flex items-center justify-center text-slate-400 mb-3">
               <Sparkles className="w-6 h-6" />
             </div>
-            <p className="text-sm font-semibold text-slate-700">Start a New Generation</p>
-            <p className="text-xs text-slate-400 max-w-xs mt-1 mb-5">
-              Type your topic below or select one of the suggested prompts to create high-converting social media posts.
+            <p className="text-sm font-semibold text-slate-700">What would you like to create?</p>
+            <p className="text-xs text-slate-400 max-w-sm mt-1 mb-5">
+              Generate high-converting marketing emails, LinkedIn posts, social captions, blogs, or promotional ad copy.
             </p>
 
             {/* Suggested quick topics */}
@@ -227,13 +236,34 @@ export default function ChatPanel({
 
       {/* Input Form Area */}
       <form onSubmit={handleSubmit} className="pt-3 border-t border-slate-100 shrink-0 space-y-2">
+        {/* Quick Format Tags */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider shrink-0 mr-0.5">
+            Format:
+          </span>
+          {FORMAT_TAGS.map((tag, idx) => (
+            <button
+              key={idx}
+              type="button"
+              disabled={isLoading}
+              onClick={() => {
+                setQuery(prev => prev.startsWith(tag.prefix) ? prev : `${tag.prefix}${prev.replace(/^(Write a|Create an?|Write an?) [^:]+:\s*/i, '')}`);
+                if (textareaRef.current) textareaRef.current.focus();
+              }}
+              className="text-[11px] px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 text-slate-600 border border-slate-200/60 transition-colors whitespace-nowrap shrink-0"
+            >
+              {tag.label}
+            </button>
+          ))}
+        </div>
+
         <div className="relative bg-slate-50 border border-slate-200 rounded-2xl focus-within:ring-2 focus-within:ring-blue-500/20 focus-within:border-blue-500 transition-all p-3">
           <textarea
             ref={textareaRef}
             value={query}
             onChange={handleTextareaInput}
             onKeyDown={handleKeyDown}
-            placeholder="Enter your topic, product USP, target audience, or campaign idea... (Press Enter to generate, Shift+Enter for newline)"
+            placeholder="What would you like to generate? (e.g. Marketing email, LinkedIn post, caption, blog, or promotional copy...)"
             rows={2}
             disabled={isLoading}
             className="w-full text-xs sm:text-sm text-slate-900 bg-transparent outline-none resize-none placeholder:text-slate-400 max-h-[160px]"

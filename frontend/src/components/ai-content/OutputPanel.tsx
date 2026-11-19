@@ -62,7 +62,7 @@ export default function OutputPanel({
               </span>
             </div>
             <p className="text-xs text-slate-500">
-              {content ? 'Ready-to-publish social media post' : 'Awaiting generation request'}
+              {content ? 'Ready-to-publish marketing content' : 'Awaiting generation request'}
             </p>
           </div>
         </div>
@@ -125,7 +125,7 @@ export default function OutputPanel({
               {isModifying ? 'Applying Requested Changes...' : 'Generating Social Media Post...'}
             </h3>
             <p className="text-xs text-slate-500 max-w-sm mt-1.5 leading-relaxed">
-              Playwright is driving Chromium through AI, streaming and validating the complete response.
+              AI is processing and validating the complete response.
             </p>
 
             <div className="w-full max-w-md mt-6 space-y-2.5">
@@ -157,22 +157,25 @@ export default function OutputPanel({
             </div>
             <h3 className="font-bold text-slate-800 text-sm">No Content Generated Yet</h3>
             <p className="text-xs text-slate-500 max-w-sm mt-1 leading-relaxed">
-              Enter any topic, business idea, or announcement in the Chat Panel on the left and click
-              <span className="font-semibold text-slate-700"> Generate</span> to create your post.
+              Ask for marketing emails, LinkedIn posts, captions, blogs, or promotional content in the Chat Panel and click
+              <span className="font-semibold text-slate-700"> Generate</span>.
             </p>
 
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-[11px] text-slate-400 font-medium">
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-[11px] text-slate-500 font-medium">
               <span className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/60">
-                ✨ Catchy Hook
+                📧 Marketing Emails
               </span>
               <span className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/60">
-                🎯 Clear CTA
+                💼 LinkedIn Posts
               </span>
               <span className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/60">
-                #️⃣ 5–8 Hashtags
+                ✨ Social Captions
               </span>
               <span className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/60">
-                📱 IG, FB & LinkedIn
+                📝 Blogs & Articles
+              </span>
+              <span className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200/60">
+                🚀 Promotional Copy
               </span>
             </div>
           </div>

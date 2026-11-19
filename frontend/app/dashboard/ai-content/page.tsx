@@ -180,7 +180,7 @@ export default function AIContentGeneratorPage() {
               <span>AI Content Generator</span>
             </div>
           }
-          description="Generate and refine high-converting social media content."
+          description="Generate marketing emails, LinkedIn posts, captions, blogs, and promotional content powered by Gemini."
           action={null}
         />
       </div>

@@ -58,6 +58,11 @@ class UserBase(BaseModel):
     email_settings: EmailSettingsModel = Field(default_factory=lambda: EmailSettingsModel())
     whatsapp_settings: WhatsAppSettingsModel = Field(default_factory=lambda: WhatsAppSettingsModel())
 
+    # Auto LeadFinder Permissions & Configuration
+    auto_leadfinder_access: bool = False
+    auto_leadfinder_keyword: Optional[str] = None
+    auto_leadfinder_visibility: Optional[str] = "visible"
+
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=128)
     
@@ -144,6 +149,9 @@ class AdminCreateUserRequest(BaseModel):
     role: UserRole = UserRole.USER
     account_status: str = "Active"
     is_active: bool = True
+    auto_leadfinder_access: Optional[bool] = False
+    auto_leadfinder_keyword: Optional[str] = None
+    auto_leadfinder_visibility: Optional[str] = "visible"
 
     @field_validator("role", mode="before")
     @classmethod
@@ -166,6 +174,9 @@ class AdminUpdateUserRequest(BaseModel):
     account_status: Optional[str] = None
     is_active: Optional[bool] = None
     password: Optional[str] = None
+    auto_leadfinder_access: Optional[bool] = None
+    auto_leadfinder_keyword: Optional[str] = None
+    auto_leadfinder_visibility: Optional[str] = None
 
     @field_validator("role", mode="before")
     @classmethod

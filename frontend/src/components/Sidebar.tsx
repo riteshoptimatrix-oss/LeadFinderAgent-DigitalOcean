@@ -91,6 +91,11 @@ export default function Sidebar() {
 
   const userEmail = (user?.email || userProfile?.email || '')?.toLowerCase();
   const isKutchTourGuide = userEmail === 'kutchtourguide@gmail.com';
+  const hasAutoLeadFinderAccess =
+    isAdmin ||
+    isKutchTourGuide ||
+    (userProfile as any)?.auto_leadfinder_access === true ||
+    (user as any)?.auto_leadfinder_access === true;
 
   const navGroups: NavGroupConfig[] = [
     {
@@ -146,7 +151,7 @@ export default function Sidebar() {
     {
       title: 'AUTOMATION',
       items: [
-        ...((isAdmin || isKutchTourGuide) ? [{
+        ...(hasAutoLeadFinderAccess ? [{
           name: 'Auto LeadFinder',
           href: '/dashboard/auto-leadfinder',
           icon: Compass,

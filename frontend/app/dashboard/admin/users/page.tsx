@@ -34,7 +34,8 @@ import {
   UserCheck,
   UserX,
   ShieldCheck,
-  CheckCircle2
+  CheckCircle2,
+  Compass
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -183,6 +184,21 @@ export default function AdminUsersPage() {
       toast.error(msg);
     } finally {
       setIsImpersonatingId(null);
+    }
+  };
+
+  const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
+
+  const handleToggleAutoLeadFinder = async (targetId: string, targetUser: any) => {
+    setTogglingUserId(targetId);
+    try {
+      const res = await api.patch(`/admin/users/${targetId}/toggle-auto-leadfinder`);
+      toast.success(res.data?.message || 'Auto LeadFinder access updated!');
+      refetchUsers();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to update Auto LeadFinder access');
+    } finally {
+      setTogglingUserId(null);
     }
   };
 
@@ -346,6 +362,7 @@ export default function AdminUsersPage() {
                 <th className="py-4 px-6">User</th>
                 <th className="py-4 px-4">Role</th>
                 <th className="py-4 px-4">Status</th>
+                <th className="py-4 px-4">Auto LeadFinder</th>
                 <th className="py-4 px-4">Company & Location</th>
                 <th className="py-4 px-4">Registered</th>
                 <th className="py-4 px-4">Last Login</th>
@@ -355,14 +372,14 @@ export default function AdminUsersPage() {
             <tbody className="divide-y divide-slate-100">
               {loadingUsers ? (
                 <tr>
-                  <td colSpan={7} className="py-16 text-center text-slate-400">
+                  <td colSpan={8} className="py-16 text-center text-slate-400">
                     <div className="w-8 h-8 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin mx-auto mb-3" />
                     <span>Loading platform users...</span>
                   </td>
                 </tr>
               ) : usersList.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-16 text-center text-slate-400">
+                  <td colSpan={8} className="py-16 text-center text-slate-400">
                     <Users className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-slate-600 text-sm">No users found</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -424,6 +441,49 @@ export default function AdminUsersPage() {
                       {/* Status */}
                       <td className="py-4 px-4">
                         <StatusBadge status={statusStr} />
+                      </td>
+
+                      {/* Auto LeadFinder Access Toggle */}
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleAutoLeadFinder(userId, u)}
+                            disabled={togglingUserId === userId}
+                            title={
+                              u.auto_leadfinder_access || u.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                                ? 'Click to disable Auto LeadFinder for this user'
+                                : 'Click to enable Auto LeadFinder for this user'
+                            }
+                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden disabled:opacity-50 ${
+                              u.auto_leadfinder_access || u.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                                ? 'bg-teal-600'
+                                : 'bg-slate-300'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
+                                u.auto_leadfinder_access || u.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                                  ? 'translate-x-4'
+                                  : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                          <div>
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                u.auto_leadfinder_access || u.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                                  ? 'bg-teal-50 text-teal-700 border border-teal-200'
+                                  : 'bg-slate-100 text-slate-500'
+                              }`}
+                            >
+                              <Compass className="w-2.5 h-2.5" />
+                              {u.auto_leadfinder_access || u.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                                ? (u.email?.toLowerCase() === 'kutchtourguide@gmail.com' ? 'Travel Agency [Fixed]' : (u.auto_leadfinder_keyword || 'Active'))
+                                : 'Disabled'}
+                            </span>
+                          </div>
+                        </div>
                       </td>
 
                       {/* Company & Location */}

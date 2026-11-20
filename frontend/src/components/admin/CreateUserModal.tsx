@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, UserPlus, Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react';
+import { X, UserPlus, Loader2, AlertCircle, Eye, EyeOff, Compass } from 'lucide-react';
 import api from '@/src/lib/axios';
 import { toast } from 'sonner';
 
@@ -22,7 +22,8 @@ export default function CreateUserModal({ isOpen, onClose, onSuccess }: CreateUs
     state: '',
     role: 'USER',
     account_status: 'Active',
-    is_active: true
+    is_active: true,
+    auto_leadfinder_access: false
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -242,6 +243,34 @@ export default function CreateUserModal({ isOpen, onClose, onSuccess }: CreateUs
                 <option value="Suspended">Suspended (Blocked from logging in)</option>
                 <option value="Inactive">Inactive</option>
               </select>
+            </div>
+
+            {/* Auto LeadFinder Access */}
+            <div className="sm:col-span-2 pt-2 border-t border-slate-100">
+              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-teal-50/70 border border-teal-200/80">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-teal-100 text-teal-700 flex items-center justify-center">
+                    <Compass className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-900 block">Auto LeadFinder Access</span>
+                    <span className="text-[11px] text-slate-500">Allow this user to access automated lead discovery.</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, auto_leadfinder_access: !formData.auto_leadfinder_access })}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                    formData.auto_leadfinder_access ? 'bg-teal-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
+                      formData.auto_leadfinder_access ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
 

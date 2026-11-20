@@ -67,12 +67,16 @@ export default function AutoLeadFinderPage() {
     userProfile?.is_superuser === true;
 
   const userEmail = (user?.email || userProfile?.email || '')?.toLowerCase();
-  const isAuthorized = isAdmin || userEmail === TARGET_EMAIL;
+  const isAuthorized =
+    isAdmin ||
+    userEmail === TARGET_EMAIL ||
+    (userProfile as any)?.auto_leadfinder_access === true ||
+    (user as any)?.auto_leadfinder_access === true;
 
   // Strict route authorization check
   useEffect(() => {
     if (!profileLoading && !isAuthorized) {
-      toast.error('Access restricted to administrators.');
+      toast.error('Access restricted. Please contact your administrator.');
       router.replace('/dashboard');
     }
   }, [isAuthorized, profileLoading, router]);
@@ -109,20 +113,6 @@ export default function AutoLeadFinderPage() {
     refetchInterval: 10000,
   });
 
-  // Assignable users query (for admin lead distribution)
-  const { data: assignableUsers = [] } = useQuery<{ id: string; email: string; full_name: string; role: string }[]>({
-    queryKey: ['auto-leadfinder-assignable-users'],
-    queryFn: async () => {
-      try {
-        const res = await api.get('/auto-leadfinder/assignable-users');
-        return res.data?.data || [];
-      } catch {
-        return [];
-      }
-    },
-    enabled: isAuthorized,
-  });
-
   // Local state for configuration form
   const [isActive, setIsActive] = useState<boolean>(true);
   const [dailyLimit, setDailyLimit] = useState<number>(500);
@@ -137,12 +127,6 @@ export default function AutoLeadFinderPage() {
   const [discoveredAreas, setDiscoveredAreas] = useState<any[]>([]);
   const [discoveredPincodes, setDiscoveredPincodes] = useState<string[]>([]);
   const [currentAreaIndex, setCurrentAreaIndex] = useState<number>(0);
-  const [assignedUserId, setAssignedUserId] = useState<string>('');
-  const [assignedUserEmail, setAssignedUserEmail] = useState<string>('');
-  const [defaultVisibility, setDefaultVisibility] = useState<'visible' | 'hidden'>('visible');
-  const [keyword, setKeyword] = useState<string>('Travel Agency');
-
-  const isKutchTarget = (assignedUserEmail || TARGET_EMAIL).toLowerCase() === TARGET_EMAIL.toLowerCase();
   const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
   const [areaSearchFilter, setAreaSearchFilter] = useState<string>('');
   const [showDiscoveredExplorer, setShowDiscoveredExplorer] = useState<boolean>(true);
@@ -167,18 +151,6 @@ export default function AutoLeadFinderPage() {
       setDiscoveredAreas(settingsResponse.discovered_areas || []);
       setDiscoveredPincodes(settingsResponse.discovered_pincodes || []);
       setCurrentAreaIndex(settingsResponse.current_area_index || 0);
-      setAssignedUserId(settingsResponse.assigned_user_id || '');
-      const respAssignedEmail = settingsResponse.assigned_user_email || TARGET_EMAIL;
-      setAssignedUserEmail(respAssignedEmail);
-      setDefaultVisibility(settingsResponse.default_visibility || 'visible');
-
-      const rawKws = settingsResponse.industry_keywords;
-      const firstKw = Array.isArray(rawKws) && rawKws.length > 0 ? rawKws[0] : (settingsResponse.keyword || 'Travel Agency');
-      if (respAssignedEmail.toLowerCase() === TARGET_EMAIL.toLowerCase()) {
-        setKeyword('Travel Agency');
-      } else {
-        setKeyword(firstKw || 'Travel Agency');
-      }
     }
   }, [settingsResponse]);
 
@@ -230,8 +202,6 @@ export default function AutoLeadFinderPage() {
         !('target' in customPayload);
       const safeCustom = isPlainObject ? (customPayload as Record<string, any>) : {};
 
-      const effectiveKeyword = isKutchTarget ? 'Travel Agency' : (keyword.trim() || 'Travel Agency');
-
       const payload = {
         is_active: isActive,
         daily_limit: Number(dailyLimit),
@@ -246,11 +216,6 @@ export default function AutoLeadFinderPage() {
         discovered_areas: discoveredAreas,
         discovered_pincodes: discoveredPincodes,
         current_area_index: currentAreaIndex,
-        assigned_user_id: assignedUserId || null,
-        assigned_user_email: assignedUserEmail || null,
-        default_visibility: defaultVisibility,
-        keyword: effectiveKeyword,
-        industry_keywords: [effectiveKeyword],
         ...safeCustom,
       };
       await api.put('/auto-leadfinder/settings', payload);
@@ -332,8 +297,8 @@ export default function AutoLeadFinderPage() {
               <Compass className="w-3.5 h-3.5 text-teal-600" />
               Priority #1: {displayCity ? `${displayCity} Systematic Locality Coverage` : 'City & Localities Systematic Coverage'}
             </span>
-            <span className="text-xs text-slate-400">
-              {isKutchTarget ? `Exclusive for ${TARGET_EMAIL}` : `Target: ${assignedUserEmail || TARGET_EMAIL}`}
+            <span className="text-xs text-slate-400 font-medium">
+              Autonomous Locality Scraping Engine
             </span>
           </div>
           <PageHeader
@@ -852,148 +817,6 @@ export default function AutoLeadFinderPage() {
                     <span className="text-slate-500">Duplicate Filter:</span>
                     <span className="font-semibold text-emerald-600">100% Unique Verified Leads</span>
                   </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Admin Lead Assignment & User Visibility Control */}
-            <div className="pt-5 border-t border-slate-100 space-y-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-200/80 flex items-center justify-center text-teal-600">
-                  <UserCheck className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-                    Lead Assignment & User Visibility Control
-                  </h4>
-                  <p className="text-[11px] text-slate-400">
-                    Configure which user account automatically receives new leads and whether leads are immediately visible or held for Admin review.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-slate-50/70 p-4 rounded-2xl border border-slate-200/70">
-                {/* Assign To User Dropdown */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-700 block">
-                    Assign Scraped Leads To Account:
-                  </label>
-                  <select
-                    value={assignedUserId}
-                    onChange={(e) => {
-                      const selId = e.target.value;
-                      setAssignedUserId(selId);
-                      const found = assignableUsers.find((u) => u.id === selId);
-                      if (found) {
-                        setAssignedUserEmail(found.email);
-                        if (found.email.toLowerCase() === TARGET_EMAIL.toLowerCase()) {
-                          setKeyword('Travel Agency');
-                        }
-                      } else {
-                        setAssignedUserEmail('');
-                        setKeyword('Travel Agency');
-                      }
-                    }}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all cursor-pointer"
-                  >
-                    <option value="">Default (Kutch Tour Guide / System)</option>
-                    {assignableUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.full_name ? `${u.full_name} (${u.email})` : u.email} [{u.role}]
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-[11px] text-slate-400">
-                    Target account: <span className="font-semibold text-teal-700">{assignedUserEmail || TARGET_EMAIL}</span>. Leads will be accessible in their <code className="text-teal-700 font-bold">/dashboard/leads</code> table.
-                  </p>
-                </div>
-
-                {/* Target Industry Keyword */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                      <Tag className="w-3.5 h-3.5 text-teal-600" />
-                      <span>Industry Keyword:</span>
-                    </label>
-                    {isKutchTarget ? (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold">
-                        <Lock className="w-2.5 h-2.5" />
-                        Fixed (Travel Agency)
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
-                        Editable
-                      </span>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      value={isKutchTarget ? 'Travel Agency' : keyword}
-                      onChange={(e) => {
-                        if (!isKutchTarget) {
-                          setKeyword(e.target.value);
-                        }
-                      }}
-                      disabled={isKutchTarget}
-                      placeholder="e.g. Travel Agency, Real Estate, Hotels..."
-                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
-                        isKutchTarget
-                          ? 'bg-slate-100/80 border-slate-200 text-slate-500 cursor-not-allowed select-none'
-                          : 'bg-white border-slate-200 text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500'
-                      }`}
-                    />
-                    {isKutchTarget && (
-                      <Lock className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3 pointer-events-none" />
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    {isKutchTarget ? (
-                      <>
-                        Permanently locked to <strong className="text-amber-700">&quot;Travel Agency&quot;</strong> for Kutch Tour Guide account.
-                      </>
-                    ) : (
-                      <>
-                        Custom search niche for this user (e.g., <span className="text-teal-700 font-semibold">Real Estate, Hotels, Clinics</span>).
-                      </>
-                    )}
-                  </p>
-                </div>
-
-                {/* Visibility Mode Selector */}
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-slate-700 block">
-                    Default Lead Visibility:
-                  </label>
-                  <div className="grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setDefaultVisibility('visible')}
-                      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${defaultVisibility === 'visible'
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-bold shadow-xs'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}
-                    >
-                      <Eye className="w-4 h-4 text-emerald-600" />
-                      <span>Visible to User</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setDefaultVisibility('hidden')}
-                      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${defaultVisibility === 'hidden'
-                        ? 'bg-amber-50 border-amber-300 text-amber-800 font-bold shadow-xs'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                        }`}
-                    >
-                      <EyeOff className="w-4 h-4 text-amber-600" />
-                      <span>Hidden (Admin Only)</span>
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-400">
-                    {defaultVisibility === 'visible'
-                      ? 'Assigned user can immediately see, export, and contact these leads.'
-                      : 'Hidden from regular user until Admin reviews and un-hides them in Leads management.'}
-                  </p>
                 </div>
               </div>
             </div>

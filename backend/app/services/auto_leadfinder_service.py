@@ -457,9 +457,21 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
 
         # Determine effective keywords based on assigned user
         is_kutch_assigned = str(assigned_user_email).strip().lower() == TARGET_USER_EMAIL.lower()
+
+        # Check if the assigned user has profile-level Auto LeadFinder settings configured in User Management
+        assigned_user_doc = None
+        if assigned_user_email:
+            assigned_user_doc = await db["users"].find_one({"email": {"$regex": f"^{re.escape(str(assigned_user_email).strip())}$", "$options": "i"}})
+
+        if assigned_user_doc:
+            if assigned_user_doc.get("auto_leadfinder_visibility"):
+                default_visibility = assigned_user_doc.get("auto_leadfinder_visibility")
+
         if is_kutch_assigned:
             # kutchtourguide -> "Travel Agency" must always remain fixed and non-editable
             active_keywords = ["Travel Agency"]
+        elif assigned_user_doc and assigned_user_doc.get("auto_leadfinder_keyword"):
+            active_keywords = [str(assigned_user_doc.get("auto_leadfinder_keyword")).strip()]
         else:
             raw_kws = settings.get("industry_keywords")
             active_keywords = [str(k).strip() for k in raw_kws if str(k).strip()] if raw_kws else ["Travel Agency"]

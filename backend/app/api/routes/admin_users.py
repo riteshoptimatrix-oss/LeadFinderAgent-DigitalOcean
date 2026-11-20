@@ -195,6 +195,9 @@ async def create_user(
         "account_status": payload.account_status,
         "is_active": payload.is_active,
         "is_superuser": payload.role == UserRole.ADMIN,
+        "auto_leadfinder_access": bool(payload.auto_leadfinder_access) if payload.auto_leadfinder_access is not None else False,
+        "auto_leadfinder_keyword": "Travel Agency" if email_clean == "kutchtourguide@gmail.com" else (payload.auto_leadfinder_keyword.strip() if payload.auto_leadfinder_keyword else None),
+        "auto_leadfinder_visibility": (payload.auto_leadfinder_visibility or "visible").strip().lower(),
         "created_at": now,
         "updated_at": now,
         "last_login": None,
@@ -284,6 +287,20 @@ async def update_user(
     if payload.is_active is not None:
         update_fields["is_active"] = payload.is_active
 
+    if payload.auto_leadfinder_access is not None:
+        update_fields["auto_leadfinder_access"] = bool(payload.auto_leadfinder_access)
+
+    effective_user_email = (new_email if payload.email is not None else existing_user.get("email", "")).strip().lower()
+    is_kutch_target = effective_user_email == "kutchtourguide@gmail.com"
+    if is_kutch_target:
+        # kutchtourguide -> "Travel Agency" must always remain fixed and non-editable
+        update_fields["auto_leadfinder_keyword"] = "Travel Agency"
+    elif payload.auto_leadfinder_keyword is not None:
+        update_fields["auto_leadfinder_keyword"] = payload.auto_leadfinder_keyword.strip() if payload.auto_leadfinder_keyword else None
+
+    if payload.auto_leadfinder_visibility is not None:
+        update_fields["auto_leadfinder_visibility"] = str(payload.auto_leadfinder_visibility).strip().lower()
+
     if payload.password and payload.password.strip():
         update_fields["hashed_password"] = security.get_password_hash(payload.password.strip())
 
@@ -320,6 +337,62 @@ async def update_user(
         "message": "User updated successfully",
         "user": updated_user
     })
+
+
+@router.patch("/{user_id}/toggle-auto-leadfinder")
+async def toggle_auto_leadfinder_access(
+    user_id: str,
+    request: Request,
+    current_admin: UserInDB = Depends(require_admin)
+) -> Any:
+    """
+    Admin: Instant 1-click toggle for Auto LeadFinder access for a user.
+    """
+    raw_db = get_raw_db()
+    target_query = {"_id": ObjectId(user_id)} if ObjectId.is_valid(user_id) else {"_id": user_id}
+    existing_user = await raw_db["users"].find_one(target_query)
+    if not existing_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    new_state = not existing_user.get("auto_leadfinder_access", False)
+    u_email = (existing_user.get("email") or "").strip().lower()
+    is_kutch = u_email == "kutchtourguide@gmail.com"
+
+    update_doc: Dict[str, Any] = {
+        "auto_leadfinder_access": new_state,
+        "updated_at": datetime.now(timezone.utc)
+    }
+
+    if is_kutch:
+        update_doc["auto_leadfinder_keyword"] = "Travel Agency"
+    elif new_state and not existing_user.get("auto_leadfinder_keyword"):
+        update_doc["auto_leadfinder_keyword"] = "Travel Agency"
+
+    if new_state and not existing_user.get("auto_leadfinder_visibility"):
+        update_doc["auto_leadfinder_visibility"] = "visible"
+
+    await raw_db["users"].update_one(target_query, {"$set": update_doc})
+
+    ip_address = request.client.host if request.client else "Unknown"
+    await log_audit_action(
+        action="ADMIN_TOGGLE_AUTO_LEADFINDER",
+        user_id=user_id,
+        user_email=existing_user.get("email"),
+        resource="users",
+        resource_id=user_id,
+        ip_address=ip_address,
+        details={
+            "admin_id": str(current_admin.id),
+            "admin_email": current_admin.email,
+            "new_auto_leadfinder_access": new_state
+        }
+    )
+
+    return {
+        "success": True,
+        "auto_leadfinder_access": new_state,
+        "message": f"Auto LeadFinder access {'enabled' if new_state else 'disabled'} for {existing_user.get('email')}"
+    }
 
 
 @router.delete("/{user_id}")

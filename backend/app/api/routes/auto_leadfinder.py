@@ -22,19 +22,21 @@ router = APIRouter()
 async def require_kutch_tour_guide(current_user: UserInDB = Depends(get_current_user)) -> UserInDB:
     """
     Enforce authorization at the API layer.
-    Permits Administrators and authorized accounts (kutchtourguide@gmail.com).
+    Permits Administrators, authorized accounts (kutchtourguide@gmail.com),
+    and users granted Auto LeadFinder access by an Administrator.
     """
     user_email = (getattr(current_user, "email", "") or "").strip().lower()
     user_role = (getattr(current_user, "role", "") or "").strip().upper()
     is_admin = user_role == "ADMIN" or getattr(current_user, "is_superuser", False) is True
+    has_access = getattr(current_user, "auto_leadfinder_access", False) is True
 
-    if is_admin or user_email == TARGET_USER_EMAIL.lower():
+    if is_admin or user_email == TARGET_USER_EMAIL.lower() or has_access:
         return current_user
 
     logger.warning(f"[AUTO_LEADFINDER_AUTH] Unauthorized access attempt by {user_email}")
     raise HTTPException(
         status_code=status.HTTP_403_FORBIDDEN,
-        detail="Access restricted. Administrator privileges required to manage Auto LeadFinder."
+        detail="Access restricted. Auto LeadFinder feature permission required."
     )
 
 

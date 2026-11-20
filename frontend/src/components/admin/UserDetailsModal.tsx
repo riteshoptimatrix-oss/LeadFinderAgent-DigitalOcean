@@ -3,7 +3,7 @@
 import React from 'react';
 import { 
   X, User, Mail, Phone, Building2, MapPin, Calendar, Clock, 
-  ShieldCheck, LogIn, Target, Search, Zap, Send
+  ShieldCheck, LogIn, Target, Search, Zap, Send, Compass
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
@@ -196,6 +196,18 @@ export default function UserDetailsModal({ userId, isOpen, onClose, onImpersonat
                       <span className="text-[10px] text-slate-400 block font-semibold">Last Active Login</span>
                       <span className="text-slate-800 font-medium">
                         {user.last_login ? new Date(user.last_login).toLocaleString() : 'Never logged in'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-teal-50/60 border border-teal-200/60 flex items-center gap-3">
+                    <Compass className="w-4 h-4 text-teal-600 shrink-0" />
+                    <div>
+                      <span className="text-[10px] text-teal-700 block font-bold uppercase tracking-wider">Auto LeadFinder Access</span>
+                      <span className="text-slate-900 font-bold">
+                        {user.auto_leadfinder_access || user.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                          ? `Enabled (${user.email?.toLowerCase() === 'kutchtourguide@gmail.com' ? 'Travel Agency [Fixed]' : (user.auto_leadfinder_keyword || 'Travel Agency')})`
+                          : 'Disabled'}
                       </span>
                     </div>
                   </div>

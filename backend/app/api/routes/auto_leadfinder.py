@@ -60,11 +60,14 @@ def resolve_target_user_email(current_user: UserInDB, requested_email: Optional[
 
 
 class SettingsUpdateRequest(BaseModel):
+    is_configured: Optional[bool] = None
     is_active: Optional[bool] = None
     daily_limit: Optional[int] = Field(None, ge=10, le=1000)
     target_cities: Optional[List[Any]] = None
     industry_keywords: Optional[List[str]] = None
     keyword: Optional[str] = None
+    niche: Optional[str] = None
+    category: Optional[str] = None
     country: Optional[str] = None
     country_code: Optional[str] = None
     state: Optional[str] = None
@@ -209,20 +212,50 @@ async def update_settings_endpoint(
 
 @router.get("/scheduled-tasks")
 async def get_scheduled_tasks_monitor(
+    user_email: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_kutch_tour_guide)
 ) -> Any:
     """
-    Real-time monitoring of all scheduled tasks, next execution times, live execution statuses, and history.
+    Real-time monitoring of all scheduled tasks, next execution times, live execution statuses, and history
+    strictly isolated to the current/selected user context.
     """
     try:
+        target_email = resolve_target_user_email(current_user, user_email)
         from app.services.scheduled_tasks_service import get_live_scheduled_tasks
-        data = await get_live_scheduled_tasks()
+        data = await get_live_scheduled_tasks(user_email=target_email)
         return data
     except Exception as e:
         logger.error(f"[SCHEDULED_TASKS_API] Failed to fetch scheduled tasks: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch scheduled tasks: {str(e)}"
+        )
+
+
+@router.delete("/schedules")
+async def delete_all_user_schedules(
+    user_email: Optional[str] = Query(None),
+    current_user: UserInDB = Depends(require_kutch_tour_guide)
+) -> Any:
+    """
+    Delete all schedules and execution runs belonging to the currently selected user only.
+    Must NOT delete schedules belonging to other users.
+    Scoped strictly to the user's ID/email.
+    """
+    try:
+        target_email = resolve_target_user_email(current_user, user_email)
+        from app.services.auto_leadfinder_service import delete_user_schedules
+        res = await delete_user_schedules(user_email=target_email)
+        return {
+            "success": True,
+            "message": f"All schedules and execution records for {target_email} have been deleted successfully.",
+            "data": res
+        }
+    except Exception as e:
+        logger.error(f"[AUTO_LEADFINDER_API] Failed to delete user schedules: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete schedules: {str(e)}"
         )
 
 

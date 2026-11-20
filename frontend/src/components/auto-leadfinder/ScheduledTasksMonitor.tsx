@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
+import { toast } from 'sonner';
 
 import {
   Clock,
@@ -20,22 +21,38 @@ import {
   Check,
   Timer,
   Layers,
-  ArrowUpRight
+  ArrowUpRight,
+  Trash2,
+  AlertTriangle
 } from 'lucide-react';
 
-export default function ScheduledTasksMonitor() {
-  const [filterStatus, setFilterStatus] = useState<string>('ALL');
+interface ScheduledTasksMonitorProps {
+  userEmail?: string;
+  isKutchUser?: boolean;
+  onScheduleDeleted?: () => void;
+}
 
-  // Query live scheduled tasks from the backend
+export default function ScheduledTasksMonitor({
+  userEmail,
+  isKutchUser = false,
+  onScheduleDeleted
+}: ScheduledTasksMonitorProps) {
+  const [filterStatus, setFilterStatus] = useState<string>('ALL');
+  const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // Query live scheduled tasks from the backend for this specific user
   const {
     data: tasksData,
     isLoading,
     refetch,
     isRefetching
   } = useQuery({
-    queryKey: ['scheduled-tasks-live-monitor'],
+    queryKey: ['scheduled-tasks-live-monitor', userEmail],
     queryFn: async () => {
-      const res = await api.get('/auto-leadfinder/scheduled-tasks');
+      const res = await api.get('/auto-leadfinder/scheduled-tasks', {
+        params: { user_email: userEmail }
+      });
       return res.data;
     },
     refetchInterval: 3000, // True real-time update every 3 seconds
@@ -54,6 +71,26 @@ export default function ScheduledTasksMonitor() {
     if (filterStatus === 'ALL') return true;
     return item.status === filterStatus;
   });
+
+  // Handler for Delete All Schedules (strictly scoped to this user)
+  const handleDeleteAllSchedules = async () => {
+    setIsDeleting(true);
+    try {
+      await api.delete('/auto-leadfinder/schedules', {
+        params: { user_email: userEmail }
+      });
+      toast.success(`All schedules and execution logs for ${userEmail || 'selected user'} have been deleted successfully.`);
+      setShowDeleteModal(false);
+      refetch();
+      onScheduleDeleted?.();
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { detail?: string } }; message?: string };
+      const msg = errorObj?.response?.data?.detail || errorObj?.message || 'Failed to delete schedules.';
+      toast.error(msg);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   // Render Status Badge with explicit requested colors & emojis
   const renderStatusBadge = (status: string) => {
@@ -107,22 +144,27 @@ export default function ScheduledTasksMonitor() {
               <Calendar className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-base font-bold text-slate-900">
-                  LeadFinder Schedule & Execution Tracker
+                  LeadFinder Schedule &amp; Execution Tracker
                 </h3>
                 <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 text-emerald-700 border border-emerald-200">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                   Live Sync (3s)
                 </span>
+                {userEmail && (
+                  <span className="text-[11px] text-slate-400 font-medium">
+                    User: <strong className="text-slate-700">{userEmail}</strong>
+                  </span>
+                )}
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Displays a guaranteed 10-day lookahead schedule queue with scheduled execution dates, target areas, live execution statuses, and leads received against the 500-lead target.
+                Displays 10-day lookahead schedule queue with scheduled execution dates, target areas, live statuses, and leads received.
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 self-start sm:self-center">
+          <div className="flex items-center gap-2.5 self-start sm:self-center flex-wrap">
             <div className="bg-slate-50 border border-slate-200/80 px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-slate-400" />
               <span className="text-slate-500 text-[11px]">Server Time:</span>
@@ -135,6 +177,17 @@ export default function ScheduledTasksMonitor() {
               title="Force Refresh"
             >
               <RotateCcw className={`w-3.5 h-3.5 ${isRefetching ? 'animate-spin' : ''}`} />
+            </button>
+
+            {/* Delete All Schedules Button (User-Scoped) */}
+            <button
+              type="button"
+              onClick={() => setShowDeleteModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 transition-colors cursor-pointer shadow-2xs active:scale-95"
+              title="Delete all schedules for this user only"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+              <span>Delete All Schedules</span>
             </button>
           </div>
         </div>
@@ -159,147 +212,132 @@ export default function ScheduledTasksMonitor() {
 
           <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200/70 flex items-center justify-between">
             <div>
-              <span className="text-[11px] font-semibold text-emerald-700 block">🟢 Completed Runs</span>
+              <span className="text-[11px] font-semibold text-emerald-700 block">🟢 Completed</span>
               <span className="text-xl font-bold text-emerald-900 mt-0.5 block">{completedCount}</span>
             </div>
             <CheckCircle2 className="w-5 h-5 text-emerald-500/80" />
           </div>
 
-          <div className="p-3.5 rounded-2xl bg-teal-50/60 border border-teal-200/70 flex items-center justify-between">
+          <div className="p-3.5 rounded-2xl bg-rose-50/60 border border-rose-200/70 flex items-center justify-between">
             <div>
-              <span className="text-[11px] font-semibold text-teal-700 block">🎯 Target Per Run</span>
-              <span className="text-xl font-bold text-teal-900 mt-0.5 block">500 Leads</span>
+              <span className="text-[11px] font-semibold text-rose-700 block">🔴 Failed / Errored</span>
+              <span className="text-xl font-bold text-rose-900 mt-0.5 block">{failedCount}</span>
             </div>
-            <Target className="w-5 h-5 text-teal-600" />
+            <XCircle className="w-5 h-5 text-rose-500/80" />
           </div>
         </div>
       </div>
 
-      {/* Filter Tabs */}
-      <div className="flex items-center gap-1.5 border-b border-slate-200/80 pb-2">
-        {[
-          { key: 'ALL', label: `All Schedules (${schedules.length})` },
-          { key: 'SCHEDULED', label: `🟡 Scheduled (${scheduledCount})` },
-          { key: 'RUNNING', label: `🔵 Running (${runningCount})` },
-          { key: 'COMPLETED', label: `🟢 Completed (${completedCount})` },
-          { key: 'FAILED', label: `🔴 Failed (${failedCount})` },
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setFilterStatus(tab.key)}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${filterStatus === tab.key
-              ? 'bg-slate-900 text-white shadow-xs'
-              : 'text-slate-600 hover:bg-slate-100'
-              }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      {/* Filter Tabs Bar */}
+      <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {['ALL', 'SCHEDULED', 'RUNNING', 'COMPLETED', 'FAILED'].map((st) => (
+            <button
+              key={st}
+              onClick={() => setFilterStatus(st)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${filterStatus === st
+                ? 'bg-slate-900 text-white shadow-xs'
+                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+            >
+              {st === 'ALL' ? 'All Schedules' : st.charAt(0) + st.slice(1).toLowerCase()}
+              <span className="ml-1.5 text-[10px] opacity-75">
+                ({st === 'ALL' ? schedules.length : schedules.filter((s) => s.status === st).length})
+              </span>
+            </button>
+          ))}
+        </div>
+
+        <span className="text-xs text-slate-400 font-medium">
+          Showing {filteredSchedules.length} of {schedules.length} tasks
+        </span>
       </div>
 
-      {/* Structured Schedules List Highlighting the 4 Key Details */}
-      <div className="space-y-4">
+      {/* Schedules List */}
+      <div className="space-y-3">
         {isLoading ? (
-          <div className="py-20 text-center text-slate-400 bg-white border border-slate-200/80 rounded-3xl">
-            <Loader2 className="w-8 h-8 rounded-full animate-spin mx-auto mb-2 text-teal-600" />
-            <span className="text-sm font-semibold">Synchronizing real-time schedule data...</span>
+          <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center">
+            <Loader2 className="w-6 h-6 animate-spin mx-auto text-teal-600 mb-2" />
+            <span className="text-xs text-slate-400 font-medium">Loading live schedule queue...</span>
           </div>
         ) : filteredSchedules.length === 0 ? (
-          <div className="py-16 text-center text-slate-400 bg-white border border-slate-200/80 rounded-3xl p-6">
-            <Calendar className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-            <p className="font-semibold text-slate-700 text-sm">No schedules matching the selected filter</p>
-            <p className="text-xs text-slate-400 mt-1">Switch filter to &quot;All Schedules&quot; to view active and completed schedules.</p>
+          <div className="bg-white border border-slate-200 rounded-3xl p-12 text-center space-y-2">
+            <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-1" />
+            <h4 className="text-sm font-bold text-slate-700">No Schedules Found</h4>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto">
+              There are currently no active or historical schedules matching this filter for {userEmail || 'this user'}.
+            </p>
           </div>
         ) : (
-          filteredSchedules.map((item: any, idx: number) => {
+          filteredSchedules.map((item) => {
             const isCompleted = item.status === 'COMPLETED';
             const isRunning = item.status === 'RUNNING';
             const targetQuota = item.target || 500;
-            const progress = Math.min(100, Math.round(((item.leads_received || 0) / targetQuota) * 100));
+            const progress = item.progress_percentage || 0;
 
             return (
               <div
-                key={item.id || idx}
-                className={`bg-white border rounded-3xl p-6 shadow-2xs transition-all hover:shadow-sm ${isRunning
-                  ? 'border-blue-300 ring-2 ring-blue-500/20'
-                  : isCompleted
-                    ? 'border-emerald-200/70 hover:border-emerald-300'
-                    : 'border-slate-200/80 hover:border-slate-300'
+                key={item.id}
+                className={`bg-white border rounded-3xl p-5 transition-all shadow-2xs hover:shadow-xs ${isRunning
+                  ? 'border-blue-300 ring-2 ring-blue-500/10'
+                  : item.is_upcoming
+                    ? 'border-slate-200/90'
+                    : 'border-slate-100 bg-slate-50/30'
                   }`}
               >
-                {/* 10-Day Schedule Day Header Banner */}
-                {item.day_label && (
-                  <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black bg-teal-50 border border-teal-200 text-teal-800">
-                        <Calendar className="w-3.5 h-3.5 text-teal-600" />
+                {/* Header row with Day label & Title */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3 mb-3">
+                  <div className="flex items-center gap-2.5">
+                    {item.day_label ? (
+                      <span className="px-2.5 py-0.5 rounded-lg text-xs font-black bg-teal-50 text-teal-700 border border-teal-200">
                         {item.day_label}
                       </span>
-                      <span className="text-xs font-semibold text-slate-600">
-                        Scheduled Area: <strong className="text-slate-900">{item.area_name || item.city}</strong>
+                    ) : (
+                      <span className="px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600">
+                        Past Run
                       </span>
-                    </div>
-                    <span className="text-[11px] font-bold text-slate-400">
-                      Execution: {item.next_execution_time || item.scheduled_date_time}
-                    </span>
+                    )}
+                    <h4 className="text-sm font-bold text-slate-900">{item.title}</h4>
                   </div>
-                )}
 
-                {/* 4 Details Grid Header & Columns */}
-                <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+                  <span className="text-xs text-slate-400 font-medium">
+                    Scheduled At: <strong className="text-slate-700">{item.scheduled_date_time || item.created_at}</strong>
+                  </span>
+                </div>
 
-                  {/* Detail 1: Scheduled Date & Time (3 cols) */}
-                  <div className="md:col-span-3 space-y-1.5 border-b md:border-b-0 md:border-r border-slate-100 pb-4 md:pb-0 md:pr-4">
+                {/* 4 Primary Details Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center text-xs">
+                  {/* Detail 1: Scheduled Execution Time (3 cols) */}
+                  <div className="md:col-span-3 space-y-1 border-b md:border-b-0 md:border-r border-slate-100 pb-4 md:pb-0 md:pr-4">
                     <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5 text-teal-600" />
-                      Scheduled Date & Time
+                      Next Execution
                     </span>
-                    <div className="pt-0.5">
-                      <span className="text-sm font-extrabold text-slate-900 block">
-                        {item.next_execution_time && item.next_execution_time !== '-'
-                          ? item.next_execution_time
-                          : item.scheduled_date_time || '12:00:00 AM IST'}
-                      </span>
-                      {item.is_upcoming ? (
-                        <div className="mt-1 flex items-center gap-1.5">
-                          <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 border border-amber-200 text-amber-800">
-                            Countdown: {item.next_execution_relative || 'Upcoming'}
-                          </span>
-                        </div>
-                      ) : (
-                        <span className="text-[11px] font-medium text-slate-400 block mt-0.5">
-                          Run Executed: {item.scheduled_date_time}
-                        </span>
-                      )}
-                    </div>
+                    <p className="font-bold text-slate-900 text-xs">
+                      {item.next_execution_time}
+                    </p>
+                    <span className="text-[11px] text-teal-600 font-semibold block">
+                      {item.next_execution_relative}
+                    </span>
                   </div>
 
-                  {/* Detail 2: Area (4 cols) */}
-                  <div className="md:col-span-4 space-y-1.5 border-b md:border-b-0 md:border-r border-slate-100 pb-4 md:pb-0 md:pr-4">
+                  {/* Detail 2: Area / Location (4 cols) */}
+                  <div className="md:col-span-4 space-y-1 border-b md:border-b-0 md:border-r border-slate-100 pb-4 md:pb-0 md:pr-4">
                     <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
-                      <MapPin className="w-3.5 h-3.5 text-rose-500" />
-                      Area / Location
+                      <MapPin className="w-3.5 h-3.5 text-amber-500" />
+                      Target Area
                     </span>
-                    <div className="pt-0.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-bold text-slate-900">
-                          {item.area_name || item.city || 'Locality'}
+                    <p className="font-bold text-slate-800 text-xs truncate" title={item.area_name || item.city}>
+                      {item.area_name || item.city}
+                      {item.pincode && (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded-md text-[9px] bg-slate-100 text-slate-700 font-extrabold">
+                          📮 {item.pincode}
                         </span>
-                        {item.pincode && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-600 border border-slate-200">
-                            📮 {item.pincode}
-                          </span>
-                        )}
-                        {item.day_number === 1 && (
-                          <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200">
-                            Next Queue
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-slate-500 mt-1 line-clamp-1 leading-relaxed" title={item.area}>
-                        {item.area}
-                      </p>
-                    </div>
+                      )}
+                    </p>
+                    <p className="text-[10px] text-slate-400 truncate font-mono" title={item.area}>
+                      {item.area}
+                    </p>
                   </div>
 
                   {/* Detail 3: Status (2 cols) */}
@@ -351,22 +389,70 @@ export default function ScheduledTasksMonitor() {
                         style={{ width: `${progress}%` }}
                       />
                     </div>
-
-                    {/* <span className="text-[10px] text-slate-400 block text-right font-medium">
-                      {isCompleted
-                        ? `✅ ${targetQuota} Leads Generated`
-                        : isRunning
-                          ? '⚡ Live Scraping Active'
-                          : `⏳ Scheduled for Execution (Target: ${targetQuota})`}
-                    </span> */}
                   </div>
-
                 </div>
               </div>
             );
           })
         )}
       </div>
+
+      {/* Confirmation Modal for Delete All Schedules */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Delete All Schedules?</h3>
+                <p className="text-xs text-slate-500">
+                  User Context: <strong className="text-slate-700">{userEmail || 'selected user'}</strong>
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to delete all schedules and execution runs for <strong className="text-slate-900">{userEmail || 'this user'}</strong>? This will clear scheduled tasks and historical run records for this user only.
+            </p>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 leading-normal">
+              ⚠️ <strong>Strict User Isolation:</strong> This action will NOT delete or affect schedules belonging to any other user.
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteAllSchedules}
+                className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50 active:scale-95"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Yes, Delete All Schedules</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

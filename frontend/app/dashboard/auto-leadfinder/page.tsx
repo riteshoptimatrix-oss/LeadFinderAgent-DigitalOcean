@@ -37,12 +37,29 @@ import {
   Eye,
   EyeOff,
   Lock,
-  Tag
+  Tag,
+  Trash2,
+  AlertTriangle,
+  Briefcase,
+  HelpCircle,
+  Settings2,
+  X
 } from 'lucide-react';
 import ScheduledTasksMonitor from '@/src/components/auto-leadfinder/ScheduledTasksMonitor';
 import LocationSelector, { TargetCityItem } from '@/src/components/auto-leadfinder/LocationSelector';
 
 const TARGET_EMAIL = 'kutchtourguide@gmail.com';
+
+const NICHE_PRESETS = [
+  { name: 'Real Estate', keyword: 'Real Estate Agents, Property Dealers, Brokers' },
+  { name: 'Hotels & Resorts', keyword: 'Hotels, Resorts, Guest Houses' },
+  { name: 'Healthcare & Doctors', keyword: 'Doctors, Clinics, Hospitals, Dentists' },
+  { name: 'Restaurants & Cafes', keyword: 'Restaurants, Cafes, Caterers, Bakeries' },
+  { name: 'Manufacturing & B2B', keyword: 'Manufacturers, Wholesalers, Distributors' },
+  { name: 'IT & Digital Services', keyword: 'IT Companies, Software Services, Web Designers' },
+  { name: 'Education & Coaching', keyword: 'Coaching Classes, Schools, Training Institutes' },
+  { name: 'Finance & CA', keyword: 'Chartered Accountants, Tax Consultants, Financial Advisors' },
+];
 
 export default function AutoLeadFinderPage() {
   const router = useRouter();
@@ -140,6 +157,8 @@ export default function AutoLeadFinderPage() {
   const [isActive, setIsActive] = useState<boolean>(true);
   const [dailyLimit, setDailyLimit] = useState<number>(500);
   const [keywordInput, setKeywordInput] = useState<string>('Travel Agency');
+  const [nicheInput, setNicheInput] = useState<string>('');
+  const [categoryInput, setCategoryInput] = useState<string>('');
   const [country, setCountry] = useState<string>('India');
   const [countryCode, setCountryCode] = useState<string>('IN');
   const [state, setState] = useState<string>('Gujarat');
@@ -159,18 +178,25 @@ export default function AutoLeadFinderPage() {
   const [showCatalog, setShowCatalog] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'engine' | 'tasks'>('engine');
 
+  // Search Preferences Modal & Delete Modal states
+  const [showPreferencesModal, setShowPreferencesModal] = useState<boolean>(false);
+  const [showDeleteModal, setShowDeleteModal] = useState<boolean>(false);
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
   // Synchronize local form state with fetched settings
   useEffect(() => {
     if (settingsResponse) {
       setIsActive(settingsResponse.is_active ?? true);
       setDailyLimit(settingsResponse.daily_limit ?? (isKutchUser ? 500 : 100));
-      setKeywordInput(settingsResponse.keyword || (isKutchUser ? 'Travel Agency' : 'Business'));
-      setCountry(settingsResponse.country || 'India');
-      setCountryCode(settingsResponse.country_code || 'IN');
-      setState(settingsResponse.state || 'Gujarat');
-      setStateCode(settingsResponse.state_code || 'GJ');
-      setCity(settingsResponse.city || (isKutchUser ? 'Kutch district' : 'Bhuj'));
-      setDistrict(settingsResponse.district || 'Kachchh');
+      setKeywordInput(settingsResponse.keyword || (isKutchUser ? 'Travel Agency' : ''));
+      setNicheInput(settingsResponse.niche || (isKutchUser ? 'Tourism & Travel Agency' : ''));
+      setCategoryInput(settingsResponse.category || (isKutchUser ? 'Travel & Tourism' : ''));
+      setCountry(settingsResponse.country || (isKutchUser ? 'India' : 'India'));
+      setCountryCode(settingsResponse.country_code || (isKutchUser ? 'IN' : 'IN'));
+      setState(settingsResponse.state || (isKutchUser ? 'Gujarat' : 'Gujarat'));
+      setStateCode(settingsResponse.state_code || (isKutchUser ? 'GJ' : 'GJ'));
+      setCity(settingsResponse.city || (isKutchUser ? 'Kutch district' : ''));
+      setDistrict(settingsResponse.district || (isKutchUser ? 'Kachchh' : ''));
       setLocationMode(settingsResponse.location_mode || (isKutchUser ? 'kutch_systematic' : 'custom_city'));
       setTargetCities(settingsResponse.target_cities || []);
       setDiscoveredAreas(settingsResponse.discovered_areas || []);
@@ -178,6 +204,13 @@ export default function AutoLeadFinderPage() {
       setCurrentAreaIndex(settingsResponse.current_area_index || 0);
     }
   }, [settingsResponse, isKutchUser]);
+
+  // Check if configuration is complete
+  const isConfigured = isKutchUser || (
+    settingsResponse?.is_configured === true &&
+    !!settingsResponse?.city &&
+    (!!settingsResponse?.keyword || !!settingsResponse?.niche)
+  );
 
   if (profileLoading || !isAuthorized) {
     return (
@@ -189,6 +222,10 @@ export default function AutoLeadFinderPage() {
 
   const handleTriggerDiscovery = async (forceRefresh: boolean = false, targetCityName?: string) => {
     const cName = targetCityName || city || (isKutchUser ? 'Bhuj' : city);
+    if (!cName) {
+      toast.error('Please enter a target city first.');
+      return;
+    }
     setIsDiscovering(true);
     try {
       const res = await api.post(
@@ -197,7 +234,7 @@ export default function AutoLeadFinderPage() {
           city: cName,
           state: state || 'Gujarat',
           country: country || 'India',
-          district: district || 'Kachchh',
+          district: district || cName,
           force_refresh: forceRefresh,
           user_email: effectiveEmail,
         },
@@ -231,11 +268,16 @@ export default function AutoLeadFinderPage() {
         !('target' in customPayload);
       const safeCustom = isPlainObject ? (customPayload as Record<string, any>) : {};
 
+      const finalKeyword = isKutchUser ? 'Travel Agency' : (keywordInput || nicheInput || 'Business').trim();
+
       const payload = {
+        is_configured: true,
         is_active: isActive,
         daily_limit: Number(dailyLimit),
-        keyword: isKutchUser ? 'Travel Agency' : (keywordInput || 'Business').trim(),
-        industry_keywords: [isKutchUser ? 'Travel Agency' : (keywordInput || 'Business').trim()],
+        keyword: finalKeyword,
+        industry_keywords: [finalKeyword],
+        niche: isKutchUser ? 'Tourism & Travel Agency' : (nicheInput || finalKeyword).trim(),
+        category: isKutchUser ? 'Travel & Tourism' : (categoryInput || 'General Business').trim(),
         country,
         country_code: countryCode,
         state,
@@ -255,7 +297,13 @@ export default function AutoLeadFinderPage() {
         params: { user_email: effectiveEmail }
       });
       toast.success(`Auto LeadFinder settings updated successfully for ${effectiveEmail}!`);
+      setShowPreferencesModal(false);
       refetchSettings();
+
+      // If city changed or newly configured, trigger area discovery
+      if (payload.city && discoveredAreas.length === 0) {
+        handleTriggerDiscovery(false, payload.city);
+      }
     } catch (err: unknown) {
       const errorObj = err as { response?: { data?: { detail?: string } }; message?: string };
       const msg = errorObj?.response?.data?.detail || errorObj?.message || 'Failed to update settings.';
@@ -291,6 +339,11 @@ export default function AutoLeadFinderPage() {
   };
 
   const handleTriggerManualRun = async () => {
+    if (!isConfigured) {
+      toast.error('Please configure your search preferences (city and keyword) first.');
+      setShowPreferencesModal(true);
+      return;
+    }
     setIsTriggeringRun(true);
     try {
       await api.post('/auto-leadfinder/run-now', null, {
@@ -305,6 +358,26 @@ export default function AutoLeadFinderPage() {
       toast.error(msg);
     } finally {
       setIsTriggeringRun(false);
+    }
+  };
+
+  // Handler for Delete All Schedules (strictly scoped to this user)
+  const handleDeleteAllSchedules = async () => {
+    setIsDeleting(true);
+    try {
+      await api.delete('/auto-leadfinder/schedules', {
+        params: { user_email: effectiveEmail }
+      });
+      toast.success(`All schedules and execution logs for ${effectiveEmail} have been deleted.`);
+      setShowDeleteModal(false);
+      refetchSettings();
+      refetchHistory();
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { detail?: string } }; message?: string };
+      const msg = errorObj?.response?.data?.detail || errorObj?.message || 'Failed to delete schedules.';
+      toast.error(msg);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -324,7 +397,7 @@ export default function AutoLeadFinderPage() {
   const kutchCatalog = settingsResponse?.kutch_localities_catalog ?? [];
   const displayCity = (city || '').replace(/\s+district$/i, '').trim();
   const isKeywordFixed = isKutchUser || settingsResponse?.is_keyword_fixed === true;
-  const activeKeyword = settingsResponse?.keyword || keywordInput || (isKutchUser ? 'Travel Agency' : 'Business');
+  const activeKeyword = settingsResponse?.keyword || keywordInput || (isKutchUser ? 'Travel Agency' : 'Unconfigured');
 
   return (
     <div className="w-full space-y-6 pb-12 animate-in fade-in">
@@ -340,7 +413,7 @@ export default function AutoLeadFinderPage() {
                 <span className="text-[10px] uppercase tracking-wider font-extrabold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
                   Admin Multi-Tenant Control
                 </span>
-                <span className="text-[10px] text-slate-300 font-medium">User-Wise Isolation</span>
+                <span className="text-[10px] text-slate-300 font-medium">Isolated User Context</span>
               </div>
               <h4 className="text-sm font-bold text-white mt-0.5">
                 Managing Auto LeadFinder for:{' '}
@@ -377,17 +450,48 @@ export default function AutoLeadFinderPage() {
         </div>
       )}
 
+      {/* Unconfigured Search Preferences Notice for Normal Users */}
+      {!isConfigured && !isKutchUser && (
+        <div className="bg-gradient-to-r from-amber-500/10 via-teal-500/10 to-emerald-500/10 border-2 border-teal-500/40 rounded-3xl p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-5">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 rounded-2xl bg-teal-600 text-white flex items-center justify-center shrink-0 shadow-xs">
+              <Sparkles className="w-6 h-6 animate-pulse" />
+            </div>
+            <div className="space-y-1">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-black bg-teal-100 text-teal-800 border border-teal-300">
+                Action Required • Setup Search Preferences
+              </div>
+              <h3 className="text-base font-bold text-slate-900">
+                Configure Your Search Preferences to Start Auto LeadFinder
+              </h3>
+              <p className="text-xs text-slate-600 max-w-xl leading-relaxed">
+                Before autonomous lead searching begins, please specify which <strong>city or location</strong> you want to target, your <strong>business niche</strong>, and <strong>search keywords</strong>.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowPreferencesModal(true)}
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-2xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 shadow-md transition-all cursor-pointer shrink-0 active:scale-95"
+          >
+            <Settings2 className="w-4 h-4" />
+            <span>Configure Search Preferences Now</span>
+          </button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-50 border border-teal-200/80 text-teal-700">
               <Compass className="w-3.5 h-3.5 text-teal-600" />
-              Priority #1: {displayCity ? `${displayCity} Systematic Locality Coverage` : 'City & Localities Systematic Coverage'}
+              Priority #1: {displayCity ? `${displayCity} Systematic Locality Coverage` : 'Target City Coverage'}
             </span>
             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
               <Tag className="w-3 h-3 text-teal-600" />
-              Keyword: <strong className="text-slate-900 ml-0.5">{activeKeyword}</strong>
+              Keyword: <strong className="text-slate-900 ml-0.5">{activeKeyword || 'Pending Setup'}</strong>
               {isKeywordFixed && <Lock className="w-2.5 h-2.5 text-amber-600 ml-0.5" />}
             </span>
             <span className="text-xs text-slate-400 font-medium">
@@ -399,12 +503,25 @@ export default function AutoLeadFinderPage() {
             description={
               isKutchUser
                 ? "Autonomous daily lead discovery system systematically covering all areas and localities of Kutch first, gathering a guaranteed 500 unique leads every day."
-                : `Autonomous daily lead discovery system systematically covering all areas and localities of ${displayCity || 'the selected city'} for ${activeKeyword}, gathering fresh verified leads daily.`
+                : isConfigured
+                  ? `Autonomous daily lead discovery systematically covering localities of ${displayCity} for ${activeKeyword}, gathering fresh verified leads daily.`
+                  : "Autonomous daily lead discovery system. Configure your search preferences below to activate automated lead generation."
             }
           />
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-center">
+        <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
+          {!isKutchUser && (
+            <button
+              onClick={() => setShowPreferencesModal(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-teal-200 bg-teal-50 hover:bg-teal-100/70 text-teal-800 text-xs font-bold shadow-2xs transition-all cursor-pointer"
+              title="Edit Search Preferences (City, Niche, Keywords)"
+            >
+              <Settings2 className="w-3.5 h-3.5 text-teal-600" />
+              <span>{isConfigured ? 'Edit Search Preferences' : 'Setup Preferences'}</span>
+            </button>
+          )}
+
           <button
             onClick={handleRefreshAll}
             className="p-2.5 rounded-xl border border-slate-200/80 bg-white hover:bg-slate-50 text-slate-700 shadow-2xs transition-all cursor-pointer"
@@ -459,13 +576,22 @@ export default function AutoLeadFinderPage() {
             }`}
         >
           <Timer className="w-4 h-4 text-teal-600" />
-          <span>Scheduled Tasks & Execution Monitor</span>
+          <span>Scheduled Tasks &amp; Execution Monitor</span>
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse ml-0.5" />
         </button>
       </div>
 
       {/* View 1: Scheduled Tasks Monitor */}
-      {activeTab === 'tasks' && <ScheduledTasksMonitor />}
+      {activeTab === 'tasks' && (
+        <ScheduledTasksMonitor
+          userEmail={effectiveEmail}
+          isKutchUser={isKutchUser}
+          onScheduleDeleted={() => {
+            refetchSettings();
+            refetchHistory();
+          }}
+        />
+      )}
 
       {/* View 2: Lead Discovery Engine */}
       {activeTab === 'engine' && (
@@ -478,13 +604,23 @@ export default function AutoLeadFinderPage() {
             <div className="relative z-10 max-w-2xl space-y-3">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-teal-500/20 border border-teal-400/30 text-teal-300">
                 <Navigation className="w-3.5 h-3.5" />
-                <span>{displayCity ? `${displayCity} Priority Sequence` : 'City Priority Sequence'}</span>
+                <span>{displayCity ? `${displayCity} Priority Sequence` : 'Location Priority Sequence'}</span>
               </div>
               <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-                Systematic Locality Coverage in Progress
+                {isConfigured
+                  ? 'Systematic Locality Coverage in Progress'
+                  : 'Search Preferences Setup Required'}
               </h2>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                The system begins with <strong className="text-teal-300">{displayCity ? `${displayCity}${district && district !== displayCity ? ` (${district})` : ''}${state ? `, ${state}` : ''}` : 'the selected city'}</strong>, exploring all major postal areas and localities sequentially. Every daily run targets <strong className="text-teal-300">{dailyLimit} 100% unique, fresh leads</strong> for <strong className="text-teal-300">{activeKeyword}</strong> while strictly ignoring all duplicate contacts.
+                {isConfigured ? (
+                  <>
+                    The system begins with <strong className="text-teal-300">{displayCity ? `${displayCity}${district && district !== displayCity ? ` (${district})` : ''}${state ? `, ${state}` : ''}` : 'the selected city'}</strong>, exploring all major postal areas and localities sequentially. Every daily run targets <strong className="text-teal-300">{dailyLimit} 100% unique, fresh leads</strong> for <strong className="text-teal-300">{activeKeyword}</strong> while strictly ignoring all duplicate contacts.
+                  </>
+                ) : (
+                  <>
+                    Auto LeadFinder is ready to be configured. Please set your target city, business niche, and keywords to start autonomous lead generation.
+                  </>
+                )}
               </p>
               <div className="pt-2 flex flex-wrap items-center gap-4 text-xs">
                 <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
@@ -492,7 +628,7 @@ export default function AutoLeadFinderPage() {
                   <span className="font-bold text-teal-300">
                     {discoveredAreas.length > 0 && discoveredAreas[currentAreaIndex]?.name
                       ? `${discoveredAreas[currentAreaIndex].name} (${discoveredAreas[currentAreaIndex].pincode || displayCity})`
-                      : currentLocalityName}
+                      : (currentLocalityName || 'Pending Setup')}
                   </span>
                 </div>
                 <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
@@ -542,9 +678,9 @@ export default function AutoLeadFinderPage() {
               </div>
               <div className="mt-2">
                 <div className="flex items-center gap-2">
-                  <span className={`w-2.5 h-2.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                  <span className={`w-2.5 h-2.5 rounded-full ${isActive && isConfigured ? 'bg-emerald-500' : 'bg-slate-300'}`} />
                   <span className="text-base font-bold text-slate-900">
-                    {isActive ? 'Active (Scheduled)' : 'Paused'}
+                    {!isConfigured ? 'Unconfigured' : isActive ? 'Active (Scheduled)' : 'Paused'}
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 mt-1">
@@ -754,7 +890,7 @@ export default function AutoLeadFinderPage() {
             </div>
           )}
 
-          {/* Systematic Kutch Localities Catalog Explorer (Shown for Kutch Tour Guide context) */}
+          {/* Systematic Kutch Localities Catalog Explorer (Exclusive for Kutch Tour Guide context) */}
           {isKutchUser && (
             <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -825,7 +961,7 @@ export default function AutoLeadFinderPage() {
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Customizable Scraping Settings</h3>
                   <p className="text-xs text-slate-500">
-                    Adjust your daily target quota, target keyword, and automatic midnight execution.
+                    Adjust daily target quota, industry keyword, and automated midnight execution.
                   </p>
                 </div>
               </div>
@@ -898,7 +1034,7 @@ export default function AutoLeadFinderPage() {
                   <div className="flex items-center justify-between">
                     <span className="text-slate-500">Target Geography:</span>
                     <span className="font-semibold text-teal-700 truncate max-w-[200px]" title={`${displayCity || city}, ${state}, ${country}`}>
-                      {displayCity || city || 'Bhuj'}, {state || 'Gujarat'}
+                      {displayCity || city || 'Pending Configuration'}, {state || ''}
                     </span>
                   </div>
                   <div className="flex items-center justify-between">
@@ -917,13 +1053,13 @@ export default function AutoLeadFinderPage() {
               </div>
             </div>
 
-            {/* Industry Keyword Configuration */}
-            <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/60 space-y-2">
+            {/* Industry Keyword & Niche Section */}
+            <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/60 space-y-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <Tag className="w-4 h-4 text-teal-600" />
                   <label className="text-xs font-bold text-slate-800">
-                    Target Industry Keyword:
+                    Search Niche &amp; Keywords:
                   </label>
                   {isKeywordFixed ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200">
@@ -932,13 +1068,13 @@ export default function AutoLeadFinderPage() {
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 text-teal-700 border border-teal-200">
-                      Custom User Keyword
+                      User-Specific Dynamic Keyword
                     </span>
                   )}
                 </div>
 
                 <span className="text-[11px] text-slate-400">
-                  User Context: <strong className="text-slate-700">{effectiveEmail}</strong>
+                  User Account: <strong className="text-slate-700">{effectiveEmail}</strong>
                 </span>
               </div>
 
@@ -955,17 +1091,32 @@ export default function AutoLeadFinderPage() {
                   </span>
                 </div>
               ) : (
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                  <input
-                    type="text"
-                    value={keywordInput}
-                    onChange={(e) => setKeywordInput(e.target.value)}
-                    placeholder="e.g. Real Estate, Digital Marketing, Solar Panels..."
-                    className="w-full sm:w-80 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
-                  />
-                  <span className="text-[11px] text-slate-500">
-                    The autonomous lead finder will prioritize searching for verified leads matching this keyword across all discovered localities.
-                  </span>
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <span className="text-[11px] text-slate-500 font-medium block mb-1">Business Niche / Category:</span>
+                      <input
+                        type="text"
+                        value={nicheInput}
+                        onChange={(e) => setNicheInput(e.target.value)}
+                        placeholder="e.g. Real Estate, Healthcare, Restaurants..."
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[11px] text-slate-500 font-medium block mb-1">Search Keyword(s):</span>
+                      <input
+                        type="text"
+                        value={keywordInput}
+                        onChange={(e) => setKeywordInput(e.target.value)}
+                        placeholder="e.g. Property Brokers, Real Estate Consultants..."
+                        className="w-full px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    The autonomous lead finder will prioritize searching for verified leads matching these criteria across all discovered postal localities of {displayCity || 'your city'}.
+                  </p>
                 </div>
               )}
             </div>
@@ -998,7 +1149,7 @@ export default function AutoLeadFinderPage() {
 
           {/* Recent Scraping Activity & History for this specific user */}
           <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
                   <Calendar className="w-5 h-5" />
@@ -1013,12 +1164,25 @@ export default function AutoLeadFinderPage() {
                 </div>
               </div>
 
-              <button
-                onClick={() => refetchHistory()}
-                className="text-xs font-semibold text-teal-600 hover:text-teal-700 transition-colors cursor-pointer"
-              >
-                Refresh History
-              </button>
+              <div className="flex items-center gap-3 self-start sm:self-center">
+                <button
+                  onClick={() => refetchHistory()}
+                  className="text-xs font-semibold text-teal-600 hover:text-teal-700 transition-colors cursor-pointer"
+                >
+                  Refresh History
+                </button>
+
+                {/* Delete All Schedules Button */}
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteModal(true)}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 transition-colors cursor-pointer shadow-2xs"
+                  title="Delete all schedules and execution runs for this user only"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Delete All Schedules</span>
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto rounded-2xl border border-slate-100">
@@ -1111,6 +1275,239 @@ export default function AutoLeadFinderPage() {
                   )}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Search Preferences Configuration Modal / Prompt for Normal Users */}
+      {showPreferencesModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-2xl w-full p-6 sm:p-8 shadow-2xl border border-slate-200 space-y-6 max-h-[90vh] overflow-y-auto animate-in zoom-in-95">
+            <div className="flex items-start justify-between gap-4 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 shrink-0">
+                  <Briefcase className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">
+                    Configure Search Preferences
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Target account: <strong className="text-teal-700">{effectiveEmail}</strong>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowPreferencesModal(false)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Question 1: City / Location */}
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-teal-600" />
+                  <span>1. Target City / Location (Where should leads be searched?):</span>
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <span className="text-[11px] text-slate-400 block mb-1">State / Province:</span>
+                    <input
+                      type="text"
+                      value={state}
+                      onChange={(e) => setState(e.target.value)}
+                      placeholder="e.g. Gujarat, Maharashtra, Rajasthan..."
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                    />
+                  </div>
+                  <div>
+                    <span className="text-[11px] text-slate-400 block mb-1">City / Town Name:</span>
+                    <input
+                      type="text"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      placeholder="e.g. Ahmedabad, Mumbai, Jaipur, Surat..."
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Question 2: Business Niche / Presets */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Briefcase className="w-3.5 h-3.5 text-teal-600" />
+                  <span>2. Business Niche / Category (What type of businesses?):</span>
+                </label>
+
+                {/* Preset Chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {NICHE_PRESETS.map((p) => (
+                    <button
+                      key={p.name}
+                      type="button"
+                      onClick={() => {
+                        setNicheInput(p.name);
+                        setKeywordInput(p.keyword);
+                      }}
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-all cursor-pointer ${nicheInput === p.name
+                        ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold shadow-2xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                    >
+                      {p.name}
+                    </button>
+                  ))}
+                </div>
+
+                <input
+                  type="text"
+                  value={nicheInput}
+                  onChange={(e) => setNicheInput(e.target.value)}
+                  placeholder="Or enter custom niche (e.g. Solar Equipment, Export Import, Dental Clinics...)"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                />
+              </div>
+
+              {/* Question 3: Search Keywords */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Tag className="w-3.5 h-3.5 text-teal-600" />
+                  <span>3. Search Keywords (What specific keywords should Auto LeadFinder search?):</span>
+                </label>
+                <input
+                  type="text"
+                  value={keywordInput}
+                  onChange={(e) => setKeywordInput(e.target.value)}
+                  placeholder="e.g. Property Brokers, Real Estate Agents, Realtors"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+                />
+                <p className="text-[11px] text-slate-400">
+                  Multiple keywords or phrases can be comma-separated. The engine will explore discovered localities for these keywords.
+                </p>
+              </div>
+
+              {/* Question 4: Daily Quota Limit */}
+              <div className="space-y-2 pt-2 border-t border-slate-100">
+                <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <Sliders className="w-3.5 h-3.5 text-teal-600" />
+                  <span>4. Daily Target Quota (Unique leads per day):</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  {[100, 250, 500, 1000].map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setDailyLimit(preset)}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${dailyLimit === preset
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                        }`}
+                    >
+                      {preset} leads / day
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setShowPreferencesModal(false)}
+                className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isSaving || !city.trim() || (!keywordInput.trim() && !nicheInput.trim())}
+                onClick={() => handleSaveSettings({
+                  city: city.trim(),
+                  state: state.trim(),
+                  keyword: (keywordInput || nicheInput).trim(),
+                  niche: (nicheInput || keywordInput).trim(),
+                  daily_limit: Number(dailyLimit),
+                  is_configured: true,
+                })}
+                className="px-6 py-2.5 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-2 disabled:opacity-50 active:scale-95"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Saving Preferences...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Save Preferences &amp; Activate</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal for Delete All Schedules */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-100 flex items-center justify-center shrink-0">
+                <AlertTriangle className="w-6 h-6 text-rose-600" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Delete All Schedules?</h3>
+                <p className="text-xs text-slate-500">
+                  Target: <strong className="text-slate-700">{effectiveEmail}</strong>
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 leading-relaxed">
+              Are you sure you want to delete all schedules and execution runs for <strong className="text-slate-900">{effectiveEmail}</strong>? This will clear scheduled tasks and historical run records for this user only.
+            </p>
+
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-800 leading-normal">
+              ⚠️ <strong>Strict User Isolation:</strong> This action will NOT delete or affect schedules belonging to any other user.
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors cursor-pointer"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteAllSchedules}
+                className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl shadow-xs transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50 active:scale-95"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Deleting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Yes, Delete All Schedules</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
         </div>

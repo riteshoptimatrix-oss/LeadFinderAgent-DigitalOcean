@@ -134,7 +134,11 @@ async def get_target_user(user_email: Optional[str] = None, db = None) -> Option
 
 
 async def get_or_create_settings(user_email: Optional[str] = None, db = None) -> Dict[str, Any]:
-    """Retrieve or initialize default isolated Auto LeadFinder settings for a specific user."""
+    """
+    Retrieve or initialize isolated Auto LeadFinder settings for a specific user.
+    - kutchtourguide@gmail.com: keeps existing predefined/fixed configuration and "Travel Agency" keyword.
+    - Normal users: initialized fresh with NO hardcoded city, keywords, or preferences.
+    """
     if db is None:
         db = get_raw_database()
     if db is None:
@@ -152,9 +156,11 @@ async def get_or_create_settings(user_email: Optional[str] = None, db = None) ->
 
     if not settings:
         if is_kutch_target:
+            # Kutchtourguide: Keep its existing predefined/fixed configuration exactly as it is
             default_doc = {
                 "user_email": TARGET_USER_EMAIL,
                 "user_id": user_id,
+                "is_configured": True,
                 "is_active": True,
                 "daily_limit": 500,
                 "priority_region": "Kutch City & District",
@@ -169,9 +175,12 @@ async def get_or_create_settings(user_email: Optional[str] = None, db = None) ->
                     {"country": "India", "country_code": "IN", "state": "Gujarat", "state_code": "GJ", "city": "Kutch district"}
                 ],
                 "current_locality_index": 0,
+                "current_area_index": 0,
                 "covered_localities": [],
                 "industry_keywords": ["Travel Agency"],
                 "keyword": "Travel Agency",
+                "niche": "Tourism & Travel Agency",
+                "category": "Travel & Tourism",
                 "assigned_user_id": user_id,
                 "assigned_user_email": TARGET_USER_EMAIL,
                 "default_visibility": "visible",
@@ -182,37 +191,33 @@ async def get_or_create_settings(user_email: Optional[str] = None, db = None) ->
                 "updated_at": datetime.now(timezone.utc),
             }
         else:
-            user_country = (user.get("country") or "India") if user else "India"
-            user_state = (user.get("state") or "Gujarat") if user else "Gujarat"
-            user_city = (user.get("city") or "Bhuj") if user else "Bhuj"
-            user_kw = (user.get("auto_leadfinder_keyword") or (user.get("company_name") if user else None) or "Business").strip() if user else "Business"
-            user_vis = (user.get("auto_leadfinder_visibility") or "visible") if user else "visible"
-
+            # Normal Users: completely dynamic, unconfigured initially, NO hardcoded city or keywords
             default_doc = {
                 "user_email": clean_email,
                 "user_id": user_id,
+                "is_configured": False,
                 "is_active": True,
                 "daily_limit": 100,
-                "priority_region": f"{user_city} Priority Coverage",
-                "country": user_country,
-                "country_code": "IN",
-                "state": user_state,
-                "state_code": "GJ",
-                "city": user_city,
-                "district": user_city,
+                "priority_region": "",
+                "country": "",
+                "country_code": "",
+                "state": "",
+                "state_code": "",
+                "city": "",
+                "district": "",
                 "location_mode": "custom_city",
-                "target_cities": [
-                    {"country": user_country, "country_code": "IN", "state": user_state, "state_code": "GJ", "city": user_city}
-                ],
+                "target_cities": [],
                 "current_locality_index": 0,
                 "current_area_index": 0,
                 "discovered_areas": [],
                 "discovered_pincodes": [],
-                "industry_keywords": [user_kw],
-                "keyword": user_kw,
+                "industry_keywords": [],
+                "keyword": "",
+                "niche": "",
+                "category": "",
                 "assigned_user_id": user_id,
                 "assigned_user_email": clean_email,
-                "default_visibility": user_vis,
+                "default_visibility": "visible",
                 "timezone": "Asia/Kolkata",
                 "schedule_time": "00:00",
                 "last_run_at": None,
@@ -223,38 +228,35 @@ async def get_or_create_settings(user_email: Optional[str] = None, db = None) ->
         default_doc["_id"] = str(res.inserted_id)
         return default_doc
 
-    # Backfill defaults if missing in existing settings document
-    needs_backfill = {}
+    # Backfill sync for existing documents
+    needs_sync = {}
     if not settings.get("user_id") and user_id:
-        needs_backfill["user_id"] = user_id
-        needs_backfill["assigned_user_id"] = user_id
+        needs_sync["user_id"] = user_id
+        needs_sync["assigned_user_id"] = user_id
     if not settings.get("assigned_user_email"):
-        needs_backfill["assigned_user_email"] = clean_email
+        needs_sync["assigned_user_email"] = clean_email
 
     if is_kutch_target:
+        needs_sync["is_configured"] = True
         if settings.get("industry_keywords") != ["Travel Agency"] or settings.get("keyword") != "Travel Agency":
-            needs_backfill["industry_keywords"] = ["Travel Agency"]
-            needs_backfill["keyword"] = "Travel Agency"
+            needs_sync["industry_keywords"] = ["Travel Agency"]
+            needs_sync["keyword"] = "Travel Agency"
     else:
-        if "keyword" not in settings and settings.get("industry_keywords"):
-            needs_backfill["keyword"] = settings["industry_keywords"][0]
+        # For normal users, determine is_configured
+        if "is_configured" not in settings:
+            has_city = bool(settings.get("city") and str(settings.get("city")).strip())
+            has_kw = bool(settings.get("keyword") and str(settings.get("keyword")).strip())
+            # Do not consider default Kutch as configured for normal users
+            if has_city and has_kw and "kutch" not in settings.get("city", "").lower():
+                needs_sync["is_configured"] = True
+            else:
+                needs_sync["is_configured"] = False
 
-    if "country" not in settings:
-        needs_backfill["country"] = "India"
-        needs_backfill["country_code"] = "IN"
-        needs_backfill["state"] = "Gujarat"
-        needs_backfill["state_code"] = "GJ"
-        needs_backfill["city"] = "Bhuj"
-        needs_backfill["location_mode"] = "custom_city"
-        needs_backfill["target_cities"] = [
-            {"country": "India", "country_code": "IN", "state": "Gujarat", "state_code": "GJ", "city": "Bhuj"}
-        ]
-    
-    if needs_backfill:
-        settings.update(needs_backfill)
+    if needs_sync:
+        settings.update(needs_sync)
         await db["auto_leadfinder_settings"].update_one(
             {"_id": settings["_id"]},
-            {"$set": needs_backfill}
+            {"$set": needs_sync}
         )
 
     settings["_id"] = str(settings["_id"])
@@ -271,6 +273,9 @@ async def update_settings(payload: Dict[str, Any], user_email: Optional[str] = N
     clean_email = (user_email or payload.get("assigned_user_email") or TARGET_USER_EMAIL).strip().lower()
     await get_or_create_settings(user_email=clean_email, db=db)
     update_data: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
+
+    if "is_configured" in payload and payload["is_configured"] is not None:
+        update_data["is_configured"] = bool(payload["is_configured"])
 
     if "is_active" in payload and payload["is_active"] is not None:
         update_data["is_active"] = bool(payload["is_active"])
@@ -295,11 +300,17 @@ async def update_settings(payload: Dict[str, Any], user_email: Optional[str] = N
         clean_city = str(payload["city"]).strip()
         if clean_city.lower().endswith(" district"):
             clean_city = clean_city[:-9].strip()
-        update_data["city"] = clean_city or "Bhuj"
+        update_data["city"] = clean_city
+        update_data["priority_region"] = f"{clean_city} Priority Coverage"
     if "district" in payload and payload["district"]:
         update_data["district"] = str(payload["district"]).strip()
     if "location_mode" in payload and payload["location_mode"]:
         update_data["location_mode"] = str(payload["location_mode"]).strip()
+
+    if "niche" in payload and payload["niche"]:
+        update_data["niche"] = str(payload["niche"]).strip()
+    if "category" in payload and payload["category"]:
+        update_data["category"] = str(payload["category"]).strip()
 
     if "target_cities" in payload and isinstance(payload["target_cities"], list):
         update_data["target_cities"] = payload["target_cities"]
@@ -327,13 +338,14 @@ async def update_settings(payload: Dict[str, Any], user_email: Optional[str] = N
     if "default_visibility" in payload and payload["default_visibility"]:
         update_data["default_visibility"] = str(payload["default_visibility"]).strip().lower()
 
-    # Rule: For kutchtourguide user, the keyword "Travel Agency" must remain permanently fixed and non-editable.
-    # For all other users, the keyword is fully editable and specific to their business.
+    # Rule: For kutchtourguide user, keyword "Travel Agency" remains permanently fixed and non-editable.
+    # For all other users, keyword and niche are completely dynamic and user-defined.
     is_kutch_target = clean_email == TARGET_USER_EMAIL.lower()
 
     if is_kutch_target:
         update_data["industry_keywords"] = ["Travel Agency"]
         update_data["keyword"] = "Travel Agency"
+        update_data["is_configured"] = True
     else:
         if "keyword" in payload and payload["keyword"]:
             kw = str(payload["keyword"]).strip()
@@ -346,12 +358,58 @@ async def update_settings(payload: Dict[str, Any], user_email: Optional[str] = N
                 update_data["industry_keywords"] = cleaned_kws
                 update_data["keyword"] = cleaned_kws[0]
 
+        # Auto-mark as configured if city and keyword are present
+        if update_data.get("city") and (update_data.get("keyword") or update_data.get("industry_keywords")):
+            update_data["is_configured"] = True
+
     await db["auto_leadfinder_settings"].update_one(
         {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
         {"$set": update_data}
     )
 
     return await get_or_create_settings(user_email=clean_email, db=db)
+
+
+async def delete_user_schedules(user_email: str, db = None) -> Dict[str, Any]:
+    """
+    Delete all schedules and execution runs belonging to the currently selected user only.
+    Must NOT delete schedules belonging to other users.
+    Scoped strictly to the user's ID/email.
+    """
+    if db is None:
+        db = get_raw_database()
+    if db is None:
+        raise RuntimeError("Database unavailable")
+
+    clean_email = user_email.strip().lower()
+    user = await get_target_user(user_email=clean_email, db=db)
+    user_id = str(user["_id"]) if user else None
+
+    # Deletion query strictly scoped to this user only
+    del_filters = [
+        {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}}
+    ]
+    if user_id:
+        del_filters.append({"user_id": user_id})
+
+    del_result = await db["auto_leadfinder_runs"].delete_many({"$or": del_filters})
+
+    # Reset schedule queue pointers in user settings
+    await db["auto_leadfinder_settings"].update_one(
+        {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+        {"$set": {
+            "current_area_index": 0,
+            "current_locality_index": 0,
+            "last_run_at": None,
+            "updated_at": datetime.now(timezone.utc)
+        }}
+    )
+
+    logger.info(f"[AUTO_LEADFINDER] Deleted {del_result.deleted_count} schedules/runs for user {clean_email}")
+    return {
+        "deleted_count": del_result.deleted_count,
+        "user_email": clean_email
+    }
 
 
 async def get_kpi_stats(user_email: Optional[str] = None, db = None) -> Dict[str, Any]:
@@ -423,30 +481,35 @@ async def get_kpi_stats(user_email: Optional[str] = None, db = None) -> Dict[str
     current_locality = KUTCH_LOCALITIES_CATALOG[curr_idx]
 
     is_kutch_target = clean_email == TARGET_USER_EMAIL.lower()
-    effective_keywords = ["Travel Agency"] if is_kutch_target else (settings.get("industry_keywords") or [settings.get("keyword") or "Business"])
-    keyword_str = "Travel Agency" if is_kutch_target else (effective_keywords[0] if effective_keywords else "Business")
+    is_configured = settings.get("is_configured", True if is_kutch_target else False)
+
+    effective_keywords = ["Travel Agency"] if is_kutch_target else (settings.get("industry_keywords") or [settings.get("keyword") or ""])
+    keyword_str = "Travel Agency" if is_kutch_target else (settings.get("keyword") or (effective_keywords[0] if effective_keywords else ""))
 
     user_display_name = user.get("full_name") or clean_email if user else clean_email
 
     return {
         "user_email": clean_email,
         "user_name": user_display_name,
+        "is_configured": is_configured,
         "is_active": settings.get("is_active", True),
         "daily_limit": settings.get("daily_limit", 500 if is_kutch_target else 100),
-        "priority_region": settings.get("priority_region") or ("Kutch City & District" if is_kutch_target else f"{settings.get('city', 'City')} Priority Coverage"),
-        "country": settings.get("country", "India"),
-        "country_code": settings.get("country_code", "IN"),
-        "state": settings.get("state", "Gujarat"),
-        "state_code": settings.get("state_code", "GJ"),
-        "city": settings.get("city", "Kutch district" if is_kutch_target else "Bhuj"),
-        "district": settings.get("district", "Kachchh"),
+        "priority_region": settings.get("priority_region") or ("Kutch City & District" if is_kutch_target else ""),
+        "country": settings.get("country", "India" if is_kutch_target else ""),
+        "country_code": settings.get("country_code", "IN" if is_kutch_target else ""),
+        "state": settings.get("state", "Gujarat" if is_kutch_target else ""),
+        "state_code": settings.get("state_code", "GJ" if is_kutch_target else ""),
+        "city": settings.get("city", "Kutch district" if is_kutch_target else ""),
+        "district": settings.get("district", "Kachchh" if is_kutch_target else ""),
+        "niche": settings.get("niche", "Tourism & Travel Agency" if is_kutch_target else ""),
+        "category": settings.get("category", "Travel & Tourism" if is_kutch_target else ""),
         "location_mode": settings.get("location_mode", "kutch_systematic" if is_kutch_target else "custom_city"),
         "target_cities": settings.get("target_cities", []),
         "discovered_areas": settings.get("discovered_areas", []),
         "discovered_pincodes": settings.get("discovered_pincodes", []),
         "current_area_index": settings.get("current_area_index", 0),
         "current_locality_index": curr_idx,
-        "current_locality_name": f"{current_locality['locality']}, {current_locality['city']}",
+        "current_locality_name": f"{current_locality['locality']}, {current_locality['city']}" if is_kutch_target else (settings.get("city") or "Pending Setup"),
         "total_kutch_localities": len(KUTCH_LOCALITIES_CATALOG),
         "kutch_localities_catalog": KUTCH_LOCALITIES_CATALOG,
         "industry_keywords": effective_keywords,
@@ -507,6 +570,20 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
         default_visibility = user.get("auto_leadfinder_visibility")
 
     is_kutch_target = clean_email == TARGET_USER_EMAIL.lower()
+
+    # CRITICAL RULE: For normal users, do NOT start automated lead searching until configuration is provided
+    if not is_kutch_target:
+        is_configured = settings.get("is_configured", False)
+        target_city = (settings.get("city") or "").strip()
+        target_kw = (settings.get("keyword") or "").strip()
+
+        if not is_configured or not target_city or not target_kw:
+            logger.info(f"[AUTO_LEADFINDER] Skipping run for {clean_email}: Search preferences unconfigured (City: '{target_city}', Keyword: '{target_kw}', Configured: {is_configured})")
+            return {
+                "status": "unconfigured",
+                "message": f"Auto LeadFinder for {clean_email} is unconfigured. Target city and search keywords are required before searching."
+            }
+
     if is_kutch_target:
         active_keywords = ["Travel Agency"]
     elif user and user.get("auto_leadfinder_keyword"):
@@ -555,9 +632,9 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
     now_ist = datetime.now(KOLKATA_TZ)
 
     location_mode = settings.get("location_mode", "custom_city" if not is_kutch_target else "kutch_systematic")
-    target_country = settings.get("country", "India")
-    target_state = settings.get("state", "Gujarat")
-    target_city = settings.get("city", "Kutch district" if is_kutch_target else "Bhuj")
+    target_country = settings.get("country") or ("India" if is_kutch_target else "")
+    target_state = settings.get("state") or ("Gujarat" if is_kutch_target else "")
+    target_city = settings.get("city") or ("Kutch district" if is_kutch_target else "")
     is_custom_city = location_mode == "custom_city" and target_city and "kutch" not in target_city.lower()
 
     run_doc = {
@@ -599,8 +676,8 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
             from app.services.postal_discovery_service import postal_discovery_service
             disco_res = await postal_discovery_service.discover_city_areas(
                 city=target_city,
-                state=target_state,
-                country=target_country,
+                state=target_state or "Gujarat",
+                country=target_country or "India",
                 district=target_district
             )
             if disco_res and disco_res.get("areas"):
@@ -652,8 +729,8 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                         keyword=search_query_keyword,
                         area=search_area,
                         city=target_city,
-                        state=target_state,
-                        country=target_country,
+                        state=target_state or "Gujarat",
+                        country=target_country or "India",
                         limit=batch_limit,
                         provider="Google Maps",
                         user_id=user_id or "system",
@@ -668,8 +745,8 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                             keyword=search_query_keyword,
                             area=search_area,
                             city=target_city,
-                            state=target_state,
-                            country=target_country,
+                            state=target_state or "Gujarat",
+                            country=target_country or "India",
                             limit=batch_limit,
                             provider="Google Maps",
                             user_id=user_id or "system",
@@ -777,8 +854,8 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                         keyword=search_query_keyword,
                         area=area,
                         city=target_city,
-                        state=target_state,
-                        country=target_country,
+                        state=target_state or "Gujarat",
+                        country=target_country or "India",
                         limit=batch_limit,
                         provider="Google Maps",
                         user_id=user_id or "system",
@@ -793,8 +870,8 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                             keyword=search_query_keyword,
                             area=area,
                             city=target_city,
-                            state=target_state,
-                            country=target_country,
+                            state=target_state or "Gujarat",
+                            country=target_country or "India",
                             limit=batch_limit,
                             provider="Google Maps",
                             user_id=user_id or "system",
@@ -1029,7 +1106,6 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED", target_u
             )
 
         # Multi-user scheduled execution at midnight IST:
-        # Find all users eligible for Auto LeadFinder
         cursor = db["users"].find({
             "$or": [
                 {"email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},

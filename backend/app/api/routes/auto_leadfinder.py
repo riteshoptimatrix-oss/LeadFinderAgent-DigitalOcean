@@ -21,17 +21,21 @@ router = APIRouter()
 
 async def require_kutch_tour_guide(current_user: UserInDB = Depends(get_current_user)) -> UserInDB:
     """
-    Enforce strict user-level authorization at the API layer.
-    Exclusively permits kutchtourguide@gmail.com.
+    Enforce authorization at the API layer.
+    Permits Administrators and authorized accounts (kutchtourguide@gmail.com).
     """
     user_email = (getattr(current_user, "email", "") or "").strip().lower()
-    if user_email != TARGET_USER_EMAIL.lower():
-        logger.warning(f"[AUTO_LEADFINDER_AUTH] Unauthorized access attempt by {user_email}")
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access restricted. This feature is exclusively available for kutchtourguide@gmail.com."
-        )
-    return current_user
+    user_role = (getattr(current_user, "role", "") or "").strip().upper()
+    is_admin = user_role == "ADMIN" or getattr(current_user, "is_superuser", False) is True
+
+    if is_admin or user_email == TARGET_USER_EMAIL.lower():
+        return current_user
+
+    logger.warning(f"[AUTO_LEADFINDER_AUTH] Unauthorized access attempt by {user_email}")
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Access restricted. Administrator privileges required to manage Auto LeadFinder."
+    )
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -39,6 +43,7 @@ class SettingsUpdateRequest(BaseModel):
     daily_limit: Optional[int] = Field(None, ge=10, le=1000)
     target_cities: Optional[List[Any]] = None
     industry_keywords: Optional[List[str]] = None
+    keyword: Optional[str] = None
     country: Optional[str] = None
     country_code: Optional[str] = None
     state: Optional[str] = None
@@ -49,6 +54,9 @@ class SettingsUpdateRequest(BaseModel):
     discovered_areas: Optional[List[Dict[str, Any]]] = None
     discovered_pincodes: Optional[List[str]] = None
     current_area_index: Optional[int] = None
+    assigned_user_id: Optional[str] = None
+    assigned_user_email: Optional[str] = None
+    default_visibility: Optional[str] = None
 
 
 class DiscoverAreasRequest(BaseModel):
@@ -242,4 +250,40 @@ async def trigger_manual_run(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to start scraping: {str(e)}"
+        )
+
+
+@router.get("/assignable-users")
+async def get_assignable_users(
+    current_user: UserInDB = Depends(require_kutch_tour_guide)
+) -> Any:
+    """
+    List registered users for Admin lead assignment dropdown.
+    """
+    try:
+        from app.db.database import get_db, db_instance
+        db = db_instance.db if db_instance.db is not None else get_db()
+        if hasattr(db, "_db"):
+            db = db._db
+
+        cursor = db["users"].find({"account_status": {"$ne": "Deactivated"}}).sort("full_name", 1)
+        users = await cursor.to_list(length=300)
+        return {
+            "success": True,
+            "data": [
+                {
+                    "id": str(u["_id"]),
+                    "email": u.get("email", ""),
+                    "full_name": u.get("full_name") or u.get("email", ""),
+                    "role": u.get("role", "USER"),
+                    "company_name": u.get("company_name", "")
+                }
+                for u in users
+            ]
+        }
+    except Exception as e:
+        logger.error(f"[AUTO_LEADFINDER_API] Failed to fetch assignable users: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch assignable users: {str(e)}"
         )

@@ -33,7 +33,11 @@ import {
   RefreshCw,
   FileSpreadsheet,
   Send,
-  Share2
+  Share2,
+  UserCheck,
+  Eye,
+  EyeOff,
+  UserPlus
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -216,6 +220,78 @@ function LeadsPageContent() {
     staleTime: 60000,
   });
 
+  const isAdmin =
+    authUser?.role?.toLowerCase() === 'admin' ||
+    userProfile?.role?.toLowerCase() === 'admin' ||
+    userProfile?.is_superuser === true;
+
+  // Assignable users for Admin assignment
+  const { data: assignableUsersData = [] } = useQuery<{ id: string; email: string; full_name: string; role: string }[]>({
+    queryKey: ['assignable-users-leads-page'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/leads/assignable-users');
+        return res.data?.data || [];
+      } catch {
+        return [];
+      }
+    },
+    enabled: isAdmin,
+  });
+
+  // Admin Assignment modal state
+  const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
+  const [assignTargetUserId, setAssignTargetUserId] = useState('');
+  const [assignTargetUserEmail, setAssignTargetUserEmail] = useState('');
+  const [assignTargetVisibility, setAssignTargetVisibility] = useState<'visible' | 'hidden'>('visible');
+
+  const assignLeadsMutation = useMutation({
+    mutationFn: async ({
+      userId,
+      userEmail,
+      visibility,
+    }: {
+      userId: string | null;
+      userEmail: string | null;
+      visibility: string;
+    }) => {
+      const res = await api.post('/leads/assign', {
+        lead_ids: Array.from(selectedIds),
+        user_id: userId,
+        user_email: userEmail,
+        visibility,
+      });
+      return res.data;
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      setIsAssignModalOpen(false);
+      setSelectedIds(new Set());
+      toast.success(`Successfully assigned ${res.modified_count ?? selectedIds.size} lead(s)!`);
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Failed to assign leads');
+    },
+  });
+
+  const updateVisibilityMutation = useMutation({
+    mutationFn: async (visibility: string) => {
+      const res = await api.post('/leads/visibility', {
+        lead_ids: Array.from(selectedIds),
+        visibility,
+      });
+      return res.data;
+    },
+    onSuccess: (res) => {
+      queryClient.invalidateQueries({ queryKey: ['leads'] });
+      setSelectedIds(new Set());
+      toast.success(`Visibility updated to "${res.visibility}" for ${res.modified_count ?? selectedIds.size} lead(s)!`);
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.detail || 'Failed to update visibility');
+    },
+  });
+
   const impersonatedEmail = typeof window !== 'undefined' ? localStorage.getItem('impersonated_target_email') : '';
   const activeUserEmail = (impersonatedEmail || userProfile?.email || authUser?.email || '').toLowerCase();
   const isKutchUser = activeUserEmail === 'kutchtourguide@gmail.com' || activeUserEmail.includes('kutchtourguide');
@@ -298,13 +374,24 @@ function LeadsPageContent() {
   }, [urlJobId, campaignOptionsData]);
 
   // Filters (initialized from URL params if present)
-  const [showFilters, setShowFilters] = useState(() => Boolean(urlCity || urlCategory || urlHasWebsite || urlHasPhone || urlHasEmail || urlStatus));
+  const urlAssignedTo = searchParams.get('assigned_to') || '';
+  const urlIsAutoLead = searchParams.get('is_auto_lead') || 'all';
+  const urlVisibility = searchParams.get('visibility') || '';
+
+  const [showFilters, setShowFilters] = useState(() =>
+    Boolean(urlCity || urlCategory || urlHasWebsite || urlHasPhone || urlHasEmail || urlStatus || urlAssignedTo || (urlIsAutoLead && urlIsAutoLead !== 'all') || urlVisibility)
+  );
   const [filterCity, setFilterCity] = useState(() => urlCity || '');
   const [filterCategory, setFilterCategory] = useState(() => urlCategory || '');
   const [filterHasWebsite, setFilterHasWebsite] = useState(() => urlHasWebsite);
   const [filterHasPhone, setFilterHasPhone] = useState(() => urlHasPhone);
   const [filterHasEmail, setFilterHasEmail] = useState(() => urlHasEmail);
   const [filterStatus, setFilterStatus] = useState(() => urlStatus);
+  const [filterAssignedTo, setFilterAssignedTo] = useState(() => urlAssignedTo);
+  const [filterIsAutoLead, setFilterIsAutoLead] = useState<'all' | 'auto' | 'manual'>(() =>
+    urlIsAutoLead === 'true' ? 'auto' : urlIsAutoLead === 'false' ? 'manual' : 'all'
+  );
+  const [filterVisibility, setFilterVisibility] = useState(() => urlVisibility);
   const [sortBy, setSortBy] = useState(() => urlSortBy);
   const [sortOrder, setSortOrder] = useState(() => urlSortOrder);
 
@@ -321,12 +408,16 @@ function LeadsPageContent() {
     if (filterHasPhone) params.set('has_phone', 'true');
     if (filterHasEmail) params.set('has_email', 'true');
     if (filterStatus) params.set('status', filterStatus);
+    if (filterAssignedTo) params.set('assigned_to', filterAssignedTo);
+    if (filterIsAutoLead === 'auto') params.set('is_auto_lead', 'true');
+    if (filterIsAutoLead === 'manual') params.set('is_auto_lead', 'false');
+    if (filterVisibility) params.set('visibility', filterVisibility);
     if (sortBy && sortBy !== 'created_at') params.set('sort_by', sortBy);
     if (sortOrder !== -1) params.set('sort_order', sortOrder.toString());
 
     const qs = params.toString();
     return `/dashboard/leads${qs ? `?${qs}` : ''}`;
-  }, [page, limit, searchQuery, activeSession?.job_id, filterCity, filterCategory, filterHasWebsite, filterHasPhone, filterHasEmail, filterStatus, sortBy, sortOrder]);
+  }, [page, limit, searchQuery, activeSession?.job_id, filterCity, filterCategory, filterHasWebsite, filterHasPhone, filterHasEmail, filterStatus, filterAssignedTo, filterIsAutoLead, filterVisibility, sortBy, sortOrder]);
 
   // Keep browser address bar synchronized with current filters & pagination
   useEffect(() => {
@@ -425,6 +516,9 @@ function LeadsPageContent() {
     setFilterHasPhone(false);
     setFilterHasEmail(false);
     setFilterStatus('');
+    setFilterAssignedTo('');
+    setFilterIsAutoLead('all');
+    setFilterVisibility('');
     setSortBy('created_at');
     setSortOrder(-1);
     router.replace('/dashboard/leads');
@@ -483,6 +577,9 @@ function LeadsPageContent() {
       filterHasPhone,
       filterHasEmail,
       filterStatus,
+      filterAssignedTo,
+      filterIsAutoLead,
+      filterVisibility,
       sortBy,
       sortOrder
     ],
@@ -501,6 +598,10 @@ function LeadsPageContent() {
       if (filterHasPhone) params.append('has_phone', 'true');
       if (filterHasEmail) params.append('has_email', 'true');
       if (filterStatus) params.append('status', filterStatus);
+      if (filterAssignedTo) params.append('assigned_to', filterAssignedTo);
+      if (filterIsAutoLead === 'auto') params.append('is_auto_lead', 'true');
+      if (filterIsAutoLead === 'manual') params.append('is_auto_lead', 'false');
+      if (filterVisibility) params.append('visibility', filterVisibility);
 
       const res = await api.get(`/leads?${params.toString()}`);
       return res.data;
@@ -524,7 +625,10 @@ function LeadsPageContent() {
     filterHasWebsite,
     filterHasPhone,
     filterHasEmail,
-    filterStatus
+    filterStatus,
+    isAdmin && filterAssignedTo,
+    isAdmin && filterIsAutoLead !== 'all' && filterIsAutoLead,
+    isAdmin && filterVisibility
   ].filter(Boolean).length;
 
   const toggleSelectAll = () => {
@@ -636,6 +740,16 @@ function LeadsPageContent() {
       const params = new URLSearchParams();
       if (activeSession?.job_id) params.append('job_id', activeSession.job_id);
       if (searchQuery) params.append('keyword', searchQuery);
+      if (filterCity) params.append('city', filterCity);
+      if (filterCategory) params.append('category', filterCategory);
+      if (filterHasWebsite) params.append('has_website', 'true');
+      if (filterHasPhone) params.append('has_phone', 'true');
+      if (filterHasEmail) params.append('has_email', 'true');
+      if (filterStatus) params.append('status', filterStatus);
+      if (filterAssignedTo) params.append('assigned_to', filterAssignedTo);
+      if (filterIsAutoLead === 'auto') params.append('is_auto_lead', 'true');
+      if (filterIsAutoLead === 'manual') params.append('is_auto_lead', 'false');
+      if (filterVisibility) params.append('visibility', filterVisibility);
       const res = await api.get(`/leads/ids?${params.toString()}`);
       setSelectedIds(new Set(res.data?.data || []));
       toast.success(`Selected ${res.data?.total || 0} leads`);
@@ -708,6 +822,10 @@ function LeadsPageContent() {
     if (filterHasPhone) f.has_phone = true;
     if (filterHasEmail) f.has_email = true;
     if (filterStatus) f.status = filterStatus;
+    if (filterAssignedTo) f.assigned_to = filterAssignedTo;
+    if (filterIsAutoLead === 'auto') f.is_auto_lead = true;
+    if (filterIsAutoLead === 'manual') f.is_auto_lead = false;
+    if (filterVisibility) f.visibility = filterVisibility;
     return f;
   };
 
@@ -1259,6 +1377,24 @@ function LeadsPageContent() {
                 <button onClick={() => setFilterStatus('')} className="hover:text-blue-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             )}
+            {isAdmin && filterAssignedTo && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50/80 text-indigo-700 border border-indigo-200/60 rounded-lg text-xs font-semibold">
+                User: {assignableUsersData.find(u => u.id === filterAssignedTo)?.full_name || filterAssignedTo}
+                <button onClick={() => setFilterAssignedTo('')} className="hover:text-indigo-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {isAdmin && filterIsAutoLead !== 'all' && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-teal-50/80 text-teal-700 border border-teal-200/60 rounded-lg text-xs font-semibold">
+                Source: {filterIsAutoLead === 'auto' ? 'Auto LeadFinder' : 'Manual'}
+                <button onClick={() => setFilterIsAutoLead('all')} className="hover:text-teal-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
+            {isAdmin && filterVisibility && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-50/80 text-amber-700 border border-amber-200/60 rounded-lg text-xs font-semibold">
+                Visibility: {filterVisibility}
+                <button onClick={() => setFilterVisibility('')} className="hover:text-amber-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
+              </span>
+            )}
             <button
               onClick={clearAllFilters}
               className="text-xs font-semibold text-blue-600 hover:text-blue-800 ml-2 cursor-pointer"
@@ -1358,6 +1494,53 @@ function LeadsPageContent() {
                 </select>
               </div>
 
+              {isAdmin && (
+                <>
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Assigned User</label>
+                    <select
+                      value={filterAssignedTo}
+                      onChange={(e) => { setFilterAssignedTo(e.target.value); setPage(0); }}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none cursor-pointer"
+                    >
+                      <option value="">All Users</option>
+                      <option value="unassigned">Unassigned Leads Only</option>
+                      {assignableUsersData.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.full_name ? `${u.full_name} (${u.email})` : u.email}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Lead Source</label>
+                    <select
+                      value={filterIsAutoLead}
+                      onChange={(e) => { setFilterIsAutoLead(e.target.value as any); setPage(0); }}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none cursor-pointer"
+                    >
+                      <option value="all">All Sources</option>
+                      <option value="auto">Auto LeadFinder Only</option>
+                      <option value="manual">Manual / Search Jobs Only</option>
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-slate-500 uppercase">Visibility</label>
+                    <select
+                      value={filterVisibility}
+                      onChange={(e) => { setFilterVisibility(e.target.value); setPage(0); }}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none cursor-pointer"
+                    >
+                      <option value="">All Visibility</option>
+                      <option value="visible">Visible to User</option>
+                      <option value="hidden">Hidden (Admin Review)</option>
+                    </select>
+                  </div>
+                </>
+              )}
+
               <div className="lg:col-span-4 flex flex-wrap gap-4 pt-2 border-t border-slate-100">
                 <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
                   <input
@@ -1394,12 +1577,44 @@ function LeadsPageContent() {
 
       {/* SELECTED ITEMS BANNER */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center justify-between px-5 py-3 bg-blue-50 border border-blue-200 rounded-2xl shadow-xs">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 bg-blue-50 border border-blue-200 rounded-2xl shadow-xs">
           <div className="flex items-center gap-2 text-sm font-semibold text-blue-800">
             <span className="w-2 h-2 rounded-full bg-blue-600 animate-pulse" />
             <span>{selectedIds.size} of {total} leads selected</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {isAdmin && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setIsAssignModalOpen(true)}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" /> Assign to User
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => updateVisibilityMutation.mutate('visible')}
+                  disabled={updateVisibilityMutation.isPending}
+                  className="px-3 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-50 text-emerald-700 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Make selected leads visible to assigned users"
+                >
+                  <Eye className="w-3.5 h-3.5 text-emerald-600" /> Make Visible
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => updateVisibilityMutation.mutate('hidden')}
+                  disabled={updateVisibilityMutation.isPending}
+                  className="px-3 py-1.5 bg-white border border-amber-300 hover:bg-amber-50 text-amber-700 rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
+                  title="Hide selected leads from assigned users"
+                >
+                  <EyeOff className="w-3.5 h-3.5 text-amber-600" /> Hide Leads
+                </button>
+              </>
+            )}
+
             <button
               onClick={openBulkModal}
               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
@@ -1510,12 +1725,29 @@ function LeadsPageContent() {
                             {initials}
                           </div>
                           <div className="flex flex-col min-w-0">
-                            <span className="font-bold text-slate-900 text-sm truncate group-hover:text-blue-600 transition-colors" title={displayName}>
-                              {displayName}
-                            </span>
-                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5 truncate">
-                              {lead.category || 'UNCATEGORIZED'}
-                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-900 text-sm truncate group-hover:text-blue-600 transition-colors" title={displayName}>
+                                {displayName}
+                              </span>
+                              {(lead.is_auto_lead || lead.source === 'auto_leadfinder' || lead.requested_provider === 'Auto LeadFinder') && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 border border-teal-200 text-teal-700 shrink-0">
+                                  <Sparkles className="w-2.5 h-2.5" /> Auto Lead
+                                </span>
+                              )}
+                              {isAdmin && lead.visibility === 'hidden' && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 border border-amber-200 text-amber-700 shrink-0">
+                                  <EyeOff className="w-2.5 h-2.5" /> Hidden
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5 truncate">
+                              <span>{lead.category || 'UNCATEGORIZED'}</span>
+                              {isAdmin && lead.assigned_user_email && (
+                                <span className="text-indigo-600 lowercase font-medium">
+                                  • {lead.assigned_user_email}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -1743,9 +1975,26 @@ function LeadsPageContent() {
               >
                 <div>
                   <div className="flex justify-between items-start gap-2 mb-3">
-                    <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-                      {lead.category || 'LEAD'}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                        {lead.category || 'LEAD'}
+                      </span>
+                      {(lead.is_auto_lead || lead.source === 'auto_leadfinder' || lead.requested_provider === 'Auto LeadFinder') && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 border border-teal-200 text-teal-700">
+                          <Sparkles className="w-2.5 h-2.5" /> Auto Lead
+                        </span>
+                      )}
+                      {isAdmin && lead.visibility === 'hidden' && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 border border-amber-200 text-amber-700">
+                          <EyeOff className="w-2.5 h-2.5" /> Hidden
+                        </span>
+                      )}
+                      {isAdmin && lead.assigned_user_email && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 border border-indigo-200 text-indigo-700">
+                          Assigned: {lead.assigned_user_email}
+                        </span>
+                      )}
+                    </div>
                     <div onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
@@ -1931,6 +2180,116 @@ function LeadsPageContent() {
           <span>per page</span>
         </div>
       </div>
+
+      {/* Admin Assign Leads Modal */}
+      {isAssignModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in">
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xl max-w-md w-full p-6 space-y-5 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                  <UserPlus className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Assign Selected Leads</h3>
+                  <p className="text-xs text-slate-500">
+                    Assigning <strong className="text-indigo-600 font-bold">{selectedIds.size}</strong> selected lead{selectedIds.size === 1 ? '' : 's'}.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAssignModalOpen(false)}
+                className="w-8 h-8 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 flex items-center justify-center cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">
+                  Target User Account:
+                </label>
+                <select
+                  value={assignTargetUserId}
+                  onChange={(e) => {
+                    const selId = e.target.value;
+                    setAssignTargetUserId(selId);
+                    const found = assignableUsersData.find((u) => u.id === selId);
+                    setAssignTargetUserEmail(found ? found.email : '');
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
+                >
+                  <option value="">Unassign (Clear User Assignment)</option>
+                  {assignableUsersData.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name ? `${u.full_name} (${u.email})` : u.email} [{u.role}]
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 block">
+                  Lead Visibility:
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssignTargetVisibility('visible')}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${
+                      assignTargetVisibility === 'visible'
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-bold'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <Eye className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Visible to User</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAssignTargetVisibility('hidden')}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${
+                      assignTargetVisibility === 'hidden'
+                        ? 'bg-amber-50 border-amber-300 text-amber-800 font-bold'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <EyeOff className="w-3.5 h-3.5 text-amber-600" />
+                    <span>Hidden (Admin Only)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsAssignModalOpen(false)}
+                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  assignLeadsMutation.mutate({
+                    userId: assignTargetUserId || null,
+                    userEmail: assignTargetUserEmail || null,
+                    visibility: assignTargetVisibility,
+                  });
+                }}
+                disabled={assignLeadsMutation.isPending}
+                className="inline-flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white shadow-xs cursor-pointer disabled:opacity-50"
+              >
+                {assignLeadsMutation.isPending && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Confirm Assignment</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

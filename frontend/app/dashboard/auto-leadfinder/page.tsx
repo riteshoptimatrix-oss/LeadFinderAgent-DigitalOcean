@@ -32,7 +32,12 @@ import {
   Filter,
   Timer,
   Activity,
-  Search
+  Search,
+  UserCheck,
+  Eye,
+  EyeOff,
+  Lock,
+  Tag
 } from 'lucide-react';
 import ScheduledTasksMonitor from '@/src/components/auto-leadfinder/ScheduledTasksMonitor';
 import LocationSelector, { TargetCityItem } from '@/src/components/auto-leadfinder/LocationSelector';
@@ -43,7 +48,7 @@ export default function AutoLeadFinderPage() {
   const router = useRouter();
   const user = useAuthStore((state) => state.user);
 
-  // Fetch user profile to verify email
+  // Fetch user profile to verify role and email
   const { data: userProfile, isLoading: profileLoading } = useQuery({
     queryKey: ['userProfile'],
     queryFn: async () => {
@@ -56,13 +61,18 @@ export default function AutoLeadFinderPage() {
     },
   });
 
+  const isAdmin =
+    user?.role?.toLowerCase() === 'admin' ||
+    userProfile?.role?.toLowerCase() === 'admin' ||
+    userProfile?.is_superuser === true;
+
   const userEmail = (user?.email || userProfile?.email || '')?.toLowerCase();
-  const isAuthorized = userEmail === TARGET_EMAIL;
+  const isAuthorized = isAdmin || userEmail === TARGET_EMAIL;
 
   // Strict route authorization check
   useEffect(() => {
     if (!profileLoading && !isAuthorized) {
-      toast.error('Access restricted to authorized account.');
+      toast.error('Access restricted to administrators.');
       router.replace('/dashboard');
     }
   }, [isAuthorized, profileLoading, router]);
@@ -99,6 +109,20 @@ export default function AutoLeadFinderPage() {
     refetchInterval: 10000,
   });
 
+  // Assignable users query (for admin lead distribution)
+  const { data: assignableUsers = [] } = useQuery<{ id: string; email: string; full_name: string; role: string }[]>({
+    queryKey: ['auto-leadfinder-assignable-users'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/auto-leadfinder/assignable-users');
+        return res.data?.data || [];
+      } catch {
+        return [];
+      }
+    },
+    enabled: isAuthorized,
+  });
+
   // Local state for configuration form
   const [isActive, setIsActive] = useState<boolean>(true);
   const [dailyLimit, setDailyLimit] = useState<number>(500);
@@ -113,6 +137,12 @@ export default function AutoLeadFinderPage() {
   const [discoveredAreas, setDiscoveredAreas] = useState<any[]>([]);
   const [discoveredPincodes, setDiscoveredPincodes] = useState<string[]>([]);
   const [currentAreaIndex, setCurrentAreaIndex] = useState<number>(0);
+  const [assignedUserId, setAssignedUserId] = useState<string>('');
+  const [assignedUserEmail, setAssignedUserEmail] = useState<string>('');
+  const [defaultVisibility, setDefaultVisibility] = useState<'visible' | 'hidden'>('visible');
+  const [keyword, setKeyword] = useState<string>('Travel Agency');
+
+  const isKutchTarget = (assignedUserEmail || TARGET_EMAIL).toLowerCase() === TARGET_EMAIL.toLowerCase();
   const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
   const [areaSearchFilter, setAreaSearchFilter] = useState<string>('');
   const [showDiscoveredExplorer, setShowDiscoveredExplorer] = useState<boolean>(true);
@@ -137,6 +167,18 @@ export default function AutoLeadFinderPage() {
       setDiscoveredAreas(settingsResponse.discovered_areas || []);
       setDiscoveredPincodes(settingsResponse.discovered_pincodes || []);
       setCurrentAreaIndex(settingsResponse.current_area_index || 0);
+      setAssignedUserId(settingsResponse.assigned_user_id || '');
+      const respAssignedEmail = settingsResponse.assigned_user_email || TARGET_EMAIL;
+      setAssignedUserEmail(respAssignedEmail);
+      setDefaultVisibility(settingsResponse.default_visibility || 'visible');
+
+      const rawKws = settingsResponse.industry_keywords;
+      const firstKw = Array.isArray(rawKws) && rawKws.length > 0 ? rawKws[0] : (settingsResponse.keyword || 'Travel Agency');
+      if (respAssignedEmail.toLowerCase() === TARGET_EMAIL.toLowerCase()) {
+        setKeyword('Travel Agency');
+      } else {
+        setKeyword(firstKw || 'Travel Agency');
+      }
     }
   }, [settingsResponse]);
 
@@ -188,6 +230,8 @@ export default function AutoLeadFinderPage() {
         !('target' in customPayload);
       const safeCustom = isPlainObject ? (customPayload as Record<string, any>) : {};
 
+      const effectiveKeyword = isKutchTarget ? 'Travel Agency' : (keyword.trim() || 'Travel Agency');
+
       const payload = {
         is_active: isActive,
         daily_limit: Number(dailyLimit),
@@ -202,6 +246,11 @@ export default function AutoLeadFinderPage() {
         discovered_areas: discoveredAreas,
         discovered_pincodes: discoveredPincodes,
         current_area_index: currentAreaIndex,
+        assigned_user_id: assignedUserId || null,
+        assigned_user_email: assignedUserEmail || null,
+        default_visibility: defaultVisibility,
+        keyword: effectiveKeyword,
+        industry_keywords: [effectiveKeyword],
         ...safeCustom,
       };
       await api.put('/auto-leadfinder/settings', payload);
@@ -307,11 +356,10 @@ export default function AutoLeadFinderPage() {
           <button
             onClick={handleTriggerManualRun}
             disabled={isTriggeringRun || isRunning}
-            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white shadow-xs transition-all cursor-pointer active:scale-95 ${
-              isRunning
-                ? 'bg-amber-600 hover:bg-amber-700'
-                : 'bg-teal-600 hover:bg-teal-700 disabled:opacity-50'
-            }`}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white shadow-xs transition-all cursor-pointer active:scale-95 ${isRunning
+              ? 'bg-amber-600 hover:bg-amber-700'
+              : 'bg-teal-600 hover:bg-teal-700 disabled:opacity-50'
+              }`}
           >
             {isTriggeringRun || isRunning ? (
               <>
@@ -333,11 +381,10 @@ export default function AutoLeadFinderPage() {
         <button
           type="button"
           onClick={() => setActiveTab('engine')}
-          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'engine'
-              ? 'bg-slate-900 text-white shadow-xs'
-              : 'bg-white border border-slate-200/80 text-slate-600 hover:bg-slate-50'
-          }`}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'engine'
+            ? 'bg-slate-900 text-white shadow-xs'
+            : 'bg-white border border-slate-200/80 text-slate-600 hover:bg-slate-50'
+            }`}
         >
           <Compass className="w-4 h-4 text-teal-400" />
           <span>{displayCity ? `${displayCity} Lead Discovery Engine` : 'City Lead Discovery Engine'}</span>
@@ -346,11 +393,10 @@ export default function AutoLeadFinderPage() {
         <button
           type="button"
           onClick={() => setActiveTab('tasks')}
-          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'tasks'
-              ? 'bg-slate-900 text-white shadow-xs'
-              : 'bg-white border border-slate-200/80 text-slate-600 hover:bg-slate-50'
-          }`}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'tasks'
+            ? 'bg-slate-900 text-white shadow-xs'
+            : 'bg-white border border-slate-200/80 text-slate-600 hover:bg-slate-50'
+            }`}
         >
           <Timer className="w-4 h-4 text-teal-600" />
           <span>Scheduled Tasks & Execution Monitor</span>
@@ -365,600 +411,734 @@ export default function AutoLeadFinderPage() {
       {activeTab === 'engine' && (
         <div className="space-y-6">
           {/* Priority Region Banner */}
-      <div className="bg-gradient-to-r from-teal-900 to-slate-900 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden">
-        <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none flex items-center pr-8">
-          <Compass className="w-56 h-56 text-white" />
-        </div>
-        <div className="relative z-10 max-w-2xl space-y-3">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-teal-500/20 border border-teal-400/30 text-teal-300">
-            <Navigation className="w-3.5 h-3.5" />
-            <span>{displayCity ? `${displayCity} Priority Sequence` : 'City Priority Sequence'}</span>
-          </div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
-            Systematic Locality Coverage in Progress
-          </h2>
-          <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-            The system begins with <strong className="text-teal-300">{displayCity ? `${displayCity}${district && district !== displayCity ? ` (${district})` : ''}${state ? `, ${state}` : ''}` : 'the selected city'}</strong>, thoroughly exploring all major areas and localities before moving outward. Every daily run targets a minimum of <strong className="text-teal-300">500 100% unique, fresh leads</strong> while strictly ignoring all duplicate contacts.
-          </p>
-          <div className="pt-2 flex flex-wrap items-center gap-4 text-xs">
-            <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
-              <span className="text-slate-400 block text-[10px]">Next Locality Queue:</span>
-              <span className="font-bold text-teal-300">
-                {discoveredAreas.length > 0 && discoveredAreas[currentAreaIndex]?.name
-                  ? `${discoveredAreas[currentAreaIndex].name} (${discoveredAreas[currentAreaIndex].pincode || displayCity})`
-                  : currentLocalityName}
-              </span>
+          <div className="bg-gradient-to-r from-teal-900 to-slate-900 rounded-3xl p-6 text-white shadow-lg relative overflow-hidden">
+            <div className="absolute right-0 top-0 bottom-0 opacity-10 pointer-events-none flex items-center pr-8">
+              <Compass className="w-56 h-56 text-white" />
             </div>
-            <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
-              <span className="text-slate-400 block text-[10px]">{displayCity ? `${displayCity} Areas Indexed:` : 'Areas Indexed:'}</span>
-              <span className="font-bold text-white">
-                {discoveredAreas.length > 0 ? `${discoveredAreas.length} Discovered Postal Areas` : `${totalLocalities} Areas & Localities`}
-              </span>
-            </div>
-            <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
-              <span className="text-slate-400 block text-[10px]">Daily Target Guarantee:</span>
-              <span className="font-bold text-emerald-400">500 Unique Leads / Day</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Live Status Banner if running */}
-      {isRunning && (
-        <div className="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-4 shadow-xs flex items-center justify-between gap-4 animate-pulse">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-700 font-bold">
-              <Loader2 className="w-5 h-5 animate-spin" />
-            </div>
-            <div>
-              <h4 className="text-sm font-bold text-amber-900">Systematic Lead Scraping Active in {displayCity || 'Selected City'}</h4>
-              <p className="text-xs text-amber-700 mt-0.5">
-                Exploring localities in {displayCity || 'Selected City'} for Tour Operators, Travel Agencies, and Tour Guides. Deduplicating against all existing records in real time.
-              </p>
-            </div>
-          </div>
-          <span className="text-xs font-bold text-amber-800 bg-amber-100/80 px-3 py-1 rounded-full border border-amber-300">
-            Live Execution
-          </span>
-        </div>
-      )}
-
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Card 1: Status */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500">Automation Status</span>
-            <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${
-              isActive ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-slate-100 text-slate-400'
-            }`}>
-              <ShieldCheck className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
-              <span className="text-lg font-bold text-slate-900">
-                {isActive ? 'Active (Scheduled)' : 'Paused'}
-              </span>
-            </div>
-            <span className="text-[11px] text-slate-400 mt-1 block truncate">
-              Next: {nextRunTime}
-            </span>
-          </div>
-        </div>
-
-        {/* Card 2: Daily Limit */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500">Daily Target Limit</span>
-            <div className="w-8 h-8 rounded-xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
-              <Sliders className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <span className="text-2xl font-bold text-slate-900">{currentLimit}</span>
-            <span className="text-xs text-slate-500 ml-1">leads / day</span>
-            <span className="text-[11px] text-slate-400 mt-1 block">
-              Guaranteed Fresh & Unique
-            </span>
-          </div>
-        </div>
-
-        {/* Card 3: Today's Collection */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500">Today&apos;s Collected</span>
-            <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
-              <TrendingUp className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <div className="flex items-baseline gap-1">
-              <span className="text-2xl font-bold text-blue-600">{todayCollected}</span>
-              <span className="text-xs text-slate-400">/ {currentLimit}</span>
-            </div>
-            <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
-              <div 
-                className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
-                style={{ width: `${Math.min(100, (todayCollected / Math.max(1, currentLimit)) * 100)}%` }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Card 4: Total Auto Leads */}
-        <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-slate-500">Total Lifetime Leads</span>
-            <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
-              <Users className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-2">
-            <span className="text-2xl font-bold text-indigo-600">{totalCollected}</span>
-            <span className="text-xs text-slate-500 ml-1">leads</span>
-            <span className="text-[11px] text-slate-400 mt-1 block">
-              Synced with Leads Management
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Manual Cascading Location Selector (Country -> State -> City) */}
-      <LocationSelector
-        country={country}
-        countryCode={countryCode}
-        state={state}
-        stateCode={stateCode}
-        city={city}
-        locationMode={locationMode}
-        targetCities={targetCities}
-        discoveredPincodes={discoveredPincodes}
-        discoveredAreasCount={discoveredAreas.length}
-        isDiscovering={isDiscovering}
-        onTriggerDiscovery={handleTriggerDiscovery}
-        onChangeLocation={handleLocationChange}
-      />
-
-      {/* Discovered Postal Areas & Google Maps Queries Explorer */}
-      {discoveredAreas && discoveredAreas.length > 0 && (
-        <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4 animate-in fade-in">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
-                <Compass className="w-5 h-5" />
+            <div className="relative z-10 max-w-2xl space-y-3">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-teal-500/20 border border-teal-400/30 text-teal-300">
+                <Navigation className="w-3.5 h-3.5" />
+                <span>{displayCity ? `${displayCity} Priority Sequence` : 'City Priority Sequence'}</span>
               </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h3 className="text-base font-bold text-slate-900">
-                    Discovered Postal Areas in {displayCity || 'City'} ({discoveredAreas.length})
-                  </h3>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 border border-teal-200 text-teal-700">
-                    Indian Postal PIN Code API
+              <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
+                Systematic Locality Coverage in Progress
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                The system begins with <strong className="text-teal-300">{displayCity ? `${displayCity}${district && district !== displayCity ? ` (${district})` : ''}${state ? `, ${state}` : ''}` : 'the selected city'}</strong>, thoroughly exploring all major areas and localities before moving outward. Every daily run targets a minimum of <strong className="text-teal-300">500 100% unique, fresh leads</strong> while strictly ignoring all duplicate contacts.
+              </p>
+              <div className="pt-2 flex flex-wrap items-center gap-4 text-xs">
+                <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
+                  <span className="text-slate-400 block text-[10px]">Next Locality Queue:</span>
+                  <span className="font-bold text-teal-300">
+                    {discoveredAreas.length > 0 && discoveredAreas[currentAreaIndex]?.name
+                      ? `${discoveredAreas[currentAreaIndex].name} (${discoveredAreas[currentAreaIndex].pincode || displayCity})`
+                      : currentLocalityName}
                   </span>
                 </div>
-                <p className="text-xs text-slate-500">
-                  Extracted <code className="text-teal-700 font-bold">PostOffice[].Name</code> areas with dynamically generated Google Maps queries.
-                </p>
+                <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
+                  <span className="text-slate-400 block text-[10px]">{displayCity ? `${displayCity} Areas Indexed:` : 'Areas Indexed:'}</span>
+                  <span className="font-bold text-white">
+                    {discoveredAreas.length > 0 ? `${discoveredAreas.length} Discovered Postal Areas` : `${totalLocalities} Areas & Localities`}
+                  </span>
+                </div>
+                <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
+                  <span className="text-slate-400 block text-[10px]">Daily Target Guarantee:</span>
+                  <span className="font-bold text-emerald-400">500 Unique Leads / Day</span>
+                </div>
               </div>
-            </div>
-
-            <div className="flex items-center gap-2 self-start sm:self-center">
-              <button
-                type="button"
-                onClick={() => handleTriggerDiscovery(true)}
-                disabled={isDiscovering}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 transition-colors cursor-pointer"
-                title="Force refresh areas from API"
-              >
-                <RotateCcw className={`w-3.5 h-3.5 ${isDiscovering ? 'animate-spin' : ''}`} />
-                <span>Re-Discover</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setShowDiscoveredExplorer(!showDiscoveredExplorer)}
-                className="text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100/70 border border-teal-200 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer"
-              >
-                {showDiscoveredExplorer ? 'Collapse Areas' : `View All ${discoveredAreas.length} Areas`}
-              </button>
             </div>
           </div>
 
-          {showDiscoveredExplorer && (
-            <div className="space-y-3 pt-1">
-              {/* Filter search bar */}
-              <div className="relative max-w-md">
-                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Filter discovered areas or PIN codes..."
-                  value={areaSearchFilter}
-                  onChange={(e) => setAreaSearchFilter(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 font-medium"
-                />
+          {/* Live Status Banner if running */}
+          {isRunning && (
+            <div className="bg-amber-50/90 border border-amber-200/90 rounded-2xl p-4 shadow-xs flex items-center justify-between gap-4 animate-pulse">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-700 font-bold">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-amber-900">Systematic Lead Scraping Active in {displayCity || 'Selected City'}</h4>
+                  <p className="text-xs text-amber-700 mt-0.5">
+                    Exploring localities in {displayCity || 'Selected City'} for Tour Operators, Travel Agencies, and Tour Guides. Deduplicating against all existing records in real time.
+                  </p>
+                </div>
               </div>
-
-              {/* Grid of Areas */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-96 overflow-y-auto pr-1">
-                {discoveredAreas
-                  .filter((a: any) => {
-                    if (!areaSearchFilter.trim()) return true;
-                    const q = areaSearchFilter.toLowerCase();
-                    return (
-                      a.name.toLowerCase().includes(q) ||
-                      (a.pincode && a.pincode.includes(q)) ||
-                      (a.maps_query && a.maps_query.toLowerCase().includes(q))
-                    );
-                  })
-                  .map((area: any, idx: number) => {
-                    const isNextInQueue = idx === currentAreaIndex;
-                    return (
-                      <div
-                        key={`${area.name}-${area.pincode}-${idx}`}
-                        className={`p-3 rounded-2xl border text-xs flex flex-col justify-between gap-2 transition-all ${
-                          isNextInQueue
-                            ? 'bg-teal-50/80 border-teal-300 ring-2 ring-teal-500/20 shadow-xs'
-                            : 'bg-slate-50/50 border-slate-200/80 hover:bg-slate-50'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2">
-                          <div>
-                            <span className="font-extrabold text-slate-900 block text-xs">
-                              {area.name}
-                            </span>
-                            <span className="text-[10px] text-slate-400 block mt-0.5">
-                              {area.district || district} • {area.state}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            {area.pincode && (
-                              <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold bg-white border border-slate-200 text-slate-700 shadow-2xs">
-                                📮 {area.pincode}
-                              </span>
-                            )}
-                            {isNextInQueue && (
-                              <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-teal-600 text-white animate-pulse">
-                                NEXT
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Google Maps Generated Query */}
-                        <div className="p-2 rounded-xl bg-white border border-slate-100 text-[10px] space-y-1">
-                          <div className="flex items-center gap-1 text-slate-400 font-semibold">
-                            <MapPin className="w-2.5 h-2.5 text-teal-600" />
-                            <span>Google Maps Query:</span>
-                          </div>
-                          <p className="font-mono text-slate-700 truncate" title={area.maps_query}>
-                            {area.maps_query}
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  })}
-              </div>
+              <span className="text-xs font-bold text-amber-800 bg-amber-100/80 px-3 py-1 rounded-full border border-amber-300">
+                Live Execution
+              </span>
             </div>
           )}
-        </div>
-      )}
 
-      {/* Systematic Kutch Localities Catalog Explorer */}
-      <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
-              <MapPin className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900">
-                {city.toLowerCase().includes('kutch') || city.toLowerCase().includes('bhuj')
-                  ? 'Kutch Localities Coverage Index'
-                  : `${city} Regional Coverage Index`}
-              </h3>
-              <p className="text-xs text-slate-500">
-                {city.toLowerCase().includes('kutch') || city.toLowerCase().includes('bhuj')
-                  ? 'All 38 key areas and localities across Bhuj, Gandhidham, Mandvi, White Desert, Anjar, Mundra, and Western/Eastern Kutch.'
-                  : `Localities and areas prioritized for lead generation in ${city}, ${district || state}.`}
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setShowCatalog(!showCatalog)}
-            className="text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100/70 border border-teal-200 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer self-start sm:self-center"
-          >
-            {showCatalog ? 'Hide Localities List' : `View All ${kutchCatalog.length || 38} Reference Localities`}
-          </button>
-        </div>
-
-        {/* Localities Grid Preview */}
-        {showCatalog && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 pt-3 animate-in fade-in duration-200">
-            {kutchCatalog.map((loc: any, idx: number) => {
-              const isCurrent = idx === currentLocalityIndex;
-              return (
-                <div
-                  key={`${loc.city}-${loc.locality}`}
-                  className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 transition-all ${
-                    isCurrent
-                      ? 'bg-teal-50 border-teal-300 ring-2 ring-teal-500/20 shadow-xs'
-                      : 'bg-slate-50/60 border-slate-200/70'
-                  }`}
-                >
-                  <div className="overflow-hidden">
-                    <span className="font-bold text-slate-800 block truncate">{loc.locality}</span>
-                    <span className="text-[10px] text-slate-400 block truncate">{loc.city} • {loc.zone}</span>
-                  </div>
-                  {isCurrent ? (
-                    <span className="shrink-0 px-2 py-0.5 rounded-md text-[9px] font-extrabold bg-teal-600 text-white animate-pulse">
-                      NEXT
-                    </span>
-                  ) : (
-                    <span className="shrink-0 text-[10px] text-slate-400 font-semibold">
-                      #{idx + 1}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Settings & Configuration Card */}
-      <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-6">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
-              <Sliders className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Customizable Scraping Settings</h3>
-              <p className="text-xs text-slate-500">
-                Adjust your daily target quota and automatic midnight execution.
-              </p>
-            </div>
-          </div>
-
-          {/* Master Toggle */}
-          <div className="flex items-center gap-3 bg-slate-50 border border-slate-200/80 px-4 py-2 rounded-2xl self-start sm:self-center">
-            <span className="text-xs font-semibold text-slate-700">Daily Automation:</span>
-            <button
-              type="button"
-              onClick={() => setIsActive(!isActive)}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                isActive ? 'bg-teal-600' : 'bg-slate-300'
-              }`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
-                  isActive ? 'translate-x-5' : 'translate-x-0'
-                }`}
-              />
-            </button>
-            <span className={`text-xs font-bold ${isActive ? 'text-teal-700' : 'text-slate-400'}`}>
-              {isActive ? 'ENABLED' : 'PAUSED'}
-            </span>
-          </div>
-        </div>
-
-        {/* Controls */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Daily Limit Control */}
-          <div className="space-y-3">
-            <label className="text-xs font-bold text-slate-700 block">
-              Daily Lead Limit (Target New Unique Leads / Day)
-            </label>
-            <div className="flex items-center gap-3">
-              <input
-                type="number"
-                min="10"
-                max="1000"
-                step="10"
-                value={dailyLimit}
-                onChange={(e) => setDailyLimit(Number(e.target.value))}
-                className="w-32 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
-              />
-              <div className="flex items-center gap-1.5">
-                {[100, 250, 500, 1000].map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    onClick={() => setDailyLimit(preset)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
-                      dailyLimit === preset
-                        ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold'
-                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
-                    }`}
-                  >
-                    {preset} leads
-                  </button>
-                ))}
-              </div>
-            </div>
-            <p className="text-[11px] text-slate-400">
-              The scraper explores localities sequentially until reaching exactly <strong className="text-slate-600">{dailyLimit} fresh leads</strong>.
-            </p>
-          </div>
-
-          {/* Schedule Info Box */}
-          <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col justify-between">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
-              <Clock className="w-4 h-4 text-teal-600" />
-              <span>Execution Schedule & Deduplication</span>
-            </div>
-            <div className="mt-2 space-y-1 text-xs text-slate-600">
+          {/* KPI Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Card 1: Status */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Target Geography:</span>
-                <span className="font-semibold text-teal-700 truncate max-w-[200px]" title={`${displayCity || city}, ${state}, ${country}`}>
-                  {displayCity || city || 'Bhuj'}, {state || 'Gujarat'}
+                <span className="text-xs font-medium text-slate-500">Automation Status</span>
+                <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${isActive ? 'bg-emerald-50 text-emerald-600 border border-emerald-100' : 'bg-slate-100 text-slate-400'
+                  }`}>
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
+                  <span className="text-lg font-bold text-slate-900">
+                    {isActive ? 'Active (Scheduled)' : 'Paused'}
+                  </span>
+                </div>
+                <span className="text-[11px] text-slate-400 mt-1 block truncate">
+                  Next: {nextRunTime}
                 </span>
               </div>
+            </div>
+
+            {/* Card 2: Daily Limit */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Frequency:</span>
-                <span className="font-semibold text-slate-900">Every Night at 12:00 AM (Midnight)</span>
+                <span className="text-xs font-medium text-slate-500">Daily Target Limit</span>
+                <div className="w-8 h-8 rounded-xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
+                  <Sliders className="w-4 h-4" />
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500">Timezone:</span>
-                <span className="font-semibold text-slate-900">Asia/Kolkata (IST)</span>
+              <div className="mt-2">
+                <span className="text-2xl font-bold text-slate-900">{currentLimit}</span>
+                <span className="text-xs text-slate-500 ml-1">leads / day</span>
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Guaranteed Fresh & Unique
+                </span>
               </div>
+            </div>
+
+            {/* Card 3: Today's Collection */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
               <div className="flex items-center justify-between">
-                <span className="text-slate-500">Duplicate Filter:</span>
-                <span className="font-semibold text-emerald-600">100% Unique Verified Leads</span>
+                <span className="text-xs font-medium text-slate-500">Today&apos;s Collected</span>
+                <div className="w-8 h-8 rounded-xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-2xl font-bold text-blue-600">{todayCollected}</span>
+                  <span className="text-xs text-slate-400">/ {currentLimit}</span>
+                </div>
+                <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
+                  <div
+                    className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(100, (todayCollected / Math.max(1, currentLimit)) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Card 4: Total Auto Leads */}
+            <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-500">Total Lifetime Leads</span>
+                <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                  <Users className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="mt-2">
+                <span className="text-2xl font-bold text-indigo-600">{totalCollected}</span>
+                <span className="text-xs text-slate-500 ml-1">leads</span>
+                <span className="text-[11px] text-slate-400 mt-1 block">
+                  Synced with Leads Management
+                </span>
               </div>
             </div>
           </div>
-        </div>
 
-        {/* Action Save Bar */}
-        <div className="flex items-center justify-between pt-4 border-t border-slate-100">
-          <p className="text-xs text-slate-500">
-            Systematic locality indexes persist across server restarts and daily runs.
-          </p>
-          <button
-            type="button"
-            onClick={() => handleSaveSettings()}
-            disabled={isSaving}
-            className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-xs transition-all cursor-pointer active:scale-95 disabled:opacity-50"
-          >
-            {isSaving ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Saving Changes...</span>
-              </>
-            ) : (
-              <>
-                <Check className="w-4 h-4" />
-                <span>Save Configuration</span>
-              </>
-            )}
-          </button>
-        </div>
-      </div>
+          {/* Manual Cascading Location Selector (Country -> State -> City) */}
+          <LocationSelector
+            country={country}
+            countryCode={countryCode}
+            state={state}
+            stateCode={stateCode}
+            city={city}
+            locationMode={locationMode}
+            targetCities={targetCities}
+            discoveredPincodes={discoveredPincodes}
+            discoveredAreasCount={discoveredAreas.length}
+            isDiscovering={isDiscovering}
+            onTriggerDiscovery={handleTriggerDiscovery}
+            onChangeLocation={handleLocationChange}
+          />
 
-      {/* Recent Scraping Activity & History */}
-      <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
-              <Calendar className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-slate-900">Recent Scraping History</h3>
-              <p className="text-xs text-slate-500">
-                Log of automated midnight runs and on-demand scraping batches.
-              </p>
-            </div>
-          </div>
-
-          <button
-            onClick={() => refetchHistory()}
-            className="text-xs font-semibold text-teal-600 hover:text-teal-700 transition-colors"
-          >
-            Refresh History
-          </button>
-        </div>
-
-        <div className="overflow-x-auto rounded-2xl border border-slate-100">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50/80 text-slate-500 font-semibold border-b border-slate-100">
-              <tr>
-                <th className="py-3 px-4">Date & Time (IST)</th>
-                <th className="py-3 px-4">Trigger</th>
-                <th className="py-3 px-4">Status</th>
-                <th className="py-3 px-4">Kutch Localities Processed</th>
-                <th className="py-3 px-4">Unique Leads Collected</th>
-                <th className="py-3 px-4">Duplicates Filtered</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {loadingHistory ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-teal-600" />
-                    <span>Loading scraping activity...</span>
-                  </td>
-                </tr>
-              ) : !historyResponse || historyResponse.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-400">
-                    <Compass className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                    <p className="font-semibold text-slate-600 text-sm">No Scraping Runs Recorded Yet</p>
-                    <p className="text-xs text-slate-400 mt-1">
-                      Scraping runs automatically every night at 12:00 AM IST, or click &quot;Run Scraping Now&quot; to start immediately.
+          {/* Discovered Postal Areas & Google Maps Queries Explorer */}
+          {discoveredAreas && discoveredAreas.length > 0 && (
+            <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4 animate-in fade-in">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
+                    <Compass className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-base font-bold text-slate-900">
+                        Discovered Postal Areas in {displayCity || 'City'} ({discoveredAreas.length})
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 border border-teal-200 text-teal-700">
+                        Indian Postal PIN Code API
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Extracted <code className="text-teal-700 font-bold">PostOffice[].Name</code> areas with dynamically generated Google Maps queries.
                     </p>
-                  </td>
-                </tr>
-              ) : (
-                historyResponse.map((run: any) => {
-                  const startedAt = run.started_at ? new Date(run.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-';
-                  const isSuccess = run.status === 'COMPLETED';
-                  const isRunActive = run.status === 'RUNNING';
+                  </div>
+                </div>
 
+                <div className="flex items-center gap-2 self-start sm:self-center">
+                  <button
+                    type="button"
+                    onClick={() => handleTriggerDiscovery(true)}
+                    disabled={isDiscovering}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 transition-colors cursor-pointer"
+                    title="Force refresh areas from API"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${isDiscovering ? 'animate-spin' : ''}`} />
+                    <span>Re-Discover</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowDiscoveredExplorer(!showDiscoveredExplorer)}
+                    className="text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100/70 border border-teal-200 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer"
+                  >
+                    {showDiscoveredExplorer ? 'Collapse Areas' : `View All ${discoveredAreas.length} Areas`}
+                  </button>
+                </div>
+              </div>
+
+              {showDiscoveredExplorer && (
+                <div className="space-y-3 pt-1">
+                  {/* Filter search bar */}
+                  <div className="relative max-w-md">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Filter discovered areas or PIN codes..."
+                      value={areaSearchFilter}
+                      onChange={(e) => setAreaSearchFilter(e.target.value)}
+                      className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 font-medium"
+                    />
+                  </div>
+
+                  {/* Grid of Areas */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-96 overflow-y-auto pr-1">
+                    {discoveredAreas
+                      .filter((a: any) => {
+                        if (!areaSearchFilter.trim()) return true;
+                        const q = areaSearchFilter.toLowerCase();
+                        return (
+                          a.name.toLowerCase().includes(q) ||
+                          (a.pincode && a.pincode.includes(q)) ||
+                          (a.maps_query && a.maps_query.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((area: any, idx: number) => {
+                        const isNextInQueue = idx === currentAreaIndex;
+                        return (
+                          <div
+                            key={`${area.name}-${area.pincode}-${idx}`}
+                            className={`p-3 rounded-2xl border text-xs flex flex-col justify-between gap-2 transition-all ${isNextInQueue
+                              ? 'bg-teal-50/80 border-teal-300 ring-2 ring-teal-500/20 shadow-xs'
+                              : 'bg-slate-50/50 border-slate-200/80 hover:bg-slate-50'
+                              }`}
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div>
+                                <span className="font-extrabold text-slate-900 block text-xs">
+                                  {area.name}
+                                </span>
+                                <span className="text-[10px] text-slate-400 block mt-0.5">
+                                  {area.district || district} • {area.state}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                {area.pincode && (
+                                  <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold bg-white border border-slate-200 text-slate-700 shadow-2xs">
+                                    📮 {area.pincode}
+                                  </span>
+                                )}
+                                {isNextInQueue && (
+                                  <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-teal-600 text-white animate-pulse">
+                                    NEXT
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Google Maps Generated Query */}
+                            <div className="p-2 rounded-xl bg-white border border-slate-100 text-[10px] space-y-1">
+                              <div className="flex items-center gap-1 text-slate-400 font-semibold">
+                                <MapPin className="w-2.5 h-2.5 text-teal-600" />
+                                <span>Google Maps Query:</span>
+                              </div>
+                              <p className="font-mono text-slate-700 truncate" title={area.maps_query}>
+                                {area.maps_query}
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Systematic Kutch Localities Catalog Explorer */}
+          <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
+                  <MapPin className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">
+                    {city.toLowerCase().includes('kutch') || city.toLowerCase().includes('bhuj')
+                      ? 'Kutch Localities Coverage Index'
+                      : `${city} Regional Coverage Index`}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {city.toLowerCase().includes('kutch') || city.toLowerCase().includes('bhuj')
+                      ? 'All 38 key areas and localities across Bhuj, Gandhidham, Mandvi, White Desert, Anjar, Mundra, and Western/Eastern Kutch.'
+                      : `Localities and areas prioritized for lead generation in ${city}, ${district || state}.`}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowCatalog(!showCatalog)}
+                className="text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100/70 border border-teal-200 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer self-start sm:self-center"
+              >
+                {showCatalog ? 'Hide Localities List' : `View All ${kutchCatalog.length || 38} Reference Localities`}
+              </button>
+            </div>
+
+            {/* Localities Grid Preview */}
+            {showCatalog && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 pt-3 animate-in fade-in duration-200">
+                {kutchCatalog.map((loc: any, idx: number) => {
+                  const isCurrent = idx === currentLocalityIndex;
                   return (
-                    <tr key={run._id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="py-3.5 px-4 font-medium text-slate-800">
-                        {startedAt}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                          run.trigger_type === 'SCHEDULED'
-                            ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                            : 'bg-blue-50 text-blue-700 border border-blue-200'
-                        }`}>
-                          {run.trigger_type === 'SCHEDULED' ? 'Scheduled (12 AM)' : 'Manual Trigger'}
+                    <div
+                      key={`${loc.city}-${loc.locality}`}
+                      className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 transition-all ${isCurrent
+                        ? 'bg-teal-50 border-teal-300 ring-2 ring-teal-500/20 shadow-xs'
+                        : 'bg-slate-50/60 border-slate-200/70'
+                        }`}
+                    >
+                      <div className="overflow-hidden">
+                        <span className="font-bold text-slate-800 block truncate">{loc.locality}</span>
+                        <span className="text-[10px] text-slate-400 block truncate">{loc.city} • {loc.zone}</span>
+                      </div>
+                      {isCurrent ? (
+                        <span className="shrink-0 px-2 py-0.5 rounded-md text-[9px] font-extrabold bg-teal-600 text-white animate-pulse">
+                          NEXT
                         </span>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                          isSuccess
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                            : isRunActive
-                            ? 'bg-amber-50 text-amber-700 border border-amber-200 animate-pulse'
-                            : 'bg-rose-50 text-rose-700 border border-rose-200'
-                        }`}>
-                          {isSuccess && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
-                          {isRunActive && <Loader2 className="w-3 h-3 animate-spin text-amber-600" />}
-                          <span>{run.status}</span>
+                      ) : (
+                        <span className="shrink-0 text-[10px] text-slate-400 font-semibold">
+                          #{idx + 1}
                         </span>
-                      </td>
-                      <td className="py-3.5 px-4">
-                        <div className="flex flex-wrap gap-1 max-w-xs">
-                          {run.localities_processed && run.localities_processed.length > 0 ? (
-                            run.localities_processed.map((l: any, i: number) => (
-                              <span
-                                key={i}
-                                className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-semibold"
-                              >
-                                {l.locality || l.city} ({l.leads_collected})
-                              </span>
-                            ))
-                          ) : (
-                            <span className="text-slate-400 text-[11px]">-</span>
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-3.5 px-4 font-bold text-slate-900">
-                        <span className="text-teal-600 font-extrabold">{run.total_collected || 0}</span>
-                        <span className="text-slate-400 font-normal"> / {run.daily_limit_target || 100}</span>
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-500">
-                        {run.duplicates_filtered || 0} duplicates
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Settings & Configuration Card */}
+          <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
+                  <Sliders className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Customizable Scraping Settings</h3>
+                  <p className="text-xs text-slate-500">
+                    Adjust your daily target quota and automatic midnight execution.
+                  </p>
+                </div>
+              </div>
+
+              {/* Master Toggle */}
+              <div className="flex items-center gap-3 bg-slate-50 border border-slate-200/80 px-4 py-2 rounded-2xl self-start sm:self-center">
+                <span className="text-xs font-semibold text-slate-700">Daily Automation:</span>
+                <button
+                  type="button"
+                  onClick={() => setIsActive(!isActive)}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${isActive ? 'bg-teal-600' : 'bg-slate-300'
+                    }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${isActive ? 'translate-x-5' : 'translate-x-0'
+                      }`}
+                  />
+                </button>
+                <span className={`text-xs font-bold ${isActive ? 'text-teal-700' : 'text-slate-400'}`}>
+                  {isActive ? 'ENABLED' : 'PAUSED'}
+                </span>
+              </div>
+            </div>
+
+            {/* Controls */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Daily Limit Control */}
+              <div className="space-y-3">
+                <label className="text-xs font-bold text-slate-700 block">
+                  Daily Lead Limit (Target New Unique Leads / Day)
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    min="10"
+                    max="1000"
+                    step="10"
+                    value={dailyLimit}
+                    onChange={(e) => setDailyLimit(Number(e.target.value))}
+                    className="w-32 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    {[100, 250, 500, 1000].map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setDailyLimit(preset)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${dailyLimit === preset
+                          ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold'
+                          : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
+                          }`}
+                      >
+                        {preset} leads
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[11px] text-slate-400">
+                  The scraper explores localities sequentially until reaching exactly <strong className="text-slate-600">{dailyLimit} fresh leads</strong>.
+                </p>
+              </div>
+
+              {/* Schedule Info Box */}
+              <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col justify-between">
+                <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
+                  <Clock className="w-4 h-4 text-teal-600" />
+                  <span>Execution Schedule & Deduplication</span>
+                </div>
+                <div className="mt-2 space-y-1 text-xs text-slate-600">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Target Geography:</span>
+                    <span className="font-semibold text-teal-700 truncate max-w-[200px]" title={`${displayCity || city}, ${state}, ${country}`}>
+                      {displayCity || city || 'Bhuj'}, {state || 'Gujarat'}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Frequency:</span>
+                    <span className="font-semibold text-slate-900">Every Night at 12:00 AM (Midnight)</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Timezone:</span>
+                    <span className="font-semibold text-slate-900">Asia/Kolkata (IST)</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">Duplicate Filter:</span>
+                    <span className="font-semibold text-emerald-600">100% Unique Verified Leads</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Admin Lead Assignment & User Visibility Control */}
+            <div className="pt-5 border-t border-slate-100 space-y-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-teal-50 border border-teal-200/80 flex items-center justify-center text-teal-600">
+                  <UserCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                    Lead Assignment & User Visibility Control
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Configure which user account automatically receives new leads and whether leads are immediately visible or held for Admin review.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 bg-slate-50/70 p-4 rounded-2xl border border-slate-200/70">
+                {/* Assign To User Dropdown */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Assign Scraped Leads To Account:
+                  </label>
+                  <select
+                    value={assignedUserId}
+                    onChange={(e) => {
+                      const selId = e.target.value;
+                      setAssignedUserId(selId);
+                      const found = assignableUsers.find((u) => u.id === selId);
+                      if (found) {
+                        setAssignedUserEmail(found.email);
+                        if (found.email.toLowerCase() === TARGET_EMAIL.toLowerCase()) {
+                          setKeyword('Travel Agency');
+                        }
+                      } else {
+                        setAssignedUserEmail('');
+                        setKeyword('Travel Agency');
+                      }
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all cursor-pointer"
+                  >
+                    <option value="">Default (Kutch Tour Guide / System)</option>
+                    {assignableUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.full_name ? `${u.full_name} (${u.email})` : u.email} [{u.role}]
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[11px] text-slate-400">
+                    Target account: <span className="font-semibold text-teal-700">{assignedUserEmail || TARGET_EMAIL}</span>. Leads will be accessible in their <code className="text-teal-700 font-bold">/dashboard/leads</code> table.
+                  </p>
+                </div>
+
+                {/* Target Industry Keyword */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5 text-teal-600" />
+                      <span>Industry Keyword:</span>
+                    </label>
+                    {isKutchTarget ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold">
+                        <Lock className="w-2.5 h-2.5" />
+                        Fixed (Travel Agency)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold">
+                        Editable
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={isKutchTarget ? 'Travel Agency' : keyword}
+                      onChange={(e) => {
+                        if (!isKutchTarget) {
+                          setKeyword(e.target.value);
+                        }
+                      }}
+                      disabled={isKutchTarget}
+                      placeholder="e.g. Travel Agency, Real Estate, Hotels..."
+                      className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
+                        isKutchTarget
+                          ? 'bg-slate-100/80 border-slate-200 text-slate-500 cursor-not-allowed select-none'
+                          : 'bg-white border-slate-200 text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500'
+                      }`}
+                    />
+                    {isKutchTarget && (
+                      <Lock className="w-3.5 h-3.5 text-slate-400 absolute right-3 top-3 pointer-events-none" />
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {isKutchTarget ? (
+                      <>
+                        Permanently locked to <strong className="text-amber-700">&quot;Travel Agency&quot;</strong> for Kutch Tour Guide account.
+                      </>
+                    ) : (
+                      <>
+                        Custom search niche for this user (e.g., <span className="text-teal-700 font-semibold">Real Estate, Hotels, Clinics</span>).
+                      </>
+                    )}
+                  </p>
+                </div>
+
+                {/* Visibility Mode Selector */}
+                <div className="space-y-2">
+                  <label className="text-xs font-bold text-slate-700 block">
+                    Default Lead Visibility:
+                  </label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setDefaultVisibility('visible')}
+                      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${defaultVisibility === 'visible'
+                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-bold shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                    >
+                      <Eye className="w-4 h-4 text-emerald-600" />
+                      <span>Visible to User</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDefaultVisibility('hidden')}
+                      className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${defaultVisibility === 'hidden'
+                        ? 'bg-amber-50 border-amber-300 text-amber-800 font-bold shadow-xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                    >
+                      <EyeOff className="w-4 h-4 text-amber-600" />
+                      <span>Hidden (Admin Only)</span>
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {defaultVisibility === 'visible'
+                      ? 'Assigned user can immediately see, export, and contact these leads.'
+                      : 'Hidden from regular user until Admin reviews and un-hides them in Leads management.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Action Save Bar */}
+            <div className="flex items-center justify-between pt-4 border-t border-slate-100">
+              <p className="text-xs text-slate-500">
+                Systematic locality indexes persist across server restarts and daily runs.
+              </p>
+              <button
+                type="button"
+                onClick={() => handleSaveSettings()}
+                disabled={isSaving}
+                className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-xs transition-all cursor-pointer active:scale-95 disabled:opacity-50"
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Saving Changes...</span>
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-4 h-4" />
+                    <span>Save Configuration</span>
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Recent Scraping Activity & History */}
+          <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+                  <Calendar className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Recent Scraping History</h3>
+                  <p className="text-xs text-slate-500">
+                    Log of automated midnight runs and on-demand scraping batches.
+                  </p>
+                </div>
+              </div>
+
+              <button
+                onClick={() => refetchHistory()}
+                className="text-xs font-semibold text-teal-600 hover:text-teal-700 transition-colors"
+              >
+                Refresh History
+              </button>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-100">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50/80 text-slate-500 font-semibold border-b border-slate-100">
+                  <tr>
+                    <th className="py-3 px-4">Date & Time (IST)</th>
+                    <th className="py-3 px-4">Trigger</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4">Kutch Localities Processed</th>
+                    <th className="py-3 px-4">Unique Leads Collected</th>
+                    <th className="py-3 px-4">Duplicates Filtered</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {loadingHistory ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-slate-400">
+                        <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2 text-teal-600" />
+                        <span>Loading scraping activity...</span>
                       </td>
                     </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+                  ) : !historyResponse || historyResponse.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center text-slate-400">
+                        <Compass className="w-8 h-8 mx-auto mb-2 text-slate-300" />
+                        <p className="font-semibold text-slate-600 text-sm">No Scraping Runs Recorded Yet</p>
+                        <p className="text-xs text-slate-400 mt-1">
+                          Scraping runs automatically every night at 12:00 AM IST, or click &quot;Run Scraping Now&quot; to start immediately.
+                        </p>
+                      </td>
+                    </tr>
+                  ) : (
+                    historyResponse.map((run: any) => {
+                      const startedAt = run.started_at ? new Date(run.started_at).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : '-';
+                      const isSuccess = run.status === 'COMPLETED';
+                      const isRunActive = run.status === 'RUNNING';
+
+                      return (
+                        <tr key={run._id} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="py-3.5 px-4 font-medium text-slate-800">
+                            {startedAt}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${run.trigger_type === 'SCHEDULED'
+                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                              : 'bg-blue-50 text-blue-700 border border-blue-200'
+                              }`}>
+                              {run.trigger_type === 'SCHEDULED' ? 'Scheduled (12 AM)' : 'Manual Trigger'}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold ${isSuccess
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : isRunActive
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200 animate-pulse'
+                                : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}>
+                              {isSuccess && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
+                              {isRunActive && <Loader2 className="w-3 h-3 animate-spin text-amber-600" />}
+                              <span>{run.status}</span>
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="flex flex-wrap gap-1 max-w-xs">
+                              {run.localities_processed && run.localities_processed.length > 0 ? (
+                                run.localities_processed.map((l: any, i: number) => (
+                                  <span
+                                    key={i}
+                                    className="px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-700 text-[10px] font-semibold"
+                                  >
+                                    {l.locality || l.city} ({l.leads_collected})
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-slate-400 text-[11px]">-</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3.5 px-4 font-bold text-slate-900">
+                            <span className="text-teal-600 font-extrabold">{run.total_collected || 0}</span>
+                            <span className="text-slate-400 font-normal"> / {run.daily_limit_target || 100}</span>
+                          </td>
+                          <td className="py-3.5 px-4 text-slate-500">
+                            {run.duplicates_filtered || 0} duplicates
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
-  )}
-</div>
-);
+  );
 }

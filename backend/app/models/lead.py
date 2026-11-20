@@ -705,6 +705,15 @@ class LeadBase(BaseModel):
     failure_reason: Optional[str] = None
     missing_fields: List[str] = Field(default_factory=list)
 
+    # Lead Assignment & Visibility
+    is_auto_lead: Optional[bool] = None
+    source: Optional[str] = None
+    assigned_to: Optional[str] = None
+    assigned_user_email: Optional[str] = None
+    assigned_at: Optional[datetime] = None
+    assigned_by: Optional[str] = None
+    visibility: Optional[str] = Field(default="visible")
+
 
 
     @field_validator("website", mode="before")

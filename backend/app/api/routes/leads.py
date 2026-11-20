@@ -236,6 +236,16 @@ class DBInfoResponse(BaseModel):
 class BulkIds(BaseModel):
     lead_ids: List[str]
 
+class AssignLeadsRequest(BaseModel):
+    lead_ids: List[str]
+    user_id: Optional[str] = None
+    user_email: Optional[str] = None
+    visibility: Optional[str] = "visible"
+
+class VisibilityUpdateRequest(BaseModel):
+    lead_ids: List[str]
+    visibility: str
+
 class LeadIdsResponse(BaseModel):
     data: List[str]
     total: int
@@ -251,6 +261,9 @@ def build_lead_filters(
     has_email: Optional[bool] = None,
     min_rating: Optional[float] = None,
     status: Optional[str] = None,
+    assigned_to: Optional[str] = None,
+    is_auto_lead: Optional[bool] = None,
+    visibility: Optional[str] = None,
 ) -> dict:
     """Build the Mongo query used to filter leads on the /leads page."""
     query: dict = {}
@@ -277,8 +290,44 @@ def build_lead_filters(
                 {"search_job_id": job_id},
             ]
         })
+    if assigned_to:
+        if assigned_to.lower() == "unassigned":
+            filter_clauses.append({
+                "$or": [
+                    {"assigned_to": None},
+                    {"assigned_to": ""},
+                    {"assigned_to": {"$exists": False}},
+                ]
+            })
+        else:
+            filter_clauses.append({
+                "$or": [
+                    {"assigned_to": assigned_to},
+                    {"assigned_user_email": assigned_to},
+                ]
+            })
+
+    if is_auto_lead is True:
+        filter_clauses.append({
+            "$or": [
+                {"is_auto_lead": True},
+                {"source": "auto_leadfinder"},
+                {"requested_provider": "Auto LeadFinder"},
+            ]
+        })
+    elif is_auto_lead is False:
+        filter_clauses.append({
+            "$or": [
+                {"is_auto_lead": {"$ne": True}},
+                {"is_auto_lead": {"$exists": False}},
+            ]
+        })
+
     if filter_clauses:
         query["$and"] = filter_clauses
+
+    if visibility:
+        query["visibility"] = visibility
 
     # City filter
     if city:
@@ -340,6 +389,9 @@ async def get_leads(
     has_email: Optional[bool] = None,
     min_rating: Optional[float] = None,
     status: Optional[str] = None,
+    assigned_to: Optional[str] = None,
+    is_auto_lead: Optional[bool] = None,
+    visibility: Optional[str] = None,
     sort_by: str = "created_at",
     sort_order: int = -1,
     current_user: UserInDB = Depends(get_current_user),
@@ -358,9 +410,25 @@ async def get_leads(
         has_email=has_email,
         min_rating=min_rating,
         status=status,
+        assigned_to=assigned_to,
+        is_auto_lead=is_auto_lead,
+        visibility=visibility,
     )
     if current_user.role != "ADMIN":
-        query["user_id"] = current_user.id
+        ownership_vis_clauses = [
+            {
+                "$or": [
+                    {"user_id": current_user.id},
+                    {"assigned_to": current_user.id},
+                    {"assigned_user_email": current_user.email},
+                ]
+            },
+            {"visibility": {"$ne": "hidden"}},
+        ]
+        if "$and" in query:
+            query["$and"].extend(ownership_vis_clauses)
+        else:
+            query["$and"] = ownership_vis_clauses
 
     # Validation of sort fields
     if sort_by not in ["name", "google_rating", "review_count", "created_at", "category", "status", "lead_score", "ai_score"]:
@@ -405,7 +473,16 @@ async def export_leads(
 ):
     query = {}
     if current_user.role != "ADMIN":
-        query["user_id"] = current_user.id
+        query["$and"] = [
+            {
+                "$or": [
+                    {"user_id": current_user.id},
+                    {"assigned_to": current_user.id},
+                    {"assigned_user_email": current_user.email},
+                ]
+            },
+            {"visibility": {"$ne": "hidden"}},
+        ]
     cursor = db["leads"].find(query)
     leads = await cursor.to_list(length=None)
     
@@ -528,7 +605,17 @@ async def bulk_delete(
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     valid_ids = [ObjectId(lid) for lid in data.lead_ids if ObjectId.is_valid(lid)]
-    await db["leads"].delete_many({"_id": {"$in": valid_ids}, "user_id": current_user.id})
+    if current_user.role != "ADMIN":
+        await db["leads"].delete_many({
+            "_id": {"$in": valid_ids},
+            "$or": [
+                {"user_id": current_user.id},
+                {"assigned_to": current_user.id},
+                {"assigned_user_email": current_user.email},
+            ]
+        })
+    else:
+        await db["leads"].delete_many({"_id": {"$in": valid_ids}})
     return {"success": True}
 
 @router.get("/ids", response_model=LeadIdsResponse)
@@ -542,6 +629,9 @@ async def get_lead_ids(
     has_email: Optional[bool] = None,
     min_rating: Optional[float] = None,
     status: Optional[str] = None,
+    assigned_to: Optional[str] = None,
+    is_auto_lead: Optional[bool] = None,
+    visibility: Optional[str] = None,
     current_user: UserInDB = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
@@ -557,14 +647,123 @@ async def get_lead_ids(
         has_email=has_email,
         min_rating=min_rating,
         status=status,
+        assigned_to=assigned_to,
+        is_auto_lead=is_auto_lead,
+        visibility=visibility,
     )
     if current_user.role != "ADMIN":
-        query["user_id"] = current_user.id
+        ownership_vis_clauses = [
+            {
+                "$or": [
+                    {"user_id": current_user.id},
+                    {"assigned_to": current_user.id},
+                    {"assigned_user_email": current_user.email},
+                ]
+            },
+            {"visibility": {"$ne": "hidden"}},
+        ]
+        if "$and" in query:
+            query["$and"].extend(ownership_vis_clauses)
+        else:
+            query["$and"] = ownership_vis_clauses
+
     cursor = db["leads"].find(query, {"_id": 1})
     ids = []
     async for doc in cursor:
         ids.append(str(doc["_id"]))
     return LeadIdsResponse(data=ids, total=len(ids))
+
+@router.post("/assign")
+async def assign_leads(
+    data: AssignLeadsRequest,
+    current_user: UserInDB = Depends(RequireRole(["ADMIN"])),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    valid_ids = [ObjectId(lid) for lid in data.lead_ids if ObjectId.is_valid(lid)]
+    if not valid_ids:
+        raise HTTPException(status_code=400, detail="No valid lead IDs provided")
+
+    now = datetime.now(timezone.utc)
+    if data.user_id:
+        target_user = None
+        if ObjectId.is_valid(data.user_id):
+            target_user = await db["users"].find_one({"_id": ObjectId(data.user_id)})
+        if not target_user:
+            target_user = await db["users"].find_one({"_id": data.user_id})
+
+        target_email = data.user_email or (target_user.get("email") if target_user else "")
+        target_uid = str(target_user["_id"]) if target_user else str(data.user_id)
+
+        update_fields = {
+            "assigned_to": target_uid,
+            "assigned_user_email": target_email,
+            "user_id": target_uid,
+            "assigned_at": now,
+            "assigned_by": current_user.email or current_user.id,
+            "visibility": data.visibility or "visible",
+            "updated_at": now
+        }
+    else:
+        # Unassign
+        update_fields = {
+            "assigned_to": None,
+            "assigned_user_email": None,
+            "assigned_at": None,
+            "assigned_by": None,
+            "visibility": data.visibility or "visible",
+            "updated_at": now
+        }
+
+    res = await db["leads"].update_many(
+        {"_id": {"$in": valid_ids}},
+        {"$set": update_fields}
+    )
+    return {
+        "success": True,
+        "modified_count": res.modified_count,
+        "assigned_to": data.user_id,
+        "assigned_user_email": data.user_email,
+        "visibility": data.visibility or "visible"
+    }
+
+@router.post("/visibility")
+async def update_leads_visibility(
+    data: VisibilityUpdateRequest,
+    current_user: UserInDB = Depends(RequireRole(["ADMIN"])),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    valid_ids = [ObjectId(lid) for lid in data.lead_ids if ObjectId.is_valid(lid)]
+    if not valid_ids:
+        raise HTTPException(status_code=400, detail="No valid lead IDs provided")
+
+    vis_value = "hidden" if data.visibility.lower() == "hidden" else "visible"
+    now = datetime.now(timezone.utc)
+    res = await db["leads"].update_many(
+        {"_id": {"$in": valid_ids}},
+        {"$set": {"visibility": vis_value, "updated_at": now}}
+    )
+    return {"success": True, "modified_count": res.modified_count, "visibility": vis_value}
+
+@router.get("/assignable-users")
+async def get_assignable_users(
+    current_user: UserInDB = Depends(RequireRole(["ADMIN"])),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    cursor = db["users"].find({"account_status": {"$ne": "Deactivated"}}).sort("full_name", 1)
+    users = await cursor.to_list(length=300)
+    return {
+        "success": True,
+        "data": [
+            {
+                "id": str(u["_id"]),
+                "email": u.get("email", ""),
+                "full_name": u.get("full_name") or u.get("email", ""),
+                "role": u.get("role", "USER"),
+                "company_name": u.get("company_name", "")
+            }
+            for u in users
+        ]
+    }
 
 @router.get("/db-info", response_model=DBInfoResponse)
 async def get_db_info(
@@ -788,7 +987,12 @@ async def get_lead(
     if not ObjectId.is_valid(id): raise HTTPException(400)
     query = {"_id": ObjectId(id)}
     if current_user.role != "ADMIN":
-        query["user_id"] = current_user.id
+        query["$or"] = [
+            {"user_id": current_user.id},
+            {"assigned_to": current_user.id},
+            {"assigned_user_email": current_user.email},
+        ]
+        query["visibility"] = {"$ne": "hidden"}
     lead = await db["leads"].find_one(query)
     if not lead:
         raise HTTPException(404, detail="Lead not found")
@@ -814,7 +1018,11 @@ async def delete_lead(
     if not ObjectId.is_valid(id): raise HTTPException(400)
     query = {"_id": ObjectId(id)}
     if current_user.role != "ADMIN":
-        query["user_id"] = current_user.id
+        query["$or"] = [
+            {"user_id": current_user.id},
+            {"assigned_to": current_user.id},
+            {"assigned_user_email": current_user.email},
+        ]
     await db["leads"].delete_one(query)
     return {"success": True}
 
@@ -828,7 +1036,11 @@ async def patch_favorite(
     if not ObjectId.is_valid(id): raise HTTPException(400)
     query = {"_id": ObjectId(id)}
     if current_user.role != "ADMIN":
-        query["user_id"] = current_user.id
+        query["$or"] = [
+            {"user_id": current_user.id},
+            {"assigned_to": current_user.id},
+            {"assigned_user_email": current_user.email},
+        ]
     await db["leads"].update_one(
         query,
         {"$set": {"is_favorite": data.is_favorite}}
@@ -845,7 +1057,11 @@ async def patch_tags(
     if not ObjectId.is_valid(id): raise HTTPException(400)
     query = {"_id": ObjectId(id)}
     if current_user.role != "ADMIN":
-        query["user_id"] = current_user.id
+        query["$or"] = [
+            {"user_id": current_user.id},
+            {"assigned_to": current_user.id},
+            {"assigned_user_email": current_user.email},
+        ]
     await db["leads"].update_one(
         query,
         {"$set": {"tags": data.tags}}
@@ -860,7 +1076,11 @@ async def get_lead_notes(
 ):
     query = {"lead_id": id}
     if current_user.role != "ADMIN":
-        query["user_id"] = current_user.id
+        query["$or"] = [
+            {"user_id": current_user.id},
+            {"assigned_to": current_user.id},
+            {"assigned_user_email": current_user.email},
+        ]
     cursor = db["notes"].find(query).sort("created_at", -1)
     notes = await cursor.to_list(length=None)
     for n in notes: n["_id"] = str(n["_id"])
@@ -899,7 +1119,11 @@ async def start_analysis(
     
     query = {"_id": ObjectId(id)}
     if current_user.role != "ADMIN":
-        query["user_id"] = current_user.id
+        query["$or"] = [
+            {"user_id": current_user.id},
+            {"assigned_to": current_user.id},
+            {"assigned_user_email": current_user.email},
+        ]
     lead = await db["leads"].find_one(query)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found.")

@@ -146,7 +146,7 @@ export default function Sidebar() {
     {
       title: 'AUTOMATION',
       items: [
-        ...(isKutchTourGuide ? [{
+        ...((isAdmin || isKutchTourGuide) ? [{
           name: 'Auto LeadFinder',
           href: '/dashboard/auto-leadfinder',
           icon: Compass,

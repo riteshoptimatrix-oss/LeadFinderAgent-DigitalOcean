@@ -165,6 +165,9 @@ async def get_or_create_settings(db = None) -> Dict[str, Any]:
             "current_locality_index": 0,
             "covered_localities": [],
             "industry_keywords": KUTCH_TOURISM_KEYWORDS.copy(),
+            "assigned_user_id": user_id,
+            "assigned_user_email": TARGET_USER_EMAIL,
+            "default_visibility": "visible",
             "timezone": "Asia/Kolkata",
             "schedule_time": "00:00",
             "last_run_at": None,
@@ -260,10 +263,40 @@ async def update_settings(payload: Dict[str, Any], db = None) -> Dict[str, Any]:
         except (ValueError, TypeError):
             pass
 
-    if "industry_keywords" in payload and isinstance(payload["industry_keywords"], list):
-        cleaned_kws = [str(k).strip() for k in payload["industry_keywords"] if str(k).strip()]
-        if cleaned_kws:
-            update_data["industry_keywords"] = cleaned_kws
+    if "assigned_user_id" in payload:
+        update_data["assigned_user_id"] = str(payload["assigned_user_id"]).strip() if payload["assigned_user_id"] else None
+    if "assigned_user_email" in payload:
+        update_data["assigned_user_email"] = str(payload["assigned_user_email"]).strip() if payload["assigned_user_email"] else None
+    if "default_visibility" in payload and payload["default_visibility"]:
+        update_data["default_visibility"] = str(payload["default_visibility"]).strip().lower()
+
+    # Rule: For kutchtourguide user, the keyword "Travel Agency" must remain permanently fixed and non-editable.
+    # For all other users, the keyword should remain fully editable.
+    current_settings = await get_or_create_settings(db)
+    target_assigned_email = (
+        update_data.get("assigned_user_email")
+        or payload.get("assigned_user_email")
+        or current_settings.get("assigned_user_email")
+        or TARGET_USER_EMAIL
+    )
+    is_kutch_target = str(target_assigned_email).strip().lower() == TARGET_USER_EMAIL.lower()
+
+    if is_kutch_target:
+        # kutchtourguide -> "Travel Agency" must always remain fixed and non-editable
+        update_data["industry_keywords"] = ["Travel Agency"]
+        update_data["keyword"] = "Travel Agency"
+    else:
+        # Fully editable for all other users
+        if "keyword" in payload and payload["keyword"]:
+            kw = str(payload["keyword"]).strip()
+            if kw:
+                update_data["industry_keywords"] = [kw]
+                update_data["keyword"] = kw
+        elif "industry_keywords" in payload and isinstance(payload["industry_keywords"], list):
+            cleaned_kws = [str(k).strip() for k in payload["industry_keywords"] if str(k).strip()]
+            if cleaned_kws:
+                update_data["industry_keywords"] = cleaned_kws
+                update_data["keyword"] = cleaned_kws[0]
 
     await db["auto_leadfinder_settings"].update_one(
         {"user_email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},
@@ -331,6 +364,11 @@ async def get_kpi_stats(db = None) -> Dict[str, Any]:
     curr_idx = settings.get("current_locality_index", 0) % len(KUTCH_LOCALITIES_CATALOG)
     current_locality = KUTCH_LOCALITIES_CATALOG[curr_idx]
 
+    assigned_user_email = settings.get("assigned_user_email") or TARGET_USER_EMAIL
+    is_kutch_target = str(assigned_user_email).strip().lower() == TARGET_USER_EMAIL.lower()
+    effective_keywords = ["Travel Agency"] if is_kutch_target else (settings.get("industry_keywords") or ["Travel Agency"])
+    keyword_str = "Travel Agency" if is_kutch_target else (effective_keywords[0] if effective_keywords else "Travel Agency")
+
     return {
         "user_email": TARGET_USER_EMAIL,
         "is_active": settings.get("is_active", True),
@@ -351,7 +389,13 @@ async def get_kpi_stats(db = None) -> Dict[str, Any]:
         "current_locality_name": f"{current_locality['locality']}, {current_locality['city']}",
         "total_kutch_localities": len(KUTCH_LOCALITIES_CATALOG),
         "kutch_localities_catalog": KUTCH_LOCALITIES_CATALOG,
-        "industry_keywords": settings.get("industry_keywords", KUTCH_TOURISM_KEYWORDS),
+        "industry_keywords": effective_keywords,
+        "keyword": keyword_str,
+        "is_keyword_fixed": is_kutch_target,
+        "fixed_keyword": "Travel Agency" if is_kutch_target else None,
+        "assigned_user_id": settings.get("assigned_user_id"),
+        "assigned_user_email": assigned_user_email,
+        "default_visibility": settings.get("default_visibility", "visible"),
         "total_leads_collected": total_leads_collected,
         "today_leads_collected": today_leads_collected,
         "is_running": is_running,
@@ -405,6 +449,20 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
         daily_limit = settings.get("daily_limit", 500)
         start_locality_idx = settings.get("current_locality_index", 0)
         industry_keywords = settings.get("industry_keywords", KUTCH_TOURISM_KEYWORDS)
+
+        # Dynamic Lead Assignment & Visibility
+        assigned_user_id = settings.get("assigned_user_id") or user_id
+        assigned_user_email = settings.get("assigned_user_email") or TARGET_USER_EMAIL
+        default_visibility = settings.get("default_visibility", "visible")
+
+        # Determine effective keywords based on assigned user
+        is_kutch_assigned = str(assigned_user_email).strip().lower() == TARGET_USER_EMAIL.lower()
+        if is_kutch_assigned:
+            # kutchtourguide -> "Travel Agency" must always remain fixed and non-editable
+            active_keywords = ["Travel Agency"]
+        else:
+            raw_kws = settings.get("industry_keywords")
+            active_keywords = [str(k).strip() for k in raw_kws if str(k).strip()] if raw_kws else ["Travel Agency"]
 
         if not is_active and trigger_type == "SCHEDULED":
             logger.info("[AUTO_LEADFINDER] Automation is toggled OFF by user. Skipping scheduled run.")
@@ -511,8 +569,7 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
                 max_iterations = total_areas_len * 2
                 logger.info(f"[AUTO_LEADFINDER] Iterating {total_areas_len} discovered postal areas for {target_city}, starting from index {area_idx}")
 
-                # Prioritize "Travel Agency" and related tour guide keywords
-                active_keywords = ["Travel Agency"] + [k for k in industry_keywords if k != "Travel Agency"]
+                logger.info(f"[AUTO_LEADFINDER] Target active keywords for scraping ({assigned_user_email}): {active_keywords}")
 
                 while total_collected < target_for_this_run and iteration_steps < max_iterations:
                     area_item = discovered_areas[area_idx]
@@ -571,6 +628,12 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
                                 "is_auto_lead": True,
                                 "source": "auto_leadfinder",
                                 "requested_provider": "Auto LeadFinder",
+                                "assigned_to": assigned_user_id,
+                                "assigned_user_email": assigned_user_email,
+                                "user_id": assigned_user_id,
+                                "visibility": default_visibility,
+                                "assigned_at": datetime.now(timezone.utc),
+                                "assigned_by": "AUTO_LEADFINDER",
                                 "auto_scraped_area": area_name,
                                 "auto_scraped_pincode": area_pin,
                                 "auto_scraped_city": target_city,
@@ -643,7 +706,7 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
                     area_saved = 0
                     area_dups = 0
 
-                    for keyword in industry_keywords:
+                    for keyword in active_keywords:
                         needed = target_for_this_run - total_collected
                         if needed <= 0:
                             break
@@ -689,6 +752,12 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
                                 "is_auto_lead": True,
                                 "source": "auto_leadfinder",
                                 "requested_provider": "Auto LeadFinder",
+                                "assigned_to": assigned_user_id,
+                                "assigned_user_email": assigned_user_email,
+                                "user_id": assigned_user_id,
+                                "visibility": default_visibility,
+                                "assigned_at": datetime.now(timezone.utc),
+                                "assigned_by": "AUTO_LEADFINDER",
                                 "auto_scraped_city": target_city,
                                 "auto_scraped_state": target_state,
                                 "auto_scraped_country": target_country,
@@ -738,7 +807,7 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
 
                     logger.info(f"[AUTO_LEADFINDER] Covering Kutch Locality [{curr_idx+1}/{total_catalog_len}]: {locality}, {city} ({zone})")
 
-                    for keyword in industry_keywords:
+                    for keyword in active_keywords:
                         needed = target_for_this_run - total_collected
                         if needed <= 0:
                             break

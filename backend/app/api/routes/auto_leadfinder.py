@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, status
 from pydantic import BaseModel, Field
@@ -40,6 +41,24 @@ async def require_kutch_tour_guide(current_user: UserInDB = Depends(get_current_
     )
 
 
+def resolve_target_user_email(current_user: UserInDB, requested_email: Optional[str] = None) -> str:
+    """
+    Determine the target user context.
+    Administrators may switch between user accounts using requested_email.
+    Regular users are strictly isolated to their own authenticated email.
+    """
+    user_email = (getattr(current_user, "email", "") or "").strip().lower()
+    user_role = (getattr(current_user, "role", "") or "").strip().upper()
+    is_admin = user_role == "ADMIN" or getattr(current_user, "is_superuser", False) is True
+
+    if is_admin and requested_email and requested_email.strip():
+        return requested_email.strip().lower()
+
+    if user_email:
+        return user_email
+    return TARGET_USER_EMAIL.lower()
+
+
 class SettingsUpdateRequest(BaseModel):
     is_active: Optional[bool] = None
     daily_limit: Optional[int] = Field(None, ge=10, le=1000)
@@ -67,17 +86,89 @@ class DiscoverAreasRequest(BaseModel):
     country: Optional[str] = "India"
     district: Optional[str] = None
     force_refresh: Optional[bool] = False
+    user_email: Optional[str] = None
+
+
+@router.get("/users-with-access")
+async def get_users_with_auto_leadfinder_access(
+    current_user: UserInDB = Depends(require_kutch_tour_guide)
+) -> Any:
+    """
+    List all users who have Auto LeadFinder access enabled, so Admin can switch between user contexts.
+    """
+    try:
+        from app.db.database import get_db, db_instance
+        db = db_instance.db if db_instance.db is not None else get_db()
+        if hasattr(db, "_db"):
+            db = db._db
+
+        cursor = db["users"].find({
+            "$or": [
+                {"email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},
+                {"auto_leadfinder_access": True}
+            ],
+            "account_status": {"$ne": "Deactivated"}
+        }).sort("full_name", 1)
+        users = await cursor.to_list(length=200)
+
+        result = []
+        for u in users:
+            email = u.get("email", "")
+            is_kutch = email.lower() == TARGET_USER_EMAIL.lower()
+            keyword = "Travel Agency" if is_kutch else (u.get("auto_leadfinder_keyword") or "Travel Agency")
+            result.append({
+                "id": str(u["_id"]),
+                "email": email,
+                "full_name": u.get("full_name") or email,
+                "role": u.get("role", "USER"),
+                "company_name": u.get("company_name", ""),
+                "city": u.get("city", ""),
+                "state": u.get("state", ""),
+                "country": u.get("country", ""),
+                "keyword": keyword,
+                "is_kutch": is_kutch,
+                "visibility": u.get("auto_leadfinder_visibility", "visible")
+            })
+
+        # Ensure kutchtourguide is always present in list even if not yet in users table
+        if not any(x["email"].lower() == TARGET_USER_EMAIL.lower() for x in result):
+            result.insert(0, {
+                "id": "kutch_default",
+                "email": TARGET_USER_EMAIL,
+                "full_name": "Kutch Tour Guide (Default)",
+                "role": "USER",
+                "company_name": "Kutch Tour Guide",
+                "city": "Bhuj",
+                "state": "Gujarat",
+                "country": "India",
+                "keyword": "Travel Agency",
+                "is_kutch": True,
+                "visibility": "visible"
+            })
+
+        return {
+            "success": True,
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"[AUTO_LEADFINDER_API] Failed to fetch users with access: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch users: {str(e)}"
+        )
 
 
 @router.get("/settings")
 async def get_settings_and_stats(
+    user_email: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_kutch_tour_guide)
 ) -> Any:
     """
-    Fetch current Auto LeadFinder settings, KPI metrics, status, and next scheduled run.
+    Fetch Auto LeadFinder settings, KPI metrics, status, and next scheduled run for the specified user context.
     """
     try:
-        stats = await get_kpi_stats()
+        target_email = resolve_target_user_email(current_user, user_email)
+        stats = await get_kpi_stats(user_email=target_email)
         return {
             "success": True,
             "data": stats
@@ -93,14 +184,16 @@ async def get_settings_and_stats(
 @router.put("/settings")
 async def update_settings_endpoint(
     payload: SettingsUpdateRequest,
+    user_email: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_kutch_tour_guide)
 ) -> Any:
     """
-    Update Auto LeadFinder configuration (daily limit, active state, target cities).
+    Update Auto LeadFinder configuration (daily limit, active state, target cities, keyword) for user context.
     """
     try:
-        updated = await update_settings(payload.model_dump(exclude_unset=True))
-        stats = await get_kpi_stats()
+        target_email = resolve_target_user_email(current_user, user_email or payload.assigned_user_email)
+        await update_settings(payload.model_dump(exclude_unset=True), user_email=target_email)
+        stats = await get_kpi_stats(user_email=target_email)
         return {
             "success": True,
             "message": "Auto LeadFinder settings updated successfully.",
@@ -135,15 +228,17 @@ async def get_scheduled_tasks_monitor(
 
 @router.get("/history")
 async def get_history_endpoint(
+    user_email: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     skip: int = Query(0, ge=0),
     current_user: UserInDB = Depends(require_kutch_tour_guide)
 ) -> Any:
     """
-    Retrieve activity history for automated and manual scraping runs.
+    Retrieve activity history for automated and manual scraping runs for the target user.
     """
     try:
-        runs = await get_run_history(limit=limit, skip=skip)
+        target_email = resolve_target_user_email(current_user, user_email)
+        runs = await get_run_history(user_email=target_email, limit=limit, skip=skip)
         return {
             "success": True,
             "data": runs
@@ -159,17 +254,17 @@ async def get_history_endpoint(
 @router.post("/discover-areas")
 async def discover_city_postal_areas(
     payload: DiscoverAreasRequest,
+    user_email: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_kutch_tour_guide)
 ) -> Any:
     """
     Automatic City-Wise Area Discovery using the Indian Postal PIN Code API (api.postalpincode.in).
     Discovers all PIN codes for the city, extracts unique PostOffice names as Areas,
-    and dynamically constructs Google Maps search queries in the format:
-    {Area Name}, {City}, {District}, {State}, {Country}
+    and dynamically constructs Google Maps search queries.
     """
     try:
         from app.services.postal_discovery_service import postal_discovery_service
-        from app.services.auto_leadfinder_service import update_settings
+        target_email = resolve_target_user_email(current_user, user_email or payload.user_email)
 
         result = await postal_discovery_service.discover_city_areas(
             city=payload.city,
@@ -189,7 +284,7 @@ async def discover_city_postal_areas(
             "discovered_pincodes": result.get("pincodes", []),
             "current_area_index": 0,
             "location_mode": "custom_city" if payload.city.lower() != "kutch district" else "kutch_systematic"
-        })
+        }, user_email=target_email)
 
         return {
             "success": True,
@@ -206,13 +301,15 @@ async def discover_city_postal_areas(
 
 @router.get("/discovered-areas")
 async def get_active_discovered_areas(
+    user_email: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_kutch_tour_guide)
 ) -> Any:
     """
-    Retrieve currently loaded discovered postal areas and their Google Maps queries.
+    Retrieve currently loaded discovered postal areas and their Google Maps queries for the target user.
     """
     try:
-        stats = await get_kpi_stats()
+        target_email = resolve_target_user_email(current_user, user_email)
+        stats = await get_kpi_stats(user_email=target_email)
         return {
             "success": True,
             "city": stats.get("city", "Bhuj"),
@@ -235,17 +332,18 @@ async def get_active_discovered_areas(
 @router.post("/run-now")
 async def trigger_manual_run(
     background_tasks: BackgroundTasks,
+    user_email: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_kutch_tour_guide)
 ) -> Any:
     """
-    Manually trigger an immediate scraping run in the background.
+    Manually trigger an immediate scraping run in the background for the target user.
     """
     try:
-        # Schedule via FastAPI BackgroundTasks
-        background_tasks.add_task(run_auto_leadfinder_pipeline, trigger_type="MANUAL")
+        target_email = resolve_target_user_email(current_user, user_email)
+        background_tasks.add_task(run_auto_leadfinder_pipeline, trigger_type="MANUAL", target_user_email=target_email)
         return {
             "success": True,
-            "message": "Automated scraping process initiated in background. You can track progress in real-time."
+            "message": f"Automated scraping process initiated in background for {target_email}. You can track progress in real-time."
         }
     except Exception as e:
         logger.error(f"[AUTO_LEADFINDER_API] Failed to trigger manual run: {e}", exc_info=True)
@@ -260,7 +358,7 @@ async def get_assignable_users(
     current_user: UserInDB = Depends(require_kutch_tour_guide)
 ) -> Any:
     """
-    List registered users for Admin lead assignment dropdown.
+    List registered users for Admin context switcher and assignment.
     """
     try:
         from app.db.database import get_db, db_instance

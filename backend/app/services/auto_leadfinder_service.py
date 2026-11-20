@@ -122,74 +122,130 @@ def get_next_scheduled_run_ist() -> datetime:
     return next_run
 
 
-async def get_target_user(db = None) -> Optional[Dict[str, Any]]:
-    """Dynamically look up kutchtourguide@gmail.com from the database without hardcoded IDs."""
+async def get_target_user(user_email: Optional[str] = None, db = None) -> Optional[Dict[str, Any]]:
+    """Look up user from database by email (defaults to TARGET_USER_EMAIL)."""
     if db is None:
         db = get_raw_database()
     if db is None:
         return None
-    user = await db["users"].find_one({"email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}})
+    target_email = (user_email or TARGET_USER_EMAIL).strip()
+    user = await db["users"].find_one({"email": {"$regex": f"^{re.escape(target_email)}$", "$options": "i"}})
     return user
 
 
-async def get_or_create_settings(db = None) -> Dict[str, Any]:
-    """Retrieve or initialize default Auto LeadFinder settings for kutchtourguide@gmail.com."""
+async def get_or_create_settings(user_email: Optional[str] = None, db = None) -> Dict[str, Any]:
+    """Retrieve or initialize default isolated Auto LeadFinder settings for a specific user."""
     if db is None:
         db = get_raw_database()
     if db is None:
         raise RuntimeError("Database connection unavailable")
 
+    clean_email = (user_email or TARGET_USER_EMAIL).strip().lower()
+    user = await get_target_user(user_email=clean_email, db=db)
+    user_id = str(user["_id"]) if user else None
+
     settings = await db["auto_leadfinder_settings"].find_one(
-        {"user_email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}}
+        {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}}
     )
 
-    if not settings:
-        user = await get_target_user(db)
-        user_id = str(user["_id"]) if user else None
+    is_kutch_target = clean_email == TARGET_USER_EMAIL.lower()
 
-        default_doc = {
-            "user_email": TARGET_USER_EMAIL,
-            "user_id": user_id,
-            "is_active": True,
-            "daily_limit": 500,
-            "priority_region": "Kutch City & District",
-            "country": "India",
-            "country_code": "IN",
-            "state": "Gujarat",
-            "state_code": "GJ",
-            "city": "Kutch district",
-            "location_mode": "kutch_systematic",
-            "target_cities": [
-                {"country": "India", "country_code": "IN", "state": "Gujarat", "state_code": "GJ", "city": "Kutch district"}
-            ],
-            "current_locality_index": 0,
-            "covered_localities": [],
-            "industry_keywords": KUTCH_TOURISM_KEYWORDS.copy(),
-            "assigned_user_id": user_id,
-            "assigned_user_email": TARGET_USER_EMAIL,
-            "default_visibility": "visible",
-            "timezone": "Asia/Kolkata",
-            "schedule_time": "00:00",
-            "last_run_at": None,
-            "created_at": datetime.now(timezone.utc),
-            "updated_at": datetime.now(timezone.utc),
-        }
+    if not settings:
+        if is_kutch_target:
+            default_doc = {
+                "user_email": TARGET_USER_EMAIL,
+                "user_id": user_id,
+                "is_active": True,
+                "daily_limit": 500,
+                "priority_region": "Kutch City & District",
+                "country": "India",
+                "country_code": "IN",
+                "state": "Gujarat",
+                "state_code": "GJ",
+                "city": "Kutch district",
+                "district": "Kachchh",
+                "location_mode": "kutch_systematic",
+                "target_cities": [
+                    {"country": "India", "country_code": "IN", "state": "Gujarat", "state_code": "GJ", "city": "Kutch district"}
+                ],
+                "current_locality_index": 0,
+                "covered_localities": [],
+                "industry_keywords": ["Travel Agency"],
+                "keyword": "Travel Agency",
+                "assigned_user_id": user_id,
+                "assigned_user_email": TARGET_USER_EMAIL,
+                "default_visibility": "visible",
+                "timezone": "Asia/Kolkata",
+                "schedule_time": "00:00",
+                "last_run_at": None,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
+        else:
+            user_country = (user.get("country") or "India") if user else "India"
+            user_state = (user.get("state") or "Gujarat") if user else "Gujarat"
+            user_city = (user.get("city") or "Bhuj") if user else "Bhuj"
+            user_kw = (user.get("auto_leadfinder_keyword") or (user.get("company_name") if user else None) or "Business").strip() if user else "Business"
+            user_vis = (user.get("auto_leadfinder_visibility") or "visible") if user else "visible"
+
+            default_doc = {
+                "user_email": clean_email,
+                "user_id": user_id,
+                "is_active": True,
+                "daily_limit": 100,
+                "priority_region": f"{user_city} Priority Coverage",
+                "country": user_country,
+                "country_code": "IN",
+                "state": user_state,
+                "state_code": "GJ",
+                "city": user_city,
+                "district": user_city,
+                "location_mode": "custom_city",
+                "target_cities": [
+                    {"country": user_country, "country_code": "IN", "state": user_state, "state_code": "GJ", "city": user_city}
+                ],
+                "current_locality_index": 0,
+                "current_area_index": 0,
+                "discovered_areas": [],
+                "discovered_pincodes": [],
+                "industry_keywords": [user_kw],
+                "keyword": user_kw,
+                "assigned_user_id": user_id,
+                "assigned_user_email": clean_email,
+                "default_visibility": user_vis,
+                "timezone": "Asia/Kolkata",
+                "schedule_time": "00:00",
+                "last_run_at": None,
+                "created_at": datetime.now(timezone.utc),
+                "updated_at": datetime.now(timezone.utc),
+            }
         res = await db["auto_leadfinder_settings"].insert_one(default_doc)
         default_doc["_id"] = str(res.inserted_id)
         return default_doc
 
     # Backfill defaults if missing in existing settings document
     needs_backfill = {}
-    if "priority_region" not in settings:
-        needs_backfill["priority_region"] = "Kutch City & District"
-        needs_backfill["current_locality_index"] = 0
+    if not settings.get("user_id") and user_id:
+        needs_backfill["user_id"] = user_id
+        needs_backfill["assigned_user_id"] = user_id
+    if not settings.get("assigned_user_email"):
+        needs_backfill["assigned_user_email"] = clean_email
+
+    if is_kutch_target:
+        if settings.get("industry_keywords") != ["Travel Agency"] or settings.get("keyword") != "Travel Agency":
+            needs_backfill["industry_keywords"] = ["Travel Agency"]
+            needs_backfill["keyword"] = "Travel Agency"
+    else:
+        if "keyword" not in settings and settings.get("industry_keywords"):
+            needs_backfill["keyword"] = settings["industry_keywords"][0]
+
     if "country" not in settings:
         needs_backfill["country"] = "India"
         needs_backfill["country_code"] = "IN"
         needs_backfill["state"] = "Gujarat"
         needs_backfill["state_code"] = "GJ"
         needs_backfill["city"] = "Bhuj"
-        needs_backfill["location_mode"] = "kutch_systematic"
+        needs_backfill["location_mode"] = "custom_city"
         needs_backfill["target_cities"] = [
             {"country": "India", "country_code": "IN", "state": "Gujarat", "state_code": "GJ", "city": "Bhuj"}
         ]
@@ -205,14 +261,15 @@ async def get_or_create_settings(db = None) -> Dict[str, Any]:
     return settings
 
 
-async def update_settings(payload: Dict[str, Any], db = None) -> Dict[str, Any]:
-    """Update settings (daily_limit, is_active, location, target_cities) for the authorized user."""
+async def update_settings(payload: Dict[str, Any], user_email: Optional[str] = None, db = None) -> Dict[str, Any]:
+    """Update settings for a specific user account in an isolated manner."""
     if db is None:
         db = get_raw_database()
     if db is None:
         raise RuntimeError("Database connection unavailable")
 
-    await get_or_create_settings(db)
+    clean_email = (user_email or payload.get("assigned_user_email") or TARGET_USER_EMAIL).strip().lower()
+    await get_or_create_settings(user_email=clean_email, db=db)
     update_data: Dict[str, Any] = {"updated_at": datetime.now(timezone.utc)}
 
     if "is_active" in payload and payload["is_active"] is not None:
@@ -271,22 +328,13 @@ async def update_settings(payload: Dict[str, Any], db = None) -> Dict[str, Any]:
         update_data["default_visibility"] = str(payload["default_visibility"]).strip().lower()
 
     # Rule: For kutchtourguide user, the keyword "Travel Agency" must remain permanently fixed and non-editable.
-    # For all other users, the keyword should remain fully editable.
-    current_settings = await get_or_create_settings(db)
-    target_assigned_email = (
-        update_data.get("assigned_user_email")
-        or payload.get("assigned_user_email")
-        or current_settings.get("assigned_user_email")
-        or TARGET_USER_EMAIL
-    )
-    is_kutch_target = str(target_assigned_email).strip().lower() == TARGET_USER_EMAIL.lower()
+    # For all other users, the keyword is fully editable and specific to their business.
+    is_kutch_target = clean_email == TARGET_USER_EMAIL.lower()
 
     if is_kutch_target:
-        # kutchtourguide -> "Travel Agency" must always remain fixed and non-editable
         update_data["industry_keywords"] = ["Travel Agency"]
         update_data["keyword"] = "Travel Agency"
     else:
-        # Fully editable for all other users
         if "keyword" in payload and payload["keyword"]:
             kw = str(payload["keyword"]).strip()
             if kw:
@@ -299,22 +347,23 @@ async def update_settings(payload: Dict[str, Any], db = None) -> Dict[str, Any]:
                 update_data["keyword"] = cleaned_kws[0]
 
     await db["auto_leadfinder_settings"].update_one(
-        {"user_email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},
+        {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
         {"$set": update_data}
     )
 
-    return await get_or_create_settings(db)
+    return await get_or_create_settings(user_email=clean_email, db=db)
 
 
-async def get_kpi_stats(db = None) -> Dict[str, Any]:
-    """Compute KPI metrics, coverage progress, status, and stats for the Auto LeadFinder dashboard."""
+async def get_kpi_stats(user_email: Optional[str] = None, db = None) -> Dict[str, Any]:
+    """Compute KPI metrics, coverage progress, status, and stats for a specific user."""
     if db is None:
         db = get_raw_database()
     if db is None:
         raise RuntimeError("Database connection unavailable")
 
-    settings = await get_or_create_settings(db)
-    user = await get_target_user(db)
+    clean_email = (user_email or TARGET_USER_EMAIL).strip().lower()
+    settings = await get_or_create_settings(user_email=clean_email, db=db)
+    user = await get_target_user(user_email=clean_email, db=db)
     user_id = str(user["_id"]) if user else None
 
     today_midnight_utc = get_today_midnight_utc()
@@ -322,38 +371,47 @@ async def get_kpi_stats(db = None) -> Dict[str, Any]:
     total_leads_collected = 0
     today_leads_collected = 0
 
-    if user_id:
-        total_leads_collected = await db["leads"].count_documents({
-            "user_id": user_id,
-            "$or": [
-                {"source": "auto_leadfinder"},
-                {"requested_provider": "Auto LeadFinder"},
-                {"is_auto_lead": True}
-            ]
-        })
+    lead_source_or = [
+        {"source": "auto_leadfinder"},
+        {"requested_provider": "Auto LeadFinder"},
+        {"is_auto_lead": True}
+    ]
 
-        today_leads_collected = await db["leads"].count_documents({
-            "user_id": user_id,
-            "created_at": {"$gte": today_midnight_utc},
-            "$or": [
-                {"source": "auto_leadfinder"},
-                {"requested_provider": "Auto LeadFinder"},
-                {"is_auto_lead": True}
-            ]
-        })
+    user_match_filters = [
+        {"assigned_user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}}
+    ]
+    if user_id:
+        user_match_filters.append({"user_id": user_id})
+        user_match_filters.append({"assigned_to": user_id})
+
+    total_leads_collected = await db["leads"].count_documents({
+        "$or": user_match_filters,
+        "$and": [{"$or": lead_source_or}]
+    })
+
+    today_leads_collected = await db["leads"].count_documents({
+        "created_at": {"$gte": today_midnight_utc},
+        "$or": user_match_filters,
+        "$and": [{"$or": lead_source_or}]
+    })
 
     is_running = _scraping_lock.locked()
     if not is_running:
-        # Auto-clean any stale RUNNING run document older than 15 mins across restarts
         stale_threshold = datetime.now(timezone.utc) - timedelta(minutes=15)
         await db["auto_leadfinder_runs"].update_many(
             {"status": "RUNNING", "started_at": {"$lt": stale_threshold}},
             {"$set": {"status": "COMPLETED", "completed_at": datetime.now(timezone.utc)}}
         )
-        active_run = await db["auto_leadfinder_runs"].find_one({"status": "RUNNING"})
+        active_run = await db["auto_leadfinder_runs"].find_one({
+            "status": "RUNNING",
+            "user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}
+        })
         is_running = active_run is not None
 
-    latest_run = await db["auto_leadfinder_runs"].find().sort("started_at", -1).limit(1).to_list(1)
+    latest_run = await db["auto_leadfinder_runs"].find(
+        {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}}
+    ).sort("started_at", -1).limit(1).to_list(1)
+
     last_run_data = None
     if latest_run:
         lr = latest_run[0]
@@ -364,23 +422,25 @@ async def get_kpi_stats(db = None) -> Dict[str, Any]:
     curr_idx = settings.get("current_locality_index", 0) % len(KUTCH_LOCALITIES_CATALOG)
     current_locality = KUTCH_LOCALITIES_CATALOG[curr_idx]
 
-    assigned_user_email = settings.get("assigned_user_email") or TARGET_USER_EMAIL
-    is_kutch_target = str(assigned_user_email).strip().lower() == TARGET_USER_EMAIL.lower()
-    effective_keywords = ["Travel Agency"] if is_kutch_target else (settings.get("industry_keywords") or ["Travel Agency"])
-    keyword_str = "Travel Agency" if is_kutch_target else (effective_keywords[0] if effective_keywords else "Travel Agency")
+    is_kutch_target = clean_email == TARGET_USER_EMAIL.lower()
+    effective_keywords = ["Travel Agency"] if is_kutch_target else (settings.get("industry_keywords") or [settings.get("keyword") or "Business"])
+    keyword_str = "Travel Agency" if is_kutch_target else (effective_keywords[0] if effective_keywords else "Business")
+
+    user_display_name = user.get("full_name") or clean_email if user else clean_email
 
     return {
-        "user_email": TARGET_USER_EMAIL,
+        "user_email": clean_email,
+        "user_name": user_display_name,
         "is_active": settings.get("is_active", True),
-        "daily_limit": settings.get("daily_limit", 500),
-        "priority_region": "Kutch City & District",
+        "daily_limit": settings.get("daily_limit", 500 if is_kutch_target else 100),
+        "priority_region": settings.get("priority_region") or ("Kutch City & District" if is_kutch_target else f"{settings.get('city', 'City')} Priority Coverage"),
         "country": settings.get("country", "India"),
         "country_code": settings.get("country_code", "IN"),
         "state": settings.get("state", "Gujarat"),
         "state_code": settings.get("state_code", "GJ"),
-        "city": settings.get("city", "Kutch district"),
+        "city": settings.get("city", "Kutch district" if is_kutch_target else "Bhuj"),
         "district": settings.get("district", "Kachchh"),
-        "location_mode": settings.get("location_mode", "kutch_systematic"),
+        "location_mode": settings.get("location_mode", "kutch_systematic" if is_kutch_target else "custom_city"),
         "target_cities": settings.get("target_cities", []),
         "discovered_areas": settings.get("discovered_areas", []),
         "discovered_pincodes": settings.get("discovered_pincodes", []),
@@ -393,8 +453,8 @@ async def get_kpi_stats(db = None) -> Dict[str, Any]:
         "keyword": keyword_str,
         "is_keyword_fixed": is_kutch_target,
         "fixed_keyword": "Travel Agency" if is_kutch_target else None,
-        "assigned_user_id": settings.get("assigned_user_id"),
-        "assigned_user_email": assigned_user_email,
+        "assigned_user_id": user_id,
+        "assigned_user_email": clean_email,
         "default_visibility": settings.get("default_visibility", "visible"),
         "total_leads_collected": total_leads_collected,
         "today_leads_collected": today_leads_collected,
@@ -406,14 +466,18 @@ async def get_kpi_stats(db = None) -> Dict[str, Any]:
     }
 
 
-async def get_run_history(limit: int = 20, skip: int = 0, db = None) -> List[Dict[str, Any]]:
-    """Retrieve history of automated and manual scraping runs."""
+async def get_run_history(user_email: Optional[str] = None, limit: int = 20, skip: int = 0, db = None) -> List[Dict[str, Any]]:
+    """Retrieve history of automated and manual scraping runs for a specific user."""
     if db is None:
         db = get_raw_database()
     if db is None:
         return []
 
-    cursor = db["auto_leadfinder_runs"].find().sort("started_at", -1).skip(skip).limit(limit)
+    filter_q: Dict[str, Any] = {}
+    if user_email and user_email.strip():
+        filter_q["user_email"] = {"$regex": f"^{re.escape(user_email.strip())}$", "$options": "i"}
+
+    cursor = db["auto_leadfinder_runs"].find(filter_q).sort("started_at", -1).skip(skip).limit(limit)
     runs = []
     async for run in cursor:
         run["_id"] = str(run["_id"])
@@ -421,188 +485,186 @@ async def get_run_history(limit: int = 20, skip: int = 0, db = None) -> List[Dic
     return runs
 
 
-async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[str, Any]:
-    """
-    Main systematic lead discovery pipeline for kutchtourguide@gmail.com.
-    Prioritizes Kutch City and covers all its areas/localities systematically.
-    Ensures 100 UNIQUE, newly verified leads daily, ignoring all duplicates.
-    """
-    db = get_raw_database()
+async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHEDULED", db = None) -> Dict[str, Any]:
+    """Execute scraping pipeline specifically for a single user."""
     if db is None:
-        logger.error("[AUTO_LEADFINDER] Database connection unavailable. Aborting.")
+        db = get_raw_database()
+    if db is None:
+        logger.error(f"[AUTO_LEADFINDER] Database connection unavailable for {clean_email}")
         return {"status": "error", "message": "Database unavailable"}
 
-    user = await get_target_user(db)
-    if not user:
-        logger.warning(f"[AUTO_LEADFINDER] Target user {TARGET_USER_EMAIL} not found in database. Aborting run.")
-        return {"status": "skipped", "message": f"User {TARGET_USER_EMAIL} not found in database."}
+    user = await get_target_user(user_email=clean_email, db=db)
+    user_id = str(user["_id"]) if user else None
 
-    user_id = str(user["_id"])
+    settings = await get_or_create_settings(user_email=clean_email, db=db)
+    is_active = settings.get("is_active", True)
+    daily_limit = settings.get("daily_limit", 100)
+    start_locality_idx = settings.get("current_locality_index", 0)
 
-    if _scraping_lock.locked():
-        logger.warning("[AUTO_LEADFINDER] A scraping process is already running. Skipping duplicate trigger.")
-        return {"status": "skipped", "message": "Scraping process is already in progress."}
+    # Lead Visibility
+    default_visibility = settings.get("default_visibility", "visible")
+    if user and user.get("auto_leadfinder_visibility"):
+        default_visibility = user.get("auto_leadfinder_visibility")
 
-    async with _scraping_lock:
-        settings = await get_or_create_settings(db)
-        is_active = settings.get("is_active", True)
-        daily_limit = settings.get("daily_limit", 500)
-        start_locality_idx = settings.get("current_locality_index", 0)
-        industry_keywords = settings.get("industry_keywords", KUTCH_TOURISM_KEYWORDS)
+    is_kutch_target = clean_email == TARGET_USER_EMAIL.lower()
+    if is_kutch_target:
+        active_keywords = ["Travel Agency"]
+    elif user and user.get("auto_leadfinder_keyword"):
+        active_keywords = [str(user.get("auto_leadfinder_keyword")).strip()]
+    else:
+        raw_kws = settings.get("industry_keywords")
+        active_keywords = [str(k).strip() for k in raw_kws if str(k).strip()] if raw_kws else [settings.get("keyword", "Business")]
 
-        # Dynamic Lead Assignment & Visibility
-        assigned_user_id = settings.get("assigned_user_id") or user_id
-        assigned_user_email = settings.get("assigned_user_email") or TARGET_USER_EMAIL
-        default_visibility = settings.get("default_visibility", "visible")
+    if not is_active and trigger_type == "SCHEDULED":
+        logger.info(f"[AUTO_LEADFINDER] Automation is toggled OFF for {clean_email}. Skipping scheduled run.")
+        return {"status": "skipped", "message": "Automation is currently inactive."}
 
-        # Determine effective keywords based on assigned user
-        is_kutch_assigned = str(assigned_user_email).strip().lower() == TARGET_USER_EMAIL.lower()
+    # Check today's quota already collected for this user
+    today_midnight = get_today_midnight_utc()
+    user_match_filters = [
+        {"assigned_user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}}
+    ]
+    if user_id:
+        user_match_filters.append({"user_id": user_id})
+        user_match_filters.append({"assigned_to": user_id})
 
-        # Check if the assigned user has profile-level Auto LeadFinder settings configured in User Management
-        assigned_user_doc = None
-        if assigned_user_email:
-            assigned_user_doc = await db["users"].find_one({"email": {"$regex": f"^{re.escape(str(assigned_user_email).strip())}$", "$options": "i"}})
-
-        if assigned_user_doc:
-            if assigned_user_doc.get("auto_leadfinder_visibility"):
-                default_visibility = assigned_user_doc.get("auto_leadfinder_visibility")
-
-        if is_kutch_assigned:
-            # kutchtourguide -> "Travel Agency" must always remain fixed and non-editable
-            active_keywords = ["Travel Agency"]
-        elif assigned_user_doc and assigned_user_doc.get("auto_leadfinder_keyword"):
-            active_keywords = [str(assigned_user_doc.get("auto_leadfinder_keyword")).strip()]
-        else:
-            raw_kws = settings.get("industry_keywords")
-            active_keywords = [str(k).strip() for k in raw_kws if str(k).strip()] if raw_kws else ["Travel Agency"]
-
-        if not is_active and trigger_type == "SCHEDULED":
-            logger.info("[AUTO_LEADFINDER] Automation is toggled OFF by user. Skipping scheduled run.")
-            return {"status": "skipped", "message": "Automation is currently inactive."}
-
-        # Check today's quota already collected
-        today_midnight = get_today_midnight_utc()
-        today_already_collected = await db["leads"].count_documents({
-            "user_id": user_id,
-            "created_at": {"$gte": today_midnight},
+    today_already_collected = await db["leads"].count_documents({
+        "created_at": {"$gte": today_midnight},
+        "$or": user_match_filters,
+        "$and": [{
             "$or": [
                 {"source": "auto_leadfinder"},
                 {"requested_provider": "Auto LeadFinder"},
                 {"is_auto_lead": True}
             ]
-        })
+        }]
+    })
 
-        quota_remaining = max(0, daily_limit - today_already_collected)
-        if trigger_type == "SCHEDULED" and quota_remaining <= 0:
-            logger.info(f"[AUTO_LEADFINDER] Daily target of {daily_limit} leads already achieved today ({today_already_collected} leads). Skipping.")
-            return {
-                "status": "skipped",
-                "message": f"Daily target of {daily_limit} leads has already been satisfied for today."
-            }
-
-        target_for_this_run = quota_remaining if trigger_type == "SCHEDULED" else (daily_limit if quota_remaining <= 0 else quota_remaining)
-
-        run_id = ObjectId()
-        now_utc = datetime.now(timezone.utc)
-        now_ist = datetime.now(KOLKATA_TZ)
-
-        location_mode = settings.get("location_mode", "kutch_systematic")
-        target_country = settings.get("country", "India")
-        target_state = settings.get("state", "Gujarat")
-        target_city = settings.get("city", "Kutch district")
-        is_custom_city = location_mode == "custom_city" and target_city and "kutch" not in target_city.lower()
-
-        run_doc = {
-            "_id": run_id,
-            "user_id": user_id,
-            "user_email": TARGET_USER_EMAIL,
-            "run_date": now_ist.strftime("%Y-%m-%d"),
-            "trigger_type": trigger_type,
-            "status": "RUNNING",
-            "started_at": now_utc,
-            "completed_at": None,
-            "daily_limit_target": daily_limit,
-            "target_for_this_run": target_for_this_run,
-            "location_mode": "custom_city" if is_custom_city else "kutch_systematic",
-            "target_country": target_country,
-            "target_state": target_state,
-            "target_city": target_city,
-            "total_collected": 0,
-            "duplicates_filtered": 0,
-            "localities_processed": [],
-            "error_message": None,
+    quota_remaining = max(0, daily_limit - today_already_collected)
+    if trigger_type == "SCHEDULED" and quota_remaining <= 0:
+        logger.info(f"[AUTO_LEADFINDER] Daily target of {daily_limit} leads already achieved today for {clean_email} ({today_already_collected} leads). Skipping.")
+        return {
+            "status": "skipped",
+            "message": f"Daily target of {daily_limit} leads has already been satisfied for today."
         }
-        await db["auto_leadfinder_runs"].insert_one(run_doc)
-        logger.info(f"[AUTO_LEADFINDER] Started run {run_id} (Target: {target_for_this_run} unique leads for {TARGET_USER_EMAIL}, Mode: {'Custom City (' + target_city + ')' if is_custom_city else 'Kutch Systematic'})")
 
-        total_collected = 0
-        total_duplicates = 0
-        localities_processed = []
-        progress_service = Progress()
-        search_service = SearchService()
+    target_for_this_run = quota_remaining if trigger_type == "SCHEDULED" else (daily_limit if quota_remaining <= 0 else quota_remaining)
 
-        discovered_areas = settings.get("discovered_areas") or []
-        start_area_idx = settings.get("current_area_index", 0)
-        target_district = settings.get("district") or ("Kachchh" if "bhuj" in target_city.lower() or "kutch" in target_city.lower() else target_city)
+    run_id = ObjectId()
+    now_utc = datetime.now(timezone.utc)
+    now_ist = datetime.now(KOLKATA_TZ)
 
-        # If no discovered areas exist in settings yet, discover them on the fly via Postal PIN Code API
-        if not discovered_areas and target_city:
-            try:
-                from app.services.postal_discovery_service import postal_discovery_service
-                disco_res = await postal_discovery_service.discover_city_areas(
-                    city=target_city,
-                    state=target_state,
-                    country=target_country,
-                    district=target_district
-                )
-                if disco_res and disco_res.get("areas"):
-                    discovered_areas = disco_res["areas"]
-                    await db["auto_leadfinder_settings"].update_one(
-                        {"user_email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},
-                        {"$set": {
-                            "discovered_areas": discovered_areas,
-                            "discovered_pincodes": disco_res.get("pincodes", []),
-                            "current_area_index": 0
-                        }}
-                    )
-                    logger.info(f"[AUTO_LEADFINDER] On-the-fly postal discovery completed: {len(discovered_areas)} areas discovered.")
-            except Exception as disco_err:
-                logger.warning(f"[AUTO_LEADFINDER] On-the-fly area discovery error: {disco_err}")
+    location_mode = settings.get("location_mode", "custom_city" if not is_kutch_target else "kutch_systematic")
+    target_country = settings.get("country", "India")
+    target_state = settings.get("state", "Gujarat")
+    target_city = settings.get("city", "Kutch district" if is_kutch_target else "Bhuj")
+    is_custom_city = location_mode == "custom_city" and target_city and "kutch" not in target_city.lower()
 
-        total_catalog_len = len(KUTCH_LOCALITIES_CATALOG)
-        curr_idx = start_locality_idx % total_catalog_len
+    run_doc = {
+        "_id": run_id,
+        "user_id": user_id,
+        "user_email": clean_email,
+        "run_date": now_ist.strftime("%Y-%m-%d"),
+        "trigger_type": trigger_type,
+        "status": "RUNNING",
+        "started_at": now_utc,
+        "completed_at": None,
+        "daily_limit_target": daily_limit,
+        "target_for_this_run": target_for_this_run,
+        "location_mode": "custom_city" if is_custom_city else "kutch_systematic",
+        "target_country": target_country,
+        "target_state": target_state,
+        "target_city": target_city,
+        "total_collected": 0,
+        "duplicates_filtered": 0,
+        "localities_processed": [],
+        "error_message": None,
+    }
+    await db["auto_leadfinder_runs"].insert_one(run_doc)
+    logger.info(f"[AUTO_LEADFINDER] Started run {run_id} (Target: {target_for_this_run} unique leads for {clean_email}, City: {target_city}, Keywords: {active_keywords})")
 
+    total_collected = 0
+    total_duplicates = 0
+    localities_processed = []
+    progress_service = Progress()
+    search_service = SearchService()
+
+    discovered_areas = settings.get("discovered_areas") or []
+    start_area_idx = settings.get("current_area_index", 0)
+    target_district = settings.get("district") or ("Kachchh" if "bhuj" in target_city.lower() or "kutch" in target_city.lower() else target_city)
+
+    # On the fly discovery if no areas exist yet for this user's target city
+    if not discovered_areas and target_city:
         try:
-            if discovered_areas:
-                # Mode A: Discovered Postal Areas Execution (Postal PIN Code API extracted areas)
-                total_areas_len = len(discovered_areas)
-                area_idx = start_area_idx % total_areas_len
-                iteration_steps = 0
-                max_iterations = total_areas_len * 2
-                logger.info(f"[AUTO_LEADFINDER] Iterating {total_areas_len} discovered postal areas for {target_city}, starting from index {area_idx}")
+            from app.services.postal_discovery_service import postal_discovery_service
+            disco_res = await postal_discovery_service.discover_city_areas(
+                city=target_city,
+                state=target_state,
+                country=target_country,
+                district=target_district
+            )
+            if disco_res and disco_res.get("areas"):
+                discovered_areas = disco_res["areas"]
+                await db["auto_leadfinder_settings"].update_one(
+                    {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+                    {"$set": {
+                        "discovered_areas": discovered_areas,
+                        "discovered_pincodes": disco_res.get("pincodes", []),
+                        "current_area_index": 0
+                    }}
+                )
+                logger.info(f"[AUTO_LEADFINDER] On-the-fly postal discovery completed for {clean_email}: {len(discovered_areas)} areas discovered.")
+        except Exception as disco_err:
+            logger.warning(f"[AUTO_LEADFINDER] On-the-fly area discovery error for {clean_email}: {disco_err}")
 
-                logger.info(f"[AUTO_LEADFINDER] Target active keywords for scraping ({assigned_user_email}): {active_keywords}")
+    total_catalog_len = len(KUTCH_LOCALITIES_CATALOG)
+    curr_idx = start_locality_idx % total_catalog_len
 
-                while total_collected < target_for_this_run and iteration_steps < max_iterations:
-                    area_item = discovered_areas[area_idx]
-                    area_name = area_item["name"]
-                    area_pin = area_item.get("pincode", "")
-                    area_district = area_item.get("district") or target_district
-                    maps_query = area_item.get("maps_query") or f"{area_name}, {target_city}, {area_district}, {target_state}, {target_country}"
+    try:
+        if discovered_areas:
+            # Mode A: Discovered Postal Areas Execution (PIN Code API)
+            total_areas_len = len(discovered_areas)
+            area_idx = start_area_idx % total_areas_len
+            iteration_steps = 0
+            max_iterations = total_areas_len * 2
+            logger.info(f"[AUTO_LEADFINDER] [{clean_email}] Iterating {total_areas_len} discovered postal areas for {target_city}, starting from index {area_idx}")
 
-                    area_saved = 0
-                    area_dups = 0
+            while total_collected < target_for_this_run and iteration_steps < max_iterations:
+                area_item = discovered_areas[area_idx]
+                area_name = area_item["name"]
+                area_pin = area_item.get("pincode", "")
+                area_district = area_item.get("district") or target_district
+                maps_query = area_item.get("maps_query") or f"{area_name}, {target_city}, {area_district}, {target_state}, {target_country}"
 
-                    for keyword in active_keywords:
-                        needed = target_for_this_run - total_collected
-                        if needed <= 0:
-                            break
+                area_saved = 0
+                area_dups = 0
 
-                        batch_limit = min(needed, 20)
-                        search_query_keyword = f"{keyword}"
-                        search_area = f"{area_name}"
+                for keyword in active_keywords:
+                    needed = target_for_this_run - total_collected
+                    if needed <= 0:
+                        break
 
-                        job_id = await progress_service.create_job(
+                    batch_limit = min(needed, 20)
+                    search_query_keyword = f"{keyword}"
+                    search_area = f"{area_name}"
+
+                    job_id = await progress_service.create_job(
+                        keyword=search_query_keyword,
+                        area=search_area,
+                        city=target_city,
+                        state=target_state,
+                        country=target_country,
+                        limit=batch_limit,
+                        provider="Google Maps",
+                        user_id=user_id or "system",
+                        exhaustive=True,
+                        grid_size=3,
+                        target_cap="ALL"
+                    )
+
+                    try:
+                        await search_service.execute_job(
+                            job_id=job_id,
                             keyword=search_query_keyword,
                             area=search_area,
                             city=target_city,
@@ -610,123 +672,124 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
                             country=target_country,
                             limit=batch_limit,
                             provider="Google Maps",
-                            user_id=user_id,
+                            user_id=user_id or "system",
                             exhaustive=True,
                             grid_size=3,
                             target_cap="ALL"
                         )
+                    except Exception as exec_err:
+                        logger.warning(f"[AUTO_LEADFINDER] Postal area batch failed for {keyword} in {area_name}, {target_city}: {exec_err}")
 
-                        try:
-                            await search_service.execute_job(
-                                job_id=job_id,
-                                keyword=search_query_keyword,
-                                area=search_area,
-                                city=target_city,
-                                state=target_state,
-                                country=target_country,
-                                limit=batch_limit,
-                                provider="Google Maps",
-                                user_id=user_id,
-                                exhaustive=True,
-                                grid_size=3,
-                                target_cap="ALL"
-                            )
-                        except Exception as exec_err:
-                            logger.warning(f"[AUTO_LEADFINDER] Postal area batch failed for {keyword} in {area_name}, {target_city}: {exec_err}")
+                    tag_result = await db["leads"].update_many(
+                        {"source_job_id": job_id},
+                        {"$set": {
+                            "is_auto_lead": True,
+                            "source": "auto_leadfinder",
+                            "requested_provider": "Auto LeadFinder",
+                            "assigned_to": user_id,
+                            "assigned_user_email": clean_email,
+                            "user_id": user_id,
+                            "visibility": default_visibility,
+                            "assigned_at": datetime.now(timezone.utc),
+                            "assigned_by": "AUTO_LEADFINDER",
+                            "auto_scraped_area": area_name,
+                            "auto_scraped_pincode": area_pin,
+                            "auto_scraped_city": target_city,
+                            "auto_scraped_district": area_district,
+                            "auto_scraped_state": target_state,
+                            "auto_scraped_country": target_country,
+                            "auto_scraped_query": maps_query,
+                            "auto_scraped_at": datetime.now(timezone.utc)
+                        }}
+                    )
 
-                        tag_result = await db["leads"].update_many(
-                            {"source_job_id": job_id},
-                            {"$set": {
-                                "is_auto_lead": True,
-                                "source": "auto_leadfinder",
-                                "requested_provider": "Auto LeadFinder",
-                                "assigned_to": assigned_user_id,
-                                "assigned_user_email": assigned_user_email,
-                                "user_id": assigned_user_id,
-                                "visibility": default_visibility,
-                                "assigned_at": datetime.now(timezone.utc),
-                                "assigned_by": "AUTO_LEADFINDER",
-                                "auto_scraped_area": area_name,
-                                "auto_scraped_pincode": area_pin,
-                                "auto_scraped_city": target_city,
-                                "auto_scraped_district": area_district,
-                                "auto_scraped_state": target_state,
-                                "auto_scraped_country": target_country,
-                                "auto_scraped_query": maps_query,
-                                "auto_scraped_at": datetime.now(timezone.utc)
-                            }}
-                        )
+                    newly_saved = tag_result.modified_count
+                    job_progress = await progress_service.get_job(job_id)
+                    job_duplicates = job_progress.get("duplicates", 0) if job_progress else 0
 
-                        newly_saved = tag_result.modified_count
-                        job_progress = await progress_service.get_job(job_id)
-                        job_duplicates = job_progress.get("duplicates", 0) if job_progress else 0
+                    area_saved += newly_saved
+                    area_dups += job_duplicates
+                    total_collected += newly_saved
+                    total_duplicates += job_duplicates
 
-                        area_saved += newly_saved
-                        area_dups += job_duplicates
-                        total_collected += newly_saved
-                        total_duplicates += job_duplicates
+                    logger.info(f"[AUTO_LEADFINDER] [{clean_email}] {area_name} ({area_pin}): Collected {newly_saved} unique, {job_duplicates} dups. Progress: {total_collected}/{target_for_this_run}")
 
-                        logger.info(f"[AUTO_LEADFINDER] {area_name} ({area_pin}): Collected {newly_saved} unique, {job_duplicates} dups. Progress: {total_collected}/{target_for_this_run}")
+                    await db["auto_leadfinder_runs"].update_one(
+                        {"_id": run_id},
+                        {"$set": {
+                            "total_collected": total_collected,
+                            "duplicates_filtered": total_duplicates,
+                        }}
+                    )
 
-                        await db["auto_leadfinder_runs"].update_one(
-                            {"_id": run_id},
-                            {"$set": {
-                                "total_collected": total_collected,
-                                "duplicates_filtered": total_duplicates,
-                            }}
-                        )
+                localities_processed.append({
+                    "city": target_city,
+                    "locality": area_name,
+                    "pincode": area_pin,
+                    "zone": f"PIN {area_pin}" if area_pin else "Discovered Postal Area",
+                    "maps_query": maps_query,
+                    "leads_collected": area_saved,
+                    "duplicates": area_dups
+                })
 
-                    localities_processed.append({
-                        "city": target_city,
-                        "locality": area_name,
-                        "pincode": area_pin,
-                        "zone": f"PIN {area_pin}" if area_pin else "Discovered Postal Area",
-                        "maps_query": maps_query,
-                        "leads_collected": area_saved,
-                        "duplicates": area_dups
-                    })
+                area_idx = (area_idx + 1) % total_areas_len
+                iteration_steps += 1
 
-                    area_idx = (area_idx + 1) % total_areas_len
-                    iteration_steps += 1
+            # Update settings with next area index for future runs
+            end_utc = datetime.now(timezone.utc)
+            await db["auto_leadfinder_settings"].update_one(
+                {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+                {"$set": {
+                    "current_area_index": area_idx,
+                    "last_run_at": end_utc,
+                    "updated_at": end_utc
+                }}
+            )
 
-                # Update settings with next area index for future runs
-                end_utc = datetime.now(timezone.utc)
-                await db["auto_leadfinder_settings"].update_one(
-                    {"user_email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},
-                    {"$set": {
-                        "current_area_index": area_idx,
-                        "last_run_at": end_utc,
-                        "updated_at": end_utc
-                    }}
-                )
-            elif is_custom_city:
-                # Mode B: Fallback Custom City Centers
-                custom_areas = [
-                    f"{target_city} Center",
-                    f"{target_city} Tourist Hub & Sightseeing",
-                    f"{target_city} Railway Station & Transit Area",
-                    f"{target_city} Heritage & Main Market",
-                    f"{target_city} Resorts & Outskirts",
-                    target_city
-                ]
-                logger.info(f"[AUTO_LEADFINDER] Scraping custom city hubs: {target_city}, {target_state}, {target_country}")
+        elif is_custom_city:
+            # Mode B: Custom City Centers fallback
+            custom_areas = [
+                f"{target_city} Center",
+                f"{target_city} Commercial Hub",
+                f"{target_city} Railway Station & Transit Area",
+                f"{target_city} Main Market & Business District",
+                f"{target_city} Suburbs & Outskirts",
+                target_city
+            ]
+            logger.info(f"[AUTO_LEADFINDER] [{clean_email}] Scraping custom city hubs: {target_city}, {target_state}, {target_country}")
 
-                for area in custom_areas:
-                    if total_collected >= target_for_this_run:
+            for area in custom_areas:
+                if total_collected >= target_for_this_run:
+                    break
+
+                area_saved = 0
+                area_dups = 0
+
+                for keyword in active_keywords:
+                    needed = target_for_this_run - total_collected
+                    if needed <= 0:
                         break
 
-                    area_saved = 0
-                    area_dups = 0
+                    batch_limit = min(needed, 20)
+                    search_query_keyword = f"{keyword}"
 
-                    for keyword in active_keywords:
-                        needed = target_for_this_run - total_collected
-                        if needed <= 0:
-                            break
+                    job_id = await progress_service.create_job(
+                        keyword=search_query_keyword,
+                        area=area,
+                        city=target_city,
+                        state=target_state,
+                        country=target_country,
+                        limit=batch_limit,
+                        provider="Google Maps",
+                        user_id=user_id or "system",
+                        exhaustive=True,
+                        grid_size=3,
+                        target_cap="ALL"
+                    )
 
-                        batch_limit = min(needed, 20)
-                        search_query_keyword = f"{keyword}"
-
-                        job_id = await progress_service.create_job(
+                    try:
+                        await search_service.execute_job(
+                            job_id=job_id,
                             keyword=search_query_keyword,
                             area=area,
                             city=target_city,
@@ -734,101 +797,102 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
                             country=target_country,
                             limit=batch_limit,
                             provider="Google Maps",
-                            user_id=user_id,
+                            user_id=user_id or "system",
                             exhaustive=True,
                             grid_size=3,
                             target_cap="ALL"
                         )
+                    except Exception as exec_err:
+                        logger.warning(f"[AUTO_LEADFINDER] Custom batch failed for {keyword} in {area}, {target_city}: {exec_err}")
 
-                        try:
-                            await search_service.execute_job(
-                                job_id=job_id,
-                                keyword=search_query_keyword,
-                                area=area,
-                                city=target_city,
-                                state=target_state,
-                                country=target_country,
-                                limit=batch_limit,
-                                provider="Google Maps",
-                                user_id=user_id,
-                                exhaustive=True,
-                                grid_size=3,
-                                target_cap="ALL"
-                            )
-                        except Exception as exec_err:
-                            logger.warning(f"[AUTO_LEADFINDER] Custom batch failed for {keyword} in {area}, {target_city}: {exec_err}")
+                    tag_result = await db["leads"].update_many(
+                        {"source_job_id": job_id},
+                        {"$set": {
+                            "is_auto_lead": True,
+                            "source": "auto_leadfinder",
+                            "requested_provider": "Auto LeadFinder",
+                            "assigned_to": user_id,
+                            "assigned_user_email": clean_email,
+                            "user_id": user_id,
+                            "visibility": default_visibility,
+                            "assigned_at": datetime.now(timezone.utc),
+                            "assigned_by": "AUTO_LEADFINDER",
+                            "auto_scraped_city": target_city,
+                            "auto_scraped_state": target_state,
+                            "auto_scraped_country": target_country,
+                            "auto_scraped_locality": area,
+                            "auto_scraped_zone": "Custom Selection",
+                            "auto_scraped_at": datetime.now(timezone.utc)
+                        }}
+                    )
 
-                        tag_result = await db["leads"].update_many(
-                            {"source_job_id": job_id},
-                            {"$set": {
-                                "is_auto_lead": True,
-                                "source": "auto_leadfinder",
-                                "requested_provider": "Auto LeadFinder",
-                                "assigned_to": assigned_user_id,
-                                "assigned_user_email": assigned_user_email,
-                                "user_id": assigned_user_id,
-                                "visibility": default_visibility,
-                                "assigned_at": datetime.now(timezone.utc),
-                                "assigned_by": "AUTO_LEADFINDER",
-                                "auto_scraped_city": target_city,
-                                "auto_scraped_state": target_state,
-                                "auto_scraped_country": target_country,
-                                "auto_scraped_locality": area,
-                                "auto_scraped_zone": "Custom Selection",
-                                "auto_scraped_at": datetime.now(timezone.utc)
-                            }}
-                        )
+                    newly_saved = tag_result.modified_count
+                    job_progress = await progress_service.get_job(job_id)
+                    job_duplicates = job_progress.get("duplicates", 0) if job_progress else 0
 
-                        newly_saved = tag_result.modified_count
-                        job_progress = await progress_service.get_job(job_id)
-                        job_duplicates = job_progress.get("duplicates", 0) if job_progress else 0
+                    area_saved += newly_saved
+                    area_dups += job_duplicates
+                    total_collected += newly_saved
+                    total_duplicates += job_duplicates
 
-                        area_saved += newly_saved
-                        area_dups += job_duplicates
-                        total_collected += newly_saved
-                        total_duplicates += job_duplicates
+                    await db["auto_leadfinder_runs"].update_one(
+                        {"_id": run_id},
+                        {"$set": {
+                            "total_collected": total_collected,
+                            "duplicates_filtered": total_duplicates,
+                        }}
+                    )
 
-                        await db["auto_leadfinder_runs"].update_one(
-                            {"_id": run_id},
-                            {"$set": {
-                                "total_collected": total_collected,
-                                "duplicates_filtered": total_duplicates,
-                            }}
-                        )
+                localities_processed.append({
+                    "city": target_city,
+                    "locality": area,
+                    "zone": "Custom Selection",
+                    "leads_collected": area_saved,
+                    "duplicates": area_dups
+                })
 
-                    localities_processed.append({
-                        "city": target_city,
-                        "locality": area,
-                        "zone": "Custom Selection",
-                        "leads_collected": area_saved,
-                        "duplicates": area_dups
-                    })
-            else:
-                # Systematic Locality Loop: Cover all areas of Kutch until 100 unique leads are gathered
-                iteration_steps = 0
-                max_iterations = total_catalog_len * 2  # Cap iterations to protect resources
+        else:
+            # Mode C: Kutch Localities Catalog (for Kutch Tour Guide)
+            iteration_steps = 0
+            max_iterations = total_catalog_len * 2
 
-                while total_collected < target_for_this_run and iteration_steps < max_iterations:
-                    locality_entry = KUTCH_LOCALITIES_CATALOG[curr_idx]
-                    city = locality_entry["city"]
-                    locality = locality_entry["locality"]
-                    zone = locality_entry["zone"]
+            while total_collected < target_for_this_run and iteration_steps < max_iterations:
+                locality_entry = KUTCH_LOCALITIES_CATALOG[curr_idx]
+                city = locality_entry["city"]
+                locality = locality_entry["locality"]
+                zone = locality_entry["zone"]
 
-                    locality_saved = 0
-                    locality_dups = 0
+                locality_saved = 0
+                locality_dups = 0
 
-                    logger.info(f"[AUTO_LEADFINDER] Covering Kutch Locality [{curr_idx+1}/{total_catalog_len}]: {locality}, {city} ({zone})")
+                logger.info(f"[AUTO_LEADFINDER] Covering Kutch Locality [{curr_idx+1}/{total_catalog_len}]: {locality}, {city} ({zone}) for {clean_email}")
 
-                    for keyword in active_keywords:
-                        needed = target_for_this_run - total_collected
-                        if needed <= 0:
-                            break
+                for keyword in active_keywords:
+                    needed = target_for_this_run - total_collected
+                    if needed <= 0:
+                        break
 
-                        batch_limit = min(needed, 20)
-                        search_query_keyword = f"{keyword}"
-                        search_area = f"{locality}"
+                    batch_limit = min(needed, 20)
+                    search_query_keyword = f"{keyword}"
+                    search_area = f"{locality}"
 
-                        job_id = await progress_service.create_job(
+                    job_id = await progress_service.create_job(
+                        keyword=search_query_keyword,
+                        area=search_area,
+                        city=city,
+                        state="Gujarat",
+                        country="India",
+                        limit=batch_limit,
+                        provider="Google Maps",
+                        user_id=user_id or "system",
+                        exhaustive=True,
+                        grid_size=3,
+                        target_cap="ALL"
+                    )
+
+                    try:
+                        await search_service.execute_job(
+                            job_id=job_id,
                             keyword=search_query_keyword,
                             area=search_area,
                             city=city,
@@ -836,82 +900,65 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
                             country="India",
                             limit=batch_limit,
                             provider="Google Maps",
-                            user_id=user_id,
+                            user_id=user_id or "system",
                             exhaustive=True,
                             grid_size=3,
                             target_cap="ALL"
                         )
+                    except Exception as exec_err:
+                        logger.warning(f"[AUTO_LEADFINDER] Batch failed for {keyword} in {locality}, {city}: {exec_err}")
 
-                        try:
-                            await search_service.execute_job(
-                                job_id=job_id,
-                                keyword=search_query_keyword,
-                                area=search_area,
-                                city=city,
-                                state="Gujarat",
-                                country="India",
-                                limit=batch_limit,
-                                provider="Google Maps",
-                                user_id=user_id,
-                                exhaustive=True,
-                                grid_size=3,
-                                target_cap="ALL"
-                            )
-                        except Exception as exec_err:
-                            logger.warning(f"[AUTO_LEADFINDER] Batch failed for {keyword} in {locality}, {city}: {exec_err}")
+                    tag_result = await db["leads"].update_many(
+                        {"source_job_id": job_id},
+                        {"$set": {
+                            "is_auto_lead": True,
+                            "source": "auto_leadfinder",
+                            "requested_provider": "Auto LeadFinder",
+                            "assigned_to": user_id,
+                            "assigned_user_email": clean_email,
+                            "user_id": user_id,
+                            "visibility": default_visibility,
+                            "assigned_at": datetime.now(timezone.utc),
+                            "assigned_by": "AUTO_LEADFINDER",
+                            "auto_scraped_city": city,
+                            "auto_scraped_locality": locality,
+                            "auto_scraped_zone": zone,
+                            "auto_scraped_at": datetime.now(timezone.utc)
+                        }}
+                    )
 
-                        # Tag newly created leads with systematic Kutch metadata
-                        tag_result = await db["leads"].update_many(
-                            {"source_job_id": job_id},
-                            {"$set": {
-                                "is_auto_lead": True,
-                                "source": "auto_leadfinder",
-                                "requested_provider": "Auto LeadFinder",
-                                "auto_scraped_city": city,
-                                "auto_scraped_locality": locality,
-                                "auto_scraped_zone": zone,
-                                "auto_scraped_at": datetime.now(timezone.utc)
-                            }}
-                        )
+                    newly_saved = tag_result.modified_count
+                    job_progress = await progress_service.get_job(job_id)
+                    job_duplicates = job_progress.get("duplicates", 0) if job_progress else 0
 
-                        newly_saved = tag_result.modified_count
+                    locality_saved += newly_saved
+                    locality_dups += job_duplicates
+                    total_collected += newly_saved
+                    total_duplicates += job_duplicates
 
-                        # Fetch duplicate count from progress tracking
-                        job_progress = await progress_service.get_job(job_id)
-                        job_duplicates = job_progress.get("duplicates", 0) if job_progress else 0
+                    await db["auto_leadfinder_runs"].update_one(
+                        {"_id": run_id},
+                        {"$set": {
+                            "total_collected": total_collected,
+                            "duplicates_filtered": total_duplicates,
+                        }}
+                    )
 
-                        locality_saved += newly_saved
-                        locality_dups += job_duplicates
-                        total_collected += newly_saved
-                        total_duplicates += job_duplicates
+                localities_processed.append({
+                    "city": city,
+                    "locality": locality,
+                    "zone": zone,
+                    "leads_collected": locality_saved,
+                    "duplicates": locality_dups
+                })
 
-                        logger.info(f"[AUTO_LEADFINDER] {locality}, {city}: Saved {newly_saved} unique, {job_duplicates} duplicates. Total so far: {total_collected}/{target_for_this_run}")
+                curr_idx = (curr_idx + 1) % total_catalog_len
+                iteration_steps += 1
 
-                        # Update live run document in DB
-                        await db["auto_leadfinder_runs"].update_one(
-                            {"_id": run_id},
-                            {"$set": {
-                                "total_collected": total_collected,
-                                "duplicates_filtered": total_duplicates,
-                            }}
-                        )
-
-                    localities_processed.append({
-                        "city": city,
-                        "locality": locality,
-                        "zone": zone,
-                        "leads_collected": locality_saved,
-                        "duplicates": locality_dups
-                    })
-
-                    # Move systematically to the next locality in Kutch
-                    curr_idx = (curr_idx + 1) % total_catalog_len
-                    iteration_steps += 1
-
-            # Update settings with next locality index for tomorrow's run
+            # Update settings with next locality index
             end_utc = datetime.now(timezone.utc)
             await db["auto_leadfinder_settings"].update_one(
-                {"user_email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},
+                {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
                 {"$set": {
                     "current_locality_index": curr_idx,
                     "last_run_at": end_utc,
@@ -919,40 +966,94 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
                 }}
             )
 
-            # Mark run as COMPLETED
-            await db["auto_leadfinder_runs"].update_one(
-                {"_id": run_id},
-                {"$set": {
-                    "status": "COMPLETED",
-                    "completed_at": end_utc,
-                    "total_collected": total_collected,
-                    "duplicates_filtered": total_duplicates,
-                    "localities_processed": localities_processed,
-                    "next_start_locality_index": curr_idx,
-                }}
-            )
-
-            logger.info(f"[AUTO_LEADFINDER] Systematic run {run_id} completed. Total unique collected: {total_collected}, Duplicates ignored: {total_duplicates}. Next locality index: {curr_idx}")
-            return {
-                "status": "success",
-                "run_id": str(run_id),
+        # Mark run as COMPLETED
+        end_utc = datetime.now(timezone.utc)
+        await db["auto_leadfinder_runs"].update_one(
+            {"_id": run_id},
+            {"$set": {
+                "status": "COMPLETED",
+                "completed_at": end_utc,
                 "total_collected": total_collected,
                 "duplicates_filtered": total_duplicates,
                 "localities_processed": localities_processed,
-                "next_locality_index": curr_idx,
-            }
+            }}
+        )
 
-        except Exception as e:
-            logger.error(f"[AUTO_LEADFINDER] Error during systematic Kutch scraping run: {e}", exc_info=True)
-            await db["auto_leadfinder_runs"].update_one(
-                {"_id": run_id},
-                {"$set": {
-                    "status": "FAILED",
-                    "completed_at": datetime.now(timezone.utc),
-                    "error_message": str(e),
-                    "total_collected": total_collected,
-                    "duplicates_filtered": total_duplicates,
-                    "localities_processed": localities_processed
-                }}
+        logger.info(f"[AUTO_LEADFINDER] [{clean_email}] Systematic run {run_id} completed. Total unique: {total_collected}, Duplicates: {total_duplicates}.")
+        return {
+            "status": "success",
+            "run_id": str(run_id),
+            "user_email": clean_email,
+            "total_collected": total_collected,
+            "duplicates_filtered": total_duplicates,
+            "localities_processed": localities_processed,
+        }
+
+    except Exception as e:
+        logger.error(f"[AUTO_LEADFINDER] Error during scraping run for {clean_email}: {e}", exc_info=True)
+        await db["auto_leadfinder_runs"].update_one(
+            {"_id": run_id},
+            {"$set": {
+                "status": "FAILED",
+                "completed_at": datetime.now(timezone.utc),
+                "error_message": str(e),
+                "total_collected": total_collected,
+                "duplicates_filtered": total_duplicates,
+                "localities_processed": localities_processed
+            }}
+        )
+        return {"status": "error", "message": str(e)}
+
+
+async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED", target_user_email: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Main lead discovery pipeline.
+    If target_user_email is specified, runs specifically for that user.
+    If target_user_email is None (e.g. midnight scheduled job), iterates over all active users with Auto LeadFinder enabled.
+    """
+    db = get_raw_database()
+    if db is None:
+        logger.error("[AUTO_LEADFINDER] Database connection unavailable. Aborting.")
+        return {"status": "error", "message": "Database unavailable"}
+
+    if _scraping_lock.locked():
+        logger.warning("[AUTO_LEADFINDER] A scraping process is already running. Skipping duplicate trigger.")
+        return {"status": "skipped", "message": "Scraping process is already in progress."}
+
+    async with _scraping_lock:
+        if target_user_email:
+            return await _run_single_user_pipeline(
+                clean_email=target_user_email.strip().lower(),
+                trigger_type=trigger_type,
+                db=db
             )
-            return {"status": "error", "message": str(e)}
+
+        # Multi-user scheduled execution at midnight IST:
+        # Find all users eligible for Auto LeadFinder
+        cursor = db["users"].find({
+            "$or": [
+                {"email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},
+                {"auto_leadfinder_access": True}
+            ],
+            "account_status": {"$ne": "Deactivated"}
+        })
+        users = await cursor.to_list(length=200)
+
+        emails_to_run = set()
+        emails_to_run.add(TARGET_USER_EMAIL.lower())
+        for u in users:
+            em = (u.get("email") or "").strip().lower()
+            if em:
+                emails_to_run.add(em)
+
+        logger.info(f"[AUTO_LEADFINDER] Executing scheduled multi-user pipeline for {len(emails_to_run)} accounts: {list(emails_to_run)}")
+        results = {}
+        for email in sorted(list(emails_to_run)):
+            try:
+                res = await _run_single_user_pipeline(clean_email=email, trigger_type=trigger_type, db=db)
+                results[email] = res
+            except Exception as e:
+                logger.error(f"[AUTO_LEADFINDER] Pipeline execution failed for {email}: {e}", exc_info=True)
+                results[email] = {"status": "error", "message": str(e)}
+
+        return {"status": "completed", "results": results}

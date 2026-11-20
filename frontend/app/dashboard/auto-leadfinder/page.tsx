@@ -81,41 +81,65 @@ export default function AutoLeadFinderPage() {
     }
   }, [isAuthorized, profileLoading, router]);
 
-  // Settings & KPI stats query
+  // Admin User Switcher: fetch all users who have Auto LeadFinder enabled
+  const { data: usersWithAccessResponse } = useQuery({
+    queryKey: ['auto-leadfinder-users-with-access'],
+    queryFn: async () => {
+      const res = await api.get('/auto-leadfinder/users-with-access');
+      return res.data?.data || [];
+    },
+    enabled: isAuthorized && isAdmin,
+  });
+
+  const usersWithAccess: any[] = usersWithAccessResponse || [];
+
+  // Active user context selection
+  const [selectedUserEmail, setSelectedUserEmail] = useState<string>(TARGET_EMAIL);
+
+  // Effective email being viewed/configured
+  const effectiveEmail = (isAdmin ? selectedUserEmail : userEmail) || TARGET_EMAIL;
+  const isKutchUser = effectiveEmail.toLowerCase() === TARGET_EMAIL.toLowerCase();
+
+  // Settings & KPI stats query for this specific user
   const {
     data: settingsResponse,
     isLoading: loadingSettings,
     refetch: refetchSettings,
     isRefetching: refetchingSettings
   } = useQuery({
-    queryKey: ['auto-leadfinder-settings'],
+    queryKey: ['auto-leadfinder-settings', effectiveEmail],
     queryFn: async () => {
-      const res = await api.get('/auto-leadfinder/settings');
+      const res = await api.get('/auto-leadfinder/settings', {
+        params: { user_email: effectiveEmail }
+      });
       return res.data?.data;
     },
-    enabled: isAuthorized,
+    enabled: isAuthorized && !!effectiveEmail,
     refetchInterval: 10000,
   });
 
-  // Run history query
+  // Run history query for this specific user
   const {
     data: historyResponse,
     isLoading: loadingHistory,
     refetch: refetchHistory,
     isRefetching: refetchingHistory
   } = useQuery({
-    queryKey: ['auto-leadfinder-history'],
+    queryKey: ['auto-leadfinder-history', effectiveEmail],
     queryFn: async () => {
-      const res = await api.get('/auto-leadfinder/history?limit=15');
+      const res = await api.get('/auto-leadfinder/history', {
+        params: { user_email: effectiveEmail, limit: 15 }
+      });
       return res.data?.data || [];
     },
-    enabled: isAuthorized,
+    enabled: isAuthorized && !!effectiveEmail,
     refetchInterval: 10000,
   });
 
   // Local state for configuration form
   const [isActive, setIsActive] = useState<boolean>(true);
   const [dailyLimit, setDailyLimit] = useState<number>(500);
+  const [keywordInput, setKeywordInput] = useState<string>('Travel Agency');
   const [country, setCountry] = useState<string>('India');
   const [countryCode, setCountryCode] = useState<string>('IN');
   const [state, setState] = useState<string>('Gujarat');
@@ -139,20 +163,21 @@ export default function AutoLeadFinderPage() {
   useEffect(() => {
     if (settingsResponse) {
       setIsActive(settingsResponse.is_active ?? true);
-      setDailyLimit(settingsResponse.daily_limit ?? 500);
+      setDailyLimit(settingsResponse.daily_limit ?? (isKutchUser ? 500 : 100));
+      setKeywordInput(settingsResponse.keyword || (isKutchUser ? 'Travel Agency' : 'Business'));
       setCountry(settingsResponse.country || 'India');
       setCountryCode(settingsResponse.country_code || 'IN');
       setState(settingsResponse.state || 'Gujarat');
       setStateCode(settingsResponse.state_code || 'GJ');
-      setCity(settingsResponse.city || 'Bhuj');
+      setCity(settingsResponse.city || (isKutchUser ? 'Kutch district' : 'Bhuj'));
       setDistrict(settingsResponse.district || 'Kachchh');
-      setLocationMode(settingsResponse.location_mode || 'custom_city');
+      setLocationMode(settingsResponse.location_mode || (isKutchUser ? 'kutch_systematic' : 'custom_city'));
       setTargetCities(settingsResponse.target_cities || []);
       setDiscoveredAreas(settingsResponse.discovered_areas || []);
       setDiscoveredPincodes(settingsResponse.discovered_pincodes || []);
       setCurrentAreaIndex(settingsResponse.current_area_index || 0);
     }
-  }, [settingsResponse]);
+  }, [settingsResponse, isKutchUser]);
 
   if (profileLoading || !isAuthorized) {
     return (
@@ -163,16 +188,21 @@ export default function AutoLeadFinderPage() {
   }
 
   const handleTriggerDiscovery = async (forceRefresh: boolean = false, targetCityName?: string) => {
-    const cName = targetCityName || city || 'Bhuj';
+    const cName = targetCityName || city || (isKutchUser ? 'Bhuj' : city);
     setIsDiscovering(true);
     try {
-      const res = await api.post('/auto-leadfinder/discover-areas', {
-        city: cName,
-        state: state || 'Gujarat',
-        country: country || 'India',
-        district: district || 'Kachchh',
-        force_refresh: forceRefresh,
-      });
+      const res = await api.post(
+        '/auto-leadfinder/discover-areas',
+        {
+          city: cName,
+          state: state || 'Gujarat',
+          country: country || 'India',
+          district: district || 'Kachchh',
+          force_refresh: forceRefresh,
+          user_email: effectiveEmail,
+        },
+        { params: { user_email: effectiveEmail } }
+      );
       const data = res.data?.data;
       if (data) {
         setDiscoveredAreas(data.areas || []);
@@ -193,7 +223,6 @@ export default function AutoLeadFinderPage() {
   const handleSaveSettings = async (customPayload?: Record<string, any> | unknown) => {
     setIsSaving(true);
     try {
-      // Safely ensure customPayload is a pure plain object and NOT a DOM / React SyntheticEvent
       const isPlainObject =
         customPayload &&
         typeof customPayload === 'object' &&
@@ -205,6 +234,8 @@ export default function AutoLeadFinderPage() {
       const payload = {
         is_active: isActive,
         daily_limit: Number(dailyLimit),
+        keyword: isKutchUser ? 'Travel Agency' : (keywordInput || 'Business').trim(),
+        industry_keywords: [isKutchUser ? 'Travel Agency' : (keywordInput || 'Business').trim()],
         country,
         country_code: countryCode,
         state,
@@ -216,10 +247,14 @@ export default function AutoLeadFinderPage() {
         discovered_areas: discoveredAreas,
         discovered_pincodes: discoveredPincodes,
         current_area_index: currentAreaIndex,
+        assigned_user_email: effectiveEmail,
         ...safeCustom,
       };
-      await api.put('/auto-leadfinder/settings', payload);
-      toast.success('Auto LeadFinder location & settings updated successfully!');
+
+      await api.put('/auto-leadfinder/settings', payload, {
+        params: { user_email: effectiveEmail }
+      });
+      toast.success(`Auto LeadFinder settings updated successfully for ${effectiveEmail}!`);
       refetchSettings();
     } catch (err: unknown) {
       const errorObj = err as { response?: { data?: { detail?: string } }; message?: string };
@@ -258,8 +293,10 @@ export default function AutoLeadFinderPage() {
   const handleTriggerManualRun = async () => {
     setIsTriggeringRun(true);
     try {
-      await api.post('/auto-leadfinder/run-now');
-      toast.success(`Systematic ${city || 'City'} lead scraping started! Tracking live progress.`);
+      await api.post('/auto-leadfinder/run-now', null, {
+        params: { user_email: effectiveEmail }
+      });
+      toast.success(`Systematic ${city || 'City'} lead scraping started for ${effectiveEmail}! Tracking live progress.`);
       refetchSettings();
       refetchHistory();
     } catch (err: unknown) {
@@ -286,16 +323,72 @@ export default function AutoLeadFinderPage() {
   const totalLocalities = settingsResponse?.total_kutch_localities ?? 38;
   const kutchCatalog = settingsResponse?.kutch_localities_catalog ?? [];
   const displayCity = (city || '').replace(/\s+district$/i, '').trim();
+  const isKeywordFixed = isKutchUser || settingsResponse?.is_keyword_fixed === true;
+  const activeKeyword = settingsResponse?.keyword || keywordInput || (isKutchUser ? 'Travel Agency' : 'Business');
 
   return (
     <div className="w-full space-y-6 pb-12 animate-in fade-in">
+      {/* Admin Context Switcher Banner */}
+      {isAdmin && (
+        <div className="bg-gradient-to-r from-slate-900 via-teal-950 to-slate-900 border border-teal-500/30 rounded-2xl p-4 shadow-md text-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-teal-500/20 border border-teal-400/40 flex items-center justify-center text-teal-300 shrink-0">
+              <Users className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] uppercase tracking-wider font-extrabold text-teal-400 bg-teal-500/10 px-2 py-0.5 rounded-full border border-teal-500/20">
+                  Admin Multi-Tenant Control
+                </span>
+                <span className="text-[10px] text-slate-300 font-medium">User-Wise Isolation</span>
+              </div>
+              <h4 className="text-sm font-bold text-white mt-0.5">
+                Managing Auto LeadFinder for:{' '}
+                <span className="text-teal-300 font-extrabold">
+                  {settingsResponse?.user_name || effectiveEmail}
+                </span>
+              </h4>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 self-start sm:self-center">
+            <span className="text-xs text-slate-300 font-medium whitespace-nowrap">Switch User:</span>
+            <div className="relative min-w-[260px] sm:min-w-[320px]">
+              <select
+                value={selectedUserEmail}
+                onChange={(e) => setSelectedUserEmail(e.target.value)}
+                className="w-full appearance-none pl-3.5 pr-10 py-2.5 rounded-xl bg-slate-800/90 border border-teal-500/40 text-xs font-bold text-white shadow-inner focus:outline-hidden focus:ring-2 focus:ring-teal-400 cursor-pointer"
+              >
+                {usersWithAccess.length > 0 ? (
+                  usersWithAccess.map((u: any) => (
+                    <option key={u.email} value={u.email} className="bg-slate-900 text-white">
+                      {u.full_name} ({u.email}) {u.is_kutch ? '★ Travel Agency (Fixed)' : `• ${u.keyword || 'Custom'}`}
+                    </option>
+                  ))
+                ) : (
+                  <option value={TARGET_EMAIL} className="bg-slate-900 text-white">
+                    Vipul Shah (kutchtourguide@gmail.com) ★ Travel Agency
+                  </option>
+                )}
+              </select>
+              <ChevronRight className="w-4 h-4 text-teal-300 pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rotate-90" />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 mb-1">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-50 border border-teal-200/80 text-teal-700">
               <Compass className="w-3.5 h-3.5 text-teal-600" />
               Priority #1: {displayCity ? `${displayCity} Systematic Locality Coverage` : 'City & Localities Systematic Coverage'}
+            </span>
+            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+              <Tag className="w-3 h-3 text-teal-600" />
+              Keyword: <strong className="text-slate-900 ml-0.5">{activeKeyword}</strong>
+              {isKeywordFixed && <Lock className="w-2.5 h-2.5 text-amber-600 ml-0.5" />}
             </span>
             <span className="text-xs text-slate-400 font-medium">
               Autonomous Locality Scraping Engine
@@ -304,9 +397,9 @@ export default function AutoLeadFinderPage() {
           <PageHeader
             title="Auto LeadFinder"
             description={
-              displayCity
-                ? `Autonomous daily lead discovery system systematically covering all areas and localities of ${displayCity} first, gathering a guaranteed 500 unique leads every day.`
-                : "Autonomous daily lead discovery system systematically covering all areas and localities of selected city first, gathering a guaranteed 500 unique leads every day."
+              isKutchUser
+                ? "Autonomous daily lead discovery system systematically covering all areas and localities of Kutch first, gathering a guaranteed 500 unique leads every day."
+                : `Autonomous daily lead discovery system systematically covering all areas and localities of ${displayCity || 'the selected city'} for ${activeKeyword}, gathering fresh verified leads daily.`
             }
           />
         </div>
@@ -374,7 +467,7 @@ export default function AutoLeadFinderPage() {
       {/* View 1: Scheduled Tasks Monitor */}
       {activeTab === 'tasks' && <ScheduledTasksMonitor />}
 
-      {/* View 2: Kutch Lead Discovery Engine */}
+      {/* View 2: Lead Discovery Engine */}
       {activeTab === 'engine' && (
         <div className="space-y-6">
           {/* Priority Region Banner */}
@@ -391,7 +484,7 @@ export default function AutoLeadFinderPage() {
                 Systematic Locality Coverage in Progress
               </h2>
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                The system begins with <strong className="text-teal-300">{displayCity ? `${displayCity}${district && district !== displayCity ? ` (${district})` : ''}${state ? `, ${state}` : ''}` : 'the selected city'}</strong>, thoroughly exploring all major areas and localities before moving outward. Every daily run targets a minimum of <strong className="text-teal-300">500 100% unique, fresh leads</strong> while strictly ignoring all duplicate contacts.
+                The system begins with <strong className="text-teal-300">{displayCity ? `${displayCity}${district && district !== displayCity ? ` (${district})` : ''}${state ? `, ${state}` : ''}` : 'the selected city'}</strong>, exploring all major postal areas and localities sequentially. Every daily run targets <strong className="text-teal-300">{dailyLimit} 100% unique, fresh leads</strong> for <strong className="text-teal-300">{activeKeyword}</strong> while strictly ignoring all duplicate contacts.
               </p>
               <div className="pt-2 flex flex-wrap items-center gap-4 text-xs">
                 <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
@@ -410,7 +503,7 @@ export default function AutoLeadFinderPage() {
                 </div>
                 <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
                   <span className="text-slate-400 block text-[10px]">Daily Target Guarantee:</span>
-                  <span className="font-bold text-emerald-400">500 Unique Leads / Day</span>
+                  <span className="font-bold text-emerald-400">{dailyLimit} Unique Leads / Day</span>
                 </div>
               </div>
             </div>
@@ -426,7 +519,7 @@ export default function AutoLeadFinderPage() {
                 <div>
                   <h4 className="text-sm font-bold text-amber-900">Systematic Lead Scraping Active in {displayCity || 'Selected City'}</h4>
                   <p className="text-xs text-amber-700 mt-0.5">
-                    Exploring localities in {displayCity || 'Selected City'} for Tour Operators, Travel Agencies, and Tour Guides. Deduplicating against all existing records in real time.
+                    Exploring localities in {displayCity || 'Selected City'} for {activeKeyword}. Deduplicating against all existing records in real time.
                   </p>
                 </div>
               </div>
@@ -449,18 +542,18 @@ export default function AutoLeadFinderPage() {
               </div>
               <div className="mt-2">
                 <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full ${isActive ? 'bg-emerald-500 animate-pulse' : 'bg-slate-300'}`} />
-                  <span className="text-lg font-bold text-slate-900">
+                  <span className={`w-2.5 h-2.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-300'}`} />
+                  <span className="text-base font-bold text-slate-900">
                     {isActive ? 'Active (Scheduled)' : 'Paused'}
                   </span>
                 </div>
-                <span className="text-[11px] text-slate-400 mt-1 block truncate">
+                <p className="text-[11px] text-slate-400 mt-1">
                   Next: {nextRunTime}
-                </span>
+                </p>
               </div>
             </div>
 
-            {/* Card 2: Daily Limit */}
+            {/* Card 2: Daily Target Limit */}
             <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500">Daily Target Limit</span>
@@ -469,15 +562,17 @@ export default function AutoLeadFinderPage() {
                 </div>
               </div>
               <div className="mt-2">
-                <span className="text-2xl font-bold text-slate-900">{currentLimit}</span>
-                <span className="text-xs text-slate-500 ml-1">leads / day</span>
-                <span className="text-[11px] text-slate-400 mt-1 block">
-                  Guaranteed Fresh & Unique
-                </span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-xl font-black text-slate-900">{currentLimit}</span>
+                  <span className="text-xs text-slate-400">leads / day</span>
+                </div>
+                <p className="text-[11px] text-teal-600 font-medium mt-1">
+                  Guaranteed Fresh &amp; Unique
+                </p>
               </div>
             </div>
 
-            {/* Card 3: Today's Collection */}
+            {/* Card 3: Today's Collected */}
             <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500">Today&apos;s Collected</span>
@@ -486,38 +581,40 @@ export default function AutoLeadFinderPage() {
                 </div>
               </div>
               <div className="mt-2">
-                <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-bold text-blue-600">{todayCollected}</span>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-xl font-black text-slate-900">{todayCollected}</span>
                   <span className="text-xs text-slate-400">/ {currentLimit}</span>
                 </div>
-                <div className="w-full bg-slate-100 h-1.5 rounded-full mt-2 overflow-hidden">
+                <div className="w-full bg-slate-100 rounded-full h-1.5 mt-2 overflow-hidden">
                   <div
                     className="bg-blue-600 h-1.5 rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(100, (todayCollected / Math.max(1, currentLimit)) * 100)}%` }}
+                    style={{ width: `${Math.min(100, (todayCollected / (currentLimit || 1)) * 100)}%` }}
                   />
                 </div>
               </div>
             </div>
 
-            {/* Card 4: Total Auto Leads */}
+            {/* Card 4: Total Lifetime Leads */}
             <div className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs flex flex-col justify-between">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium text-slate-500">Total Lifetime Leads</span>
-                <div className="w-8 h-8 rounded-xl bg-indigo-50 border border-indigo-100 flex items-center justify-center text-indigo-600">
+                <div className="w-8 h-8 rounded-xl bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600">
                   <Users className="w-4 h-4" />
                 </div>
               </div>
               <div className="mt-2">
-                <span className="text-2xl font-bold text-indigo-600">{totalCollected}</span>
-                <span className="text-xs text-slate-500 ml-1">leads</span>
-                <span className="text-[11px] text-slate-400 mt-1 block">
-                  Synced with Leads Management
-                </span>
+                <div className="flex items-baseline gap-1">
+                  <span className="text-xl font-black text-slate-900">{totalCollected}</span>
+                  <span className="text-xs text-slate-400">leads</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Synced with User&apos;s Leads Management
+                </p>
               </div>
             </div>
           </div>
 
-          {/* Manual Cascading Location Selector (Country -> State -> City) */}
+          {/* Dynamic Geographic Target Selection */}
           <LocationSelector
             country={country}
             countryCode={countryCode}
@@ -526,17 +623,18 @@ export default function AutoLeadFinderPage() {
             city={city}
             locationMode={locationMode}
             targetCities={targetCities}
-            discoveredPincodes={discoveredPincodes}
             discoveredAreasCount={discoveredAreas.length}
-            isDiscovering={isDiscovering}
-            onTriggerDiscovery={handleTriggerDiscovery}
-            onChangeLocation={handleLocationChange}
+            discoveredPincodes={discoveredPincodes}
+            isDiscoveringAreas={isDiscovering}
+            onLocationChange={handleLocationChange}
+            onTriggerAreaDiscovery={() => handleTriggerDiscovery(true)}
+            onSaveCities={(cities) => handleSaveSettings({ target_cities: cities })}
           />
 
-          {/* Discovered Postal Areas & Google Maps Queries Explorer */}
-          {discoveredAreas && discoveredAreas.length > 0 && (
-            <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4 animate-in fade-in">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+          {/* Discovered Postal Areas Explorer */}
+          {discoveredAreas.length > 0 && (
+            <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
                     <Compass className="w-5 h-5" />
@@ -544,9 +642,9 @@ export default function AutoLeadFinderPage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-base font-bold text-slate-900">
-                        Discovered Postal Areas in {displayCity || 'City'} ({discoveredAreas.length})
+                        Discovered Postal Areas in {displayCity || city} ({discoveredAreas.length})
                       </h3>
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 border border-teal-200 text-teal-700">
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-teal-50 border border-teal-200 text-teal-700">
                         Indian Postal PIN Code API
                       </span>
                     </div>
@@ -656,68 +754,66 @@ export default function AutoLeadFinderPage() {
             </div>
           )}
 
-          {/* Systematic Kutch Localities Catalog Explorer */}
-          <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
-                  <MapPin className="w-5 h-5" />
+          {/* Systematic Kutch Localities Catalog Explorer (Shown for Kutch Tour Guide context) */}
+          {isKutchUser && (
+            <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
+                    <MapPin className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">
+                      Kutch Localities Coverage Index
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      All 38 key areas and localities across Bhuj, Gandhidham, Mandvi, White Desert, Anjar, Mundra, and Western/Eastern Kutch.
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">
-                    {city.toLowerCase().includes('kutch') || city.toLowerCase().includes('bhuj')
-                      ? 'Kutch Localities Coverage Index'
-                      : `${city} Regional Coverage Index`}
-                  </h3>
-                  <p className="text-xs text-slate-500">
-                    {city.toLowerCase().includes('kutch') || city.toLowerCase().includes('bhuj')
-                      ? 'All 38 key areas and localities across Bhuj, Gandhidham, Mandvi, White Desert, Anjar, Mundra, and Western/Eastern Kutch.'
-                      : `Localities and areas prioritized for lead generation in ${city}, ${district || state}.`}
-                  </p>
-                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowCatalog(!showCatalog)}
+                  className="text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100/70 border border-teal-200 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer self-start sm:self-center"
+                >
+                  {showCatalog ? 'Hide Localities List' : `View All ${kutchCatalog.length || 38} Reference Localities`}
+                </button>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setShowCatalog(!showCatalog)}
-                className="text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100/70 border border-teal-200 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer self-start sm:self-center"
-              >
-                {showCatalog ? 'Hide Localities List' : `View All ${kutchCatalog.length || 38} Reference Localities`}
-              </button>
-            </div>
-
-            {/* Localities Grid Preview */}
-            {showCatalog && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 pt-3 animate-in fade-in duration-200">
-                {kutchCatalog.map((loc: any, idx: number) => {
-                  const isCurrent = idx === currentLocalityIndex;
-                  return (
-                    <div
-                      key={`${loc.city}-${loc.locality}`}
-                      className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 transition-all ${isCurrent
-                        ? 'bg-teal-50 border-teal-300 ring-2 ring-teal-500/20 shadow-xs'
-                        : 'bg-slate-50/60 border-slate-200/70'
-                        }`}
-                    >
-                      <div className="overflow-hidden">
-                        <span className="font-bold text-slate-800 block truncate">{loc.locality}</span>
-                        <span className="text-[10px] text-slate-400 block truncate">{loc.city} • {loc.zone}</span>
+              {/* Localities Grid Preview */}
+              {showCatalog && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2.5 pt-3 animate-in fade-in duration-200">
+                  {kutchCatalog.map((loc: any, idx: number) => {
+                    const isCurrent = idx === currentLocalityIndex;
+                    return (
+                      <div
+                        key={`${loc.city}-${loc.locality}`}
+                        className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 transition-all ${isCurrent
+                          ? 'bg-teal-50 border-teal-300 ring-2 ring-teal-500/20 shadow-xs'
+                          : 'bg-slate-50/60 border-slate-200/70'
+                          }`}
+                      >
+                        <div className="overflow-hidden">
+                          <span className="font-bold text-slate-800 block truncate">{loc.locality}</span>
+                          <span className="text-[10px] text-slate-400 block truncate">{loc.city} • {loc.zone}</span>
+                        </div>
+                        {isCurrent ? (
+                          <span className="shrink-0 px-2 py-0.5 rounded-md text-[9px] font-extrabold bg-teal-600 text-white animate-pulse">
+                            NEXT
+                          </span>
+                        ) : (
+                          <span className="shrink-0 text-[10px] text-slate-400 font-semibold">
+                            #{idx + 1}
+                          </span>
+                        )}
                       </div>
-                      {isCurrent ? (
-                        <span className="shrink-0 px-2 py-0.5 rounded-md text-[9px] font-extrabold bg-teal-600 text-white animate-pulse">
-                          NEXT
-                        </span>
-                      ) : (
-                        <span className="shrink-0 text-[10px] text-slate-400 font-semibold">
-                          #{idx + 1}
-                        </span>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Settings & Configuration Card */}
           <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-6">
@@ -729,7 +825,7 @@ export default function AutoLeadFinderPage() {
                 <div>
                   <h3 className="text-base font-bold text-slate-900">Customizable Scraping Settings</h3>
                   <p className="text-xs text-slate-500">
-                    Adjust your daily target quota and automatic midnight execution.
+                    Adjust your daily target quota, target keyword, and automatic midnight execution.
                   </p>
                 </div>
               </div>
@@ -771,7 +867,7 @@ export default function AutoLeadFinderPage() {
                     onChange={(e) => setDailyLimit(Number(e.target.value))}
                     className="w-32 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
                   />
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {[100, 250, 500, 1000].map((preset) => (
                       <button
                         key={preset}
@@ -796,7 +892,7 @@ export default function AutoLeadFinderPage() {
               <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 flex flex-col justify-between">
                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-700">
                   <Clock className="w-4 h-4 text-teal-600" />
-                  <span>Execution Schedule & Deduplication</span>
+                  <span>Execution Schedule &amp; Deduplication</span>
                 </div>
                 <div className="mt-2 space-y-1 text-xs text-slate-600">
                   <div className="flex items-center justify-between">
@@ -819,6 +915,59 @@ export default function AutoLeadFinderPage() {
                   </div>
                 </div>
               </div>
+            </div>
+
+            {/* Industry Keyword Configuration */}
+            <div className="p-4 rounded-2xl border border-slate-100 bg-slate-50/60 space-y-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Tag className="w-4 h-4 text-teal-600" />
+                  <label className="text-xs font-bold text-slate-800">
+                    Target Industry Keyword:
+                  </label>
+                  {isKeywordFixed ? (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-50 text-amber-700 border border-amber-200">
+                      <Lock className="w-3 h-3 text-amber-600" />
+                      Locked (Travel Agency)
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 text-teal-700 border border-teal-200">
+                      Custom User Keyword
+                    </span>
+                  )}
+                </div>
+
+                <span className="text-[11px] text-slate-400">
+                  User Context: <strong className="text-slate-700">{effectiveEmail}</strong>
+                </span>
+              </div>
+
+              {isKeywordFixed ? (
+                <div className="flex items-center gap-3">
+                  <input
+                    type="text"
+                    disabled
+                    value="Travel Agency"
+                    className="w-full sm:w-80 px-3.5 py-2 rounded-xl border border-slate-200 bg-slate-100 text-slate-500 text-xs font-semibold cursor-not-allowed"
+                  />
+                  <span className="text-[11px] text-slate-400">
+                    Permanently fixed to &quot;Travel Agency&quot; for Kutch Tour Guide account.
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                  <input
+                    type="text"
+                    value={keywordInput}
+                    onChange={(e) => setKeywordInput(e.target.value)}
+                    placeholder="e.g. Real Estate, Digital Marketing, Solar Panels..."
+                    className="w-full sm:w-80 px-3.5 py-2 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
+                  />
+                  <span className="text-[11px] text-slate-500">
+                    The autonomous lead finder will prioritize searching for verified leads matching this keyword across all discovered localities.
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Action Save Bar */}
@@ -847,7 +996,7 @@ export default function AutoLeadFinderPage() {
             </div>
           </div>
 
-          {/* Recent Scraping Activity & History */}
+          {/* Recent Scraping Activity & History for this specific user */}
           <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -855,16 +1004,18 @@ export default function AutoLeadFinderPage() {
                   <Calendar className="w-5 h-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Recent Scraping History</h3>
+                  <h3 className="text-base font-bold text-slate-900">
+                    Recent Scraping History ({effectiveEmail})
+                  </h3>
                   <p className="text-xs text-slate-500">
-                    Log of automated midnight runs and on-demand scraping batches.
+                    Log of automated midnight runs and on-demand scraping batches for this user.
                   </p>
                 </div>
               </div>
 
               <button
                 onClick={() => refetchHistory()}
-                className="text-xs font-semibold text-teal-600 hover:text-teal-700 transition-colors"
+                className="text-xs font-semibold text-teal-600 hover:text-teal-700 transition-colors cursor-pointer"
               >
                 Refresh History
               </button>
@@ -874,10 +1025,10 @@ export default function AutoLeadFinderPage() {
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50/80 text-slate-500 font-semibold border-b border-slate-100">
                   <tr>
-                    <th className="py-3 px-4">Date & Time (IST)</th>
+                    <th className="py-3 px-4">Date &amp; Time (IST)</th>
                     <th className="py-3 px-4">Trigger</th>
                     <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Kutch Localities Processed</th>
+                    <th className="py-3 px-4">Localities Processed</th>
                     <th className="py-3 px-4">Unique Leads Collected</th>
                     <th className="py-3 px-4">Duplicates Filtered</th>
                   </tr>
@@ -894,7 +1045,7 @@ export default function AutoLeadFinderPage() {
                     <tr>
                       <td colSpan={6} className="py-12 text-center text-slate-400">
                         <Compass className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-                        <p className="font-semibold text-slate-600 text-sm">No Scraping Runs Recorded Yet</p>
+                        <p className="font-semibold text-slate-600 text-sm">No Scraping Runs Recorded Yet for {effectiveEmail}</p>
                         <p className="text-xs text-slate-400 mt-1">
                           Scraping runs automatically every night at 12:00 AM IST, or click &quot;Run Scraping Now&quot; to start immediately.
                         </p>

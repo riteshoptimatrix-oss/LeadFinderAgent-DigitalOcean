@@ -131,3 +131,48 @@ class ChangePassword(BaseModel):
         if not re.search(r"[@$!%*?&#^]", v):
             raise ValueError("Password must contain at least one special character.")
         return v
+
+
+class AdminCreateUserRequest(BaseModel):
+    email: EmailStr
+    password: str = Field(..., min_length=6, max_length=128)
+    full_name: str = Field(..., min_length=1)
+    mobile_number: Optional[str] = None
+    company_name: Optional[str] = None
+    country: Optional[str] = None
+    state: Optional[str] = None
+    role: UserRole = UserRole.USER
+    account_status: str = "Active"
+    is_active: bool = True
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def normalize_role(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v_upper = v.strip().upper()
+            if v_upper in UserRole.__members__:
+                return UserRole[v_upper]
+        return v
+
+
+class AdminUpdateUserRequest(BaseModel):
+    email: Optional[EmailStr] = None
+    full_name: Optional[str] = None
+    mobile_number: Optional[str] = None
+    company_name: Optional[str] = None
+    country: Optional[str] = None
+    state: Optional[str] = None
+    role: Optional[UserRole] = None
+    account_status: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
+
+    @field_validator("role", mode="before")
+    @classmethod
+    def normalize_role(cls, v: Any) -> Any:
+        if isinstance(v, str):
+            v_upper = v.strip().upper()
+            if v_upper in UserRole.__members__:
+                return UserRole[v_upper]
+        return v
+

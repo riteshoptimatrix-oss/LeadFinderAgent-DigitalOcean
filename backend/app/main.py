@@ -484,7 +484,9 @@ app.include_router(enrichment.router, prefix=f"{app_settings.API_V1_STR}/enrichm
 from app.api.routes import notifications as notifications_routes
 app.include_router(notifications_routes.router, prefix=f"{app_settings.API_V1_STR}/notifications", tags=["notifications"])
 
-from app.api.routes import admin_activity
+from app.api.routes import admin_activity, admin_users
+app.include_router(admin_users.router, prefix=f"{app_settings.API_V1_STR}/admin/users", tags=["admin-users"])
+app.include_router(admin_users.router, prefix="/api/admin/users", tags=["admin-users"])
 app.include_router(admin_activity.router, prefix=f"{app_settings.API_V1_STR}/admin", tags=["admin"])
 from app.api.routes import crm, whatsapp_ai, email_ai, email_ai_analytics, ai_content
 app.include_router(crm.router, prefix=f"{app_settings.API_V1_STR}/crm", tags=["crm"])

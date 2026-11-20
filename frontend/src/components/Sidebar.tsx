@@ -206,6 +206,16 @@ export default function Sidebar() {
     title: 'ADMIN',
     items: [
       {
+        name: 'User Management',
+        href: '/dashboard/admin/users',
+        icon: Users,
+        badgeBox: {
+          bg: 'bg-indigo-50',
+          text: 'text-indigo-600',
+          border: 'border-indigo-100/60'
+        }
+      },
+      {
         name: 'User Activity',
         href: '/dashboard/admin/user-activity',
         icon: Shield,

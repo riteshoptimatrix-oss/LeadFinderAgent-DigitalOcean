@@ -88,42 +88,8 @@ async def get_dashboard_stats(
         "today_new_users": today_new_users
     })
 
-@router.get("/users")
-async def list_users(
-    skip: int = Query(0, ge=0),
-    limit: int = Query(50, ge=1, le=200),
-    search: Optional[str] = None,
-    current_admin: UserInDB = Depends(require_admin)
-) -> Any:
-    raw_db = get_raw_db()
-    query: Dict[str, Any] = {}
-    if search:
-        query = {
-            "$or": [
-                {"full_name": {"$regex": search, "$options": "i"}},
-                {"email": {"$regex": search, "$options": "i"}},
-                {"company_name": {"$regex": search, "$options": "i"}}
-            ]
-        }
-    
-    cursor = raw_db["users"].find(query).sort("created_at", -1).skip(skip).limit(limit)
-    users = []
-    async for user in cursor:
-        user["_id"] = str(user["_id"])
-        if "hashed_password" in user:
-            del user["hashed_password"]
-        if "password_hash" in user:
-            del user["password_hash"]
-        users.append(user)
-        
-    total = await raw_db["users"].count_documents(query)
-    
-    return sanitize_doc({
-        "items": users,
-        "total": total,
-        "skip": skip,
-        "limit": limit
-    })
+# User CRUD and Impersonation endpoints are managed in admin_users.py
+
 
 @router.get("/users/{user_id}/profile")
 async def get_user_profile(

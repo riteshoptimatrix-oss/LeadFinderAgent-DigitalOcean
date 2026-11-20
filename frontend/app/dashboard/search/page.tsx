@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, Suspense } from 'react';
 import { useForm, Controller } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -21,7 +21,7 @@ import {
   ListChecks
 } from 'lucide-react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { DataTable } from '@/src/components/common/DataTable';
 import { StatusBadge } from '@/src/components/common/StatusBadge';
 import { PageHeader } from '@/src/components/common/PageHeader';
@@ -296,19 +296,28 @@ function SearchableSelect({
   );
 }
 
-export default function SearchPage() {
+function SearchPageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const urlKeyword = searchParams.get('keyword') || searchParams.get('q') || '';
 
   const { register, handleSubmit, control, watch, setValue, formState: { errors, isValid } } = useForm<SearchFormValues>({
     resolver: zodResolver(searchSchema),
     mode: 'onChange',
     defaultValues: {
+      keyword: urlKeyword || '',
       provider: 'Google Maps',
       target_cap: 'SMALL_MEDIUM_CAP',
       exhaustive: false,
       grid_size: 3
     }
   });
+
+  useEffect(() => {
+    if (urlKeyword) {
+      setValue('keyword', urlKeyword, { shouldValidate: true, shouldDirty: true });
+    }
+  }, [urlKeyword, setValue]);
 
   const selectedCountryCode = watch('country');
   const selectedStateCode = watch('state');
@@ -859,5 +868,13 @@ export default function SearchPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={<div className="w-full py-12 flex items-center justify-center text-sm text-slate-400">Loading search...</div>}>
+      <SearchPageContent />
+    </Suspense>
   );
 }

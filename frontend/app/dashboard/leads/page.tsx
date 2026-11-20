@@ -89,6 +89,15 @@ function LeadsPageContent() {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
+  // Keep searchQuery state synchronized when URL search params change (e.g. from header search bar)
+  useEffect(() => {
+    const currentUrlSearch = searchParams.get('keyword') || searchParams.get('search') || '';
+    if (currentUrlSearch !== searchQuery) {
+      setSearchQuery(currentUrlSearch);
+      setPage(0);
+    }
+  }, [searchParams]);
+
   // Currently starting analysis indicator per lead
   const [startingAnalysisId, setStartingAnalysisId] = useState<string | null>(null);
   const [analysisStartedAt, setAnalysisStartedAt] = useState<Record<string, number>>(loadTrackedAnalysisStarts);

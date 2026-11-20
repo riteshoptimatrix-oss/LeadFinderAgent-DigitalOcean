@@ -19,6 +19,38 @@ export interface WALead {
   google_rating?: number;
 }
 
+function getPaginationPages(currentPage: number, totalPages: number): (number | 'ellipsis-start' | 'ellipsis-end')[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i);
+  }
+
+  if (currentPage < 4) {
+    return [0, 1, 2, 3, 4, 'ellipsis-end', totalPages - 1];
+  }
+
+  if (currentPage >= totalPages - 4) {
+    return [
+      0,
+      'ellipsis-start',
+      totalPages - 5,
+      totalPages - 4,
+      totalPages - 3,
+      totalPages - 2,
+      totalPages - 1,
+    ];
+  }
+
+  return [
+    0,
+    'ellipsis-start',
+    currentPage - 1,
+    currentPage,
+    currentPage + 1,
+    'ellipsis-end',
+    totalPages - 1,
+  ];
+}
+
 interface LeadSelectionTableProps {
   leads: WALead[];
   total: number;
@@ -254,9 +286,19 @@ export default function LeadSelectionTable({
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-              const pageNum = page < 3 ? i : page - 2 + i;
-              if (pageNum >= totalPages) return null;
+            {getPaginationPages(page, totalPages).map((item, idx) => {
+              if (typeof item === 'string') {
+                return (
+                  <span
+                    key={`ellipsis-${idx}`}
+                    className="w-8 h-8 flex items-center justify-center text-xs font-semibold text-slate-400 select-none"
+                  >
+                    ...
+                  </span>
+                );
+              }
+
+              const pageNum = item;
               return (
                 <button
                   key={pageNum}

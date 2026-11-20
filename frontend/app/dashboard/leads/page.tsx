@@ -65,6 +65,41 @@ function loadTrackedAnalysisStarts(): Record<string, number> {
   }
 }
 
+function getPaginationPages(currentPage: number, totalPages: number): (number | 'ellipsis-start' | 'ellipsis-end')[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i);
+  }
+
+  // When near the start (pages 1 to 4)
+  if (currentPage < 4) {
+    return [0, 1, 2, 3, 4, 'ellipsis-end', totalPages - 1];
+  }
+
+  // When near the end
+  if (currentPage >= totalPages - 4) {
+    return [
+      0,
+      'ellipsis-start',
+      totalPages - 5,
+      totalPages - 4,
+      totalPages - 3,
+      totalPages - 2,
+      totalPages - 1,
+    ];
+  }
+
+  // In the middle
+  return [
+    0,
+    'ellipsis-start',
+    currentPage - 1,
+    currentPage,
+    currentPage + 1,
+    'ellipsis-end',
+    totalPages - 1,
+  ];
+}
+
 function LeadsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -1836,19 +1871,32 @@ function LeadsPageContent() {
         <div className="flex items-center gap-1.5">
           <button
             disabled={page === 0}
-            onClick={() => setPage(p => p - 1)}
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-all text-xs cursor-pointer"
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+            aria-label="Previous Page"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-all text-xs cursor-pointer disabled:cursor-not-allowed"
           >
             <ChevronLeft className="w-4 h-4" />
           </button>
 
-          {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-            const pageNum = i;
+          {getPaginationPages(page, totalPages).map((item, idx) => {
+            if (typeof item === 'string') {
+              return (
+                <span
+                  key={`ellipsis-${idx}`}
+                  className="w-8 h-8 flex items-center justify-center text-xs font-semibold text-slate-400 select-none"
+                >
+                  ...
+                </span>
+              );
+            }
+
+            const pageNum = item;
             const isActive = pageNum === page;
             return (
               <button
-                key={i}
+                key={pageNum}
                 onClick={() => setPage(pageNum)}
+                aria-current={isActive ? 'page' : undefined}
                 className={`w-8 h-8 rounded-lg text-xs font-bold transition-all cursor-pointer ${isActive
                   ? 'bg-blue-600 text-white shadow-2xs'
                   : 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50'
@@ -1860,9 +1908,10 @@ function LeadsPageContent() {
           })}
 
           <button
-            disabled={(page + 1) * limit >= total}
-            onClick={() => setPage(p => p + 1)}
-            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-all text-xs cursor-pointer"
+            disabled={page >= totalPages - 1}
+            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+            aria-label="Next Page"
+            className="w-8 h-8 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:hover:bg-white transition-all text-xs cursor-pointer disabled:cursor-not-allowed"
           >
             <ChevronRight className="w-4 h-4" />
           </button>

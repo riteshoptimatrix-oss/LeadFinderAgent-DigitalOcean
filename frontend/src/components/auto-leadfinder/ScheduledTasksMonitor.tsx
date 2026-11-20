@@ -187,11 +187,10 @@ export default function ScheduledTasksMonitor() {
           <button
             key={tab.key}
             onClick={() => setFilterStatus(tab.key)}
-            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              filterStatus === tab.key
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100'
-            }`}
+            className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${filterStatus === tab.key
+              ? 'bg-slate-900 text-white shadow-xs'
+              : 'text-slate-600 hover:bg-slate-100'
+              }`}
           >
             {tab.label}
           </button>
@@ -221,13 +220,12 @@ export default function ScheduledTasksMonitor() {
             return (
               <div
                 key={item.id || idx}
-                className={`bg-white border rounded-3xl p-6 shadow-2xs transition-all hover:shadow-sm ${
-                  isRunning
-                    ? 'border-blue-300 ring-2 ring-blue-500/20'
-                    : isCompleted
+                className={`bg-white border rounded-3xl p-6 shadow-2xs transition-all hover:shadow-sm ${isRunning
+                  ? 'border-blue-300 ring-2 ring-blue-500/20'
+                  : isCompleted
                     ? 'border-emerald-200/70 hover:border-emerald-300'
                     : 'border-slate-200/80 hover:border-slate-300'
-                }`}
+                  }`}
               >
                 {/* 10-Day Schedule Day Header Banner */}
                 {item.day_label && (
@@ -249,7 +247,7 @@ export default function ScheduledTasksMonitor() {
 
                 {/* 4 Details Grid Header & Columns */}
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
-                  
+
                   {/* Detail 1: Scheduled Date & Time (3 cols) */}
                   <div className="md:col-span-3 space-y-1.5 border-b md:border-b-0 md:border-r border-slate-100 pb-4 md:pb-0 md:pr-4">
                     <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -329,16 +327,14 @@ export default function ScheduledTasksMonitor() {
 
                     <div className="flex items-baseline justify-between">
                       <div className="flex items-baseline gap-1">
-                        <span className={`text-2xl font-black ${
-                          isCompleted ? 'text-emerald-600' : isRunning ? 'text-blue-600' : 'text-slate-900'
-                        }`}>
+                        <span className={`text-2xl font-black ${isCompleted ? 'text-emerald-600' : isRunning ? 'text-blue-600' : 'text-slate-900'
+                          }`}>
                           {item.leads_received || 0}
                         </span>
                         <span className="text-xs font-bold text-slate-400">/ {targetQuota} leads</span>
                       </div>
-                      <span className={`text-xs font-extrabold ${
-                        progress >= 100 ? 'text-emerald-600' : 'text-slate-500'
-                      }`}>
+                      <span className={`text-xs font-extrabold ${progress >= 100 ? 'text-emerald-600' : 'text-slate-500'
+                        }`}>
                         {progress}%
                       </span>
                     </div>
@@ -346,24 +342,23 @@ export default function ScheduledTasksMonitor() {
                     {/* Progress Bar */}
                     <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                       <div
-                        className={`h-2 rounded-full transition-all duration-700 ${
-                          progress >= 100
-                            ? 'bg-emerald-500'
-                            : isRunning
+                        className={`h-2 rounded-full transition-all duration-700 ${progress >= 100
+                          ? 'bg-emerald-500'
+                          : isRunning
                             ? 'bg-blue-600'
                             : 'bg-amber-400'
-                        }`}
+                          }`}
                         style={{ width: `${progress}%` }}
                       />
                     </div>
 
-                    <span className="text-[10px] text-slate-400 block text-right font-medium">
+                    {/* <span className="text-[10px] text-slate-400 block text-right font-medium">
                       {isCompleted
-                        ? `✅ ${targetQuota} Leads Guaranteed & Verified`
+                        ? `✅ ${targetQuota} Leads Generated`
                         : isRunning
-                        ? '⚡ Live Scraping Active'
-                        : `⏳ Scheduled for Execution (Target: ${targetQuota})`}
-                    </span>
+                          ? '⚡ Live Scraping Active'
+                          : `⏳ Scheduled for Execution (Target: ${targetQuota})`}
+                    </span> */}
                   </div>
 
                 </div>

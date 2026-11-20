@@ -20,7 +20,7 @@ TASK_METADATA: Dict[str, Dict[str, Any]] = {
         "category": "Lead Scraping Automation",
         "frequency": "Every Night at 12:00 AM (Midnight)",
         "timezone": "Asia/Kolkata (IST)",
-        "target": "100 Unique Fresh Leads",
+        "target": "500 Unique Fresh Leads",
         "priority": "HIGH",
         "icon": "Compass"
     },
@@ -447,6 +447,11 @@ async def get_live_scheduled_tasks(db = None) -> Dict[str, Any]:
         auto_settings = await get_or_create_settings(db)
         is_active = auto_settings.get("is_active", True)
         target_city = auto_settings.get("city", "Bhuj")
+        if target_city.lower().endswith(" district"):
+            target_city = target_city[:-9].strip()
+        if not target_city:
+            target_city = "Bhuj"
+
         target_district = auto_settings.get("district", "Kachchh")
         target_state = auto_settings.get("state", "Gujarat")
         target_country = auto_settings.get("country", "India")
@@ -485,35 +490,78 @@ async def get_live_scheduled_tasks(db = None) -> Dict[str, Any]:
             })
 
         next_midnight_ist = get_next_scheduled_run_ist()
-        next_midnight_str = next_midnight_ist.strftime("%d %b %Y, %I:%M:%S %p IST")
-        next_midnight_rel = format_relative_time(next_midnight_ist)
-
         settings_updated_utc = auto_settings.get("updated_at") or auto_settings.get("created_at") or now_utc
         if settings_updated_utc.tzinfo is None:
             settings_updated_utc = settings_updated_utc.replace(tzinfo=timezone.utc)
         schedule_created_str = settings_updated_utc.astimezone(KOLKATA_TZ).strftime("%d %b %Y, %I:%M:%S %p IST")
 
-        upcoming_status = "RUNNING" if _scraping_lock.locked() else ("SCHEDULED" if is_active else "CANCELLED")
+        # -------------------------------------------------------------
+        # Build 10-Day Lookahead Schedule Queue
+        # User requested: "always 10 days ka show krvana hai isme ki konsa kab schedule hoga wo"
+        # and "target leads change krdo...! 100 se 500 tak"
+        # -------------------------------------------------------------
+        total_discovered = len(discovered_areas)
+        lead_target = 500  # Explicit target requested: 500 leads
 
-        # 1. Active / Upcoming Schedule
-        lead_schedules.append({
-            "id": "active_schedule",
-            "title": f"Daily Travel Agency Scraping ({target_city})",
-            "scheduled_date_time": schedule_created_str,
-            "next_execution_time": next_midnight_str,
-            "next_execution_relative": next_midnight_rel,
-            "area": upcoming_full_area,
-            "area_name": upcoming_area_name,
-            "city": target_city,
-            "district": target_district,
-            "pincode": upcoming_pincode,
-            "status": upcoming_status,
-            "leads_received": today_leads_count,
-            "target": 100,
-            "progress_percentage": min(100, round((today_leads_count / 100) * 100)),
-            "is_upcoming": True,
-            "created_at": schedule_created_str
-        })
+        for day_offset in range(10):
+            scheduled_dt_ist = next_midnight_ist + timedelta(days=day_offset)
+            scheduled_dt_str = scheduled_dt_ist.strftime("%d %b %Y, %I:%M:%S %p IST")
+            scheduled_rel_str = format_relative_time(scheduled_dt_ist)
+
+            # Area mapping for this day based on discovery sequence
+            day_area_idx = (current_area_idx + day_offset) % total_discovered if total_discovered > 0 else 0
+            if total_discovered > 0:
+                area_obj = discovered_areas[day_area_idx]
+                day_area_name = area_obj.get("name", target_city)
+                day_pincode = area_obj.get("pincode", "")
+                day_full_area = area_obj.get("maps_query") or f"{day_area_name}, {target_city}, {target_district}, {target_state}, {target_country}"
+            else:
+                day_area_name = target_city
+                day_pincode = ""
+                day_full_area = f"{target_city}, {target_district}, {target_state}, {target_country}"
+
+            # Day label & status mapping
+            if day_offset == 0:
+                day_label = "Day 1 (Tonight)"
+                if _scraping_lock.locked():
+                    day_status = "RUNNING"
+                    day_leads = today_leads_count
+                elif not is_active:
+                    day_status = "CANCELLED"
+                    day_leads = 0
+                else:
+                    day_status = "SCHEDULED"
+                    day_leads = 0
+            elif day_offset == 1:
+                day_label = "Day 2 (Tomorrow Night)"
+                day_status = "SCHEDULED" if is_active else "CANCELLED"
+                day_leads = 0
+            else:
+                formatted_day_name = scheduled_dt_ist.strftime("%a, %d %b")
+                day_label = f"Day {day_offset + 1} ({formatted_day_name})"
+                day_status = "SCHEDULED" if is_active else "CANCELLED"
+                day_leads = 0
+
+            lead_schedules.append({
+                "id": f"upcoming_day_{day_offset + 1}",
+                "day_number": day_offset + 1,
+                "day_label": day_label,
+                "title": f"Daily Travel Agency Scraping ({day_area_name})",
+                "scheduled_date_time": schedule_created_str,
+                "next_execution_time": scheduled_dt_str,
+                "next_execution_relative": scheduled_rel_str,
+                "area": day_full_area,
+                "area_name": day_area_name,
+                "city": target_city,
+                "district": target_district,
+                "pincode": day_pincode,
+                "status": day_status,
+                "leads_received": day_leads,
+                "target": lead_target,
+                "progress_percentage": min(100, round((day_leads / lead_target) * 100)),
+                "is_upcoming": True,
+                "created_at": schedule_created_str
+            })
 
         # 2. Historical & Completed Schedule Runs
         runs_cursor = db["auto_leadfinder_runs"].find().sort("started_at", -1).limit(20)
@@ -527,6 +575,8 @@ async def get_live_scheduled_tasks(db = None) -> Dict[str, Any]:
 
             locs = run.get("localities_processed") or []
             run_city = run.get("target_city") or target_city
+            if run_city.lower().endswith(" district"):
+                run_city = run_city[:-9].strip()
             raw_loc = locs[0] if len(locs) > 0 else run_city
             if isinstance(raw_loc, dict):
                 run_area_name = raw_loc.get("locality") or raw_loc.get("name") or raw_loc.get("area") or run_city
@@ -536,6 +586,8 @@ async def get_live_scheduled_tasks(db = None) -> Dict[str, Any]:
 
             run_leads = run.get("total_collected", 0)
             run_status = run.get("status", "COMPLETED")
+            if run_status == "RUNNING" and not _scraping_lock.locked():
+                run_status = "COMPLETED" if run_leads > 0 else "CANCELLED"
 
             lead_schedules.append({
                 "id": str(run["_id"]),
@@ -550,8 +602,8 @@ async def get_live_scheduled_tasks(db = None) -> Dict[str, Any]:
                 "pincode": "",
                 "status": run_status,
                 "leads_received": run_leads,
-                "target": 100,
-                "progress_percentage": min(100, round((run_leads / 100) * 100)),
+                "target": lead_target,
+                "progress_percentage": min(100, round((run_leads / lead_target) * 100)),
                 "is_upcoming": False,
                 "created_at": run_started_str
             })

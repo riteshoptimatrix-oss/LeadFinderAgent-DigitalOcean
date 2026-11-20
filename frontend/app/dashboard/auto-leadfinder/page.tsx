@@ -101,7 +101,7 @@ export default function AutoLeadFinderPage() {
 
   // Local state for configuration form
   const [isActive, setIsActive] = useState<boolean>(true);
-  const [dailyLimit, setDailyLimit] = useState<number>(100);
+  const [dailyLimit, setDailyLimit] = useState<number>(500);
   const [country, setCountry] = useState<string>('India');
   const [countryCode, setCountryCode] = useState<string>('IN');
   const [state, setState] = useState<string>('Gujarat');
@@ -125,7 +125,7 @@ export default function AutoLeadFinderPage() {
   useEffect(() => {
     if (settingsResponse) {
       setIsActive(settingsResponse.is_active ?? true);
-      setDailyLimit(settingsResponse.daily_limit ?? 100);
+      setDailyLimit(settingsResponse.daily_limit ?? 500);
       setCountry(settingsResponse.country || 'India');
       setCountryCode(settingsResponse.country_code || 'IN');
       setState(settingsResponse.state || 'Gujarat');
@@ -176,9 +176,18 @@ export default function AutoLeadFinderPage() {
     }
   };
 
-  const handleSaveSettings = async (customPayload?: Record<string, any>) => {
+  const handleSaveSettings = async (customPayload?: Record<string, any> | unknown) => {
     setIsSaving(true);
     try {
+      // Safely ensure customPayload is a pure plain object and NOT a DOM / React SyntheticEvent
+      const isPlainObject =
+        customPayload &&
+        typeof customPayload === 'object' &&
+        !('nativeEvent' in customPayload) &&
+        !('_reactName' in customPayload) &&
+        !('target' in customPayload);
+      const safeCustom = isPlainObject ? (customPayload as Record<string, any>) : {};
+
       const payload = {
         is_active: isActive,
         daily_limit: Number(dailyLimit),
@@ -193,7 +202,7 @@ export default function AutoLeadFinderPage() {
         discovered_areas: discoveredAreas,
         discovered_pincodes: discoveredPincodes,
         current_area_index: currentAreaIndex,
-        ...(customPayload || {}),
+        ...safeCustom,
       };
       await api.put('/auto-leadfinder/settings', payload);
       toast.success('Auto LeadFinder location & settings updated successfully!');
@@ -262,6 +271,7 @@ export default function AutoLeadFinderPage() {
   const currentLocalityIndex = settingsResponse?.current_locality_index ?? 0;
   const totalLocalities = settingsResponse?.total_kutch_localities ?? 38;
   const kutchCatalog = settingsResponse?.kutch_localities_catalog ?? [];
+  const displayCity = (city || '').replace(/\s+district$/i, '').trim();
 
   return (
     <div className="w-full space-y-6 pb-12 animate-in fade-in">
@@ -271,16 +281,16 @@ export default function AutoLeadFinderPage() {
           <div className="flex items-center gap-2 mb-1">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-50 border border-teal-200/80 text-teal-700">
               <Compass className="w-3.5 h-3.5 text-teal-600" />
-              Priority #1: {city ? `${city} City & Localities Systematic Coverage` : 'City & Localities Systematic Coverage'}
+              Priority #1: {displayCity ? `${displayCity} Systematic Locality Coverage` : 'City & Localities Systematic Coverage'}
             </span>
             <span className="text-xs text-slate-400">Exclusive for {TARGET_EMAIL}</span>
           </div>
           <PageHeader
             title="Auto LeadFinder"
             description={
-              city
-                ? `Autonomous daily lead discovery system systematically covering all areas and localities of ${city} first, gathering a guaranteed 100 unique leads every day.`
-                : "Autonomous daily lead discovery system systematically covering all areas and localities of selected city first, gathering a guaranteed 100 unique leads every day."
+              displayCity
+                ? `Autonomous daily lead discovery system systematically covering all areas and localities of ${displayCity} first, gathering a guaranteed 500 unique leads every day.`
+                : "Autonomous daily lead discovery system systematically covering all areas and localities of selected city first, gathering a guaranteed 500 unique leads every day."
             }
           />
         </div>
@@ -330,7 +340,7 @@ export default function AutoLeadFinderPage() {
           }`}
         >
           <Compass className="w-4 h-4 text-teal-400" />
-          <span>{city ? `${city} Lead Discovery Engine` : 'City Lead Discovery Engine'}</span>
+          <span>{displayCity ? `${displayCity} Lead Discovery Engine` : 'City Lead Discovery Engine'}</span>
         </button>
 
         <button
@@ -362,32 +372,32 @@ export default function AutoLeadFinderPage() {
         <div className="relative z-10 max-w-2xl space-y-3">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-teal-500/20 border border-teal-400/30 text-teal-300">
             <Navigation className="w-3.5 h-3.5" />
-            <span>{city ? `${city} Priority Sequence` : 'City Priority Sequence'}</span>
+            <span>{displayCity ? `${displayCity} Priority Sequence` : 'City Priority Sequence'}</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
             Systematic Locality Coverage in Progress
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-            The system begins with <strong className="text-teal-300">{city ? `${city}${district && district !== city ? ` (${district})` : ''}${state ? `, ${state}` : ''}` : 'the selected city'}</strong>, thoroughly exploring all major areas and localities before moving outward. Every daily run targets a minimum of <strong className="text-teal-300">100 100% unique, fresh leads</strong> while strictly ignoring all duplicate contacts.
+            The system begins with <strong className="text-teal-300">{displayCity ? `${displayCity}${district && district !== displayCity ? ` (${district})` : ''}${state ? `, ${state}` : ''}` : 'the selected city'}</strong>, thoroughly exploring all major areas and localities before moving outward. Every daily run targets a minimum of <strong className="text-teal-300">500 100% unique, fresh leads</strong> while strictly ignoring all duplicate contacts.
           </p>
           <div className="pt-2 flex flex-wrap items-center gap-4 text-xs">
             <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
               <span className="text-slate-400 block text-[10px]">Next Locality Queue:</span>
               <span className="font-bold text-teal-300">
                 {discoveredAreas.length > 0 && discoveredAreas[currentAreaIndex]?.name
-                  ? `${discoveredAreas[currentAreaIndex].name} (${discoveredAreas[currentAreaIndex].pincode || city})`
+                  ? `${discoveredAreas[currentAreaIndex].name} (${discoveredAreas[currentAreaIndex].pincode || displayCity})`
                   : currentLocalityName}
               </span>
             </div>
             <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
-              <span className="text-slate-400 block text-[10px]">{city ? `${city} Areas Indexed:` : 'Areas Indexed:'}</span>
+              <span className="text-slate-400 block text-[10px]">{displayCity ? `${displayCity} Areas Indexed:` : 'Areas Indexed:'}</span>
               <span className="font-bold text-white">
                 {discoveredAreas.length > 0 ? `${discoveredAreas.length} Discovered Postal Areas` : `${totalLocalities} Areas & Localities`}
               </span>
             </div>
             <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
               <span className="text-slate-400 block text-[10px]">Daily Target Guarantee:</span>
-              <span className="font-bold text-emerald-400">100 Unique Leads / Day</span>
+              <span className="font-bold text-emerald-400">500 Unique Leads / Day</span>
             </div>
           </div>
         </div>
@@ -401,9 +411,9 @@ export default function AutoLeadFinderPage() {
               <Loader2 className="w-5 h-5 animate-spin" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-amber-900">Systematic Lead Scraping Active in {city || 'Selected City'}</h4>
+              <h4 className="text-sm font-bold text-amber-900">Systematic Lead Scraping Active in {displayCity || 'Selected City'}</h4>
               <p className="text-xs text-amber-700 mt-0.5">
-                Exploring localities in {city || 'Selected City'} for Tour Operators, Travel Agencies, and Tour Guides. Deduplicating against all existing records in real time.
+                Exploring localities in {displayCity || 'Selected City'} for Tour Operators, Travel Agencies, and Tour Guides. Deduplicating against all existing records in real time.
               </p>
             </div>
           </div>
@@ -522,7 +532,7 @@ export default function AutoLeadFinderPage() {
               <div>
                 <div className="flex items-center gap-2">
                   <h3 className="text-base font-bold text-slate-900">
-                    Discovered Postal Areas in {city} ({discoveredAreas.length})
+                    Discovered Postal Areas in {displayCity || 'City'} ({discoveredAreas.length})
                   </h3>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 border border-teal-200 text-teal-700">
                     Indian Postal PIN Code API
@@ -754,14 +764,14 @@ export default function AutoLeadFinderPage() {
                 className="w-32 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-sm font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all"
               />
               <div className="flex items-center gap-1.5">
-                {[50, 100, 150, 200].map((preset) => (
+                {[100, 250, 500, 1000].map((preset) => (
                   <button
                     key={preset}
                     type="button"
                     onClick={() => setDailyLimit(preset)}
                     className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
                       dailyLimit === preset
-                        ? 'bg-teal-50 border-teal-300 text-teal-700'
+                        ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold'
                         : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
                     }`}
                   >
@@ -771,7 +781,7 @@ export default function AutoLeadFinderPage() {
               </div>
             </div>
             <p className="text-[11px] text-slate-400">
-              The scraper explores Kutch localities sequentially until reaching exactly <strong className="text-slate-600">{dailyLimit} fresh leads</strong>.
+              The scraper explores localities sequentially until reaching exactly <strong className="text-slate-600">{dailyLimit} fresh leads</strong>.
             </p>
           </div>
 
@@ -784,8 +794,8 @@ export default function AutoLeadFinderPage() {
             <div className="mt-2 space-y-1 text-xs text-slate-600">
               <div className="flex items-center justify-between">
                 <span className="text-slate-500">Target Geography:</span>
-                <span className="font-semibold text-teal-700 truncate max-w-[200px]" title={`${city}, ${state}, ${country}`}>
-                  {city || 'Kutch district'}, {state || 'Gujarat'}
+                <span className="font-semibold text-teal-700 truncate max-w-[200px]" title={`${displayCity || city}, ${state}, ${country}`}>
+                  {displayCity || city || 'Bhuj'}, {state || 'Gujarat'}
                 </span>
               </div>
               <div className="flex items-center justify-between">
@@ -811,7 +821,7 @@ export default function AutoLeadFinderPage() {
           </p>
           <button
             type="button"
-            onClick={handleSaveSettings}
+            onClick={() => handleSaveSettings()}
             disabled={isSaving}
             className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-xs transition-all cursor-pointer active:scale-95 disabled:opacity-50"
           >

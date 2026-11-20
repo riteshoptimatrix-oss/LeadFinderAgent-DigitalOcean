@@ -151,7 +151,7 @@ async def get_or_create_settings(db = None) -> Dict[str, Any]:
             "user_email": TARGET_USER_EMAIL,
             "user_id": user_id,
             "is_active": True,
-            "daily_limit": 100,
+            "daily_limit": 500,
             "priority_region": "Kutch City & District",
             "country": "India",
             "country_code": "IN",
@@ -185,10 +185,10 @@ async def get_or_create_settings(db = None) -> Dict[str, Any]:
         needs_backfill["country_code"] = "IN"
         needs_backfill["state"] = "Gujarat"
         needs_backfill["state_code"] = "GJ"
-        needs_backfill["city"] = "Kutch district"
+        needs_backfill["city"] = "Bhuj"
         needs_backfill["location_mode"] = "kutch_systematic"
         needs_backfill["target_cities"] = [
-            {"country": "India", "country_code": "IN", "state": "Gujarat", "state_code": "GJ", "city": "Kutch district"}
+            {"country": "India", "country_code": "IN", "state": "Gujarat", "state_code": "GJ", "city": "Bhuj"}
         ]
     
     if needs_backfill:
@@ -232,7 +232,10 @@ async def update_settings(payload: Dict[str, Any], db = None) -> Dict[str, Any]:
     if "state_code" in payload and payload["state_code"]:
         update_data["state_code"] = str(payload["state_code"]).strip()
     if "city" in payload and payload["city"]:
-        update_data["city"] = str(payload["city"]).strip()
+        clean_city = str(payload["city"]).strip()
+        if clean_city.lower().endswith(" district"):
+            clean_city = clean_city[:-9].strip()
+        update_data["city"] = clean_city or "Bhuj"
     if "district" in payload and payload["district"]:
         update_data["district"] = str(payload["district"]).strip()
     if "location_mode" in payload and payload["location_mode"]:
@@ -308,6 +311,12 @@ async def get_kpi_stats(db = None) -> Dict[str, Any]:
 
     is_running = _scraping_lock.locked()
     if not is_running:
+        # Auto-clean any stale RUNNING run document older than 15 mins across restarts
+        stale_threshold = datetime.now(timezone.utc) - timedelta(minutes=15)
+        await db["auto_leadfinder_runs"].update_many(
+            {"status": "RUNNING", "started_at": {"$lt": stale_threshold}},
+            {"$set": {"status": "COMPLETED", "completed_at": datetime.now(timezone.utc)}}
+        )
         active_run = await db["auto_leadfinder_runs"].find_one({"status": "RUNNING"})
         is_running = active_run is not None
 
@@ -325,7 +334,7 @@ async def get_kpi_stats(db = None) -> Dict[str, Any]:
     return {
         "user_email": TARGET_USER_EMAIL,
         "is_active": settings.get("is_active", True),
-        "daily_limit": settings.get("daily_limit", 100),
+        "daily_limit": settings.get("daily_limit", 500),
         "priority_region": "Kutch City & District",
         "country": settings.get("country", "India"),
         "country_code": settings.get("country_code", "IN"),
@@ -393,7 +402,7 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
     async with _scraping_lock:
         settings = await get_or_create_settings(db)
         is_active = settings.get("is_active", True)
-        daily_limit = settings.get("daily_limit", 100)
+        daily_limit = settings.get("daily_limit", 500)
         start_locality_idx = settings.get("current_locality_index", 0)
         industry_keywords = settings.get("industry_keywords", KUTCH_TOURISM_KEYWORDS)
 

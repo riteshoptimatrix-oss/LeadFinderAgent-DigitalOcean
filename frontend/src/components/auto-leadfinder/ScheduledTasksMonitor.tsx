@@ -117,7 +117,7 @@ export default function ScheduledTasksMonitor() {
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Displays scheduled creation dates, target areas, live execution statuses, and leads received against the 100-lead target.
+                Displays a guaranteed 10-day lookahead schedule queue with scheduled execution dates, target areas, live execution statuses, and leads received against the 500-lead target.
               </p>
             </div>
           </div>
@@ -168,7 +168,7 @@ export default function ScheduledTasksMonitor() {
           <div className="p-3.5 rounded-2xl bg-teal-50/60 border border-teal-200/70 flex items-center justify-between">
             <div>
               <span className="text-[11px] font-semibold text-teal-700 block">🎯 Target Per Run</span>
-              <span className="text-xl font-bold text-teal-900 mt-0.5 block">100 Leads</span>
+              <span className="text-xl font-bold text-teal-900 mt-0.5 block">500 Leads</span>
             </div>
             <Target className="w-5 h-5 text-teal-600" />
           </div>
@@ -215,7 +215,8 @@ export default function ScheduledTasksMonitor() {
           filteredSchedules.map((item: any, idx: number) => {
             const isCompleted = item.status === 'COMPLETED';
             const isRunning = item.status === 'RUNNING';
-            const progress = Math.min(100, Math.round(((item.leads_received || 0) / (item.target || 100)) * 100));
+            const targetQuota = item.target || 500;
+            const progress = Math.min(100, Math.round(((item.leads_received || 0) / targetQuota) * 100));
 
             return (
               <div
@@ -228,6 +229,24 @@ export default function ScheduledTasksMonitor() {
                     : 'border-slate-200/80 hover:border-slate-300'
                 }`}
               >
+                {/* 10-Day Schedule Day Header Banner */}
+                {item.day_label && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 mb-4 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black bg-teal-50 border border-teal-200 text-teal-800">
+                        <Calendar className="w-3.5 h-3.5 text-teal-600" />
+                        {item.day_label}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-600">
+                        Scheduled Area: <strong className="text-slate-900">{item.area_name || item.city}</strong>
+                      </span>
+                    </div>
+                    <span className="text-[11px] font-bold text-slate-400">
+                      Execution: {item.next_execution_time || item.scheduled_date_time}
+                    </span>
+                  </div>
+                )}
+
                 {/* 4 Details Grid Header & Columns */}
                 <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
                   
@@ -239,17 +258,19 @@ export default function ScheduledTasksMonitor() {
                     </span>
                     <div className="pt-0.5">
                       <span className="text-sm font-extrabold text-slate-900 block">
-                        {item.scheduled_date_time || item.created_at || '12:00:00 AM IST'}
+                        {item.next_execution_time && item.next_execution_time !== '-'
+                          ? item.next_execution_time
+                          : item.scheduled_date_time || '12:00:00 AM IST'}
                       </span>
                       {item.is_upcoming ? (
                         <div className="mt-1 flex items-center gap-1.5">
                           <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-amber-50 border border-amber-200 text-amber-800">
-                            Next Run: {item.next_execution_time}
+                            Countdown: {item.next_execution_relative || 'Upcoming'}
                           </span>
                         </div>
                       ) : (
                         <span className="text-[11px] font-medium text-slate-400 block mt-0.5">
-                          Schedule Run ID: {item.id.slice(-8)}
+                          Run Executed: {item.scheduled_date_time}
                         </span>
                       )}
                     </div>
@@ -264,14 +285,14 @@ export default function ScheduledTasksMonitor() {
                     <div className="pt-0.5">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-sm font-bold text-slate-900">
-                          {item.area_name || item.city || 'Kutch Locality'}
+                          {item.area_name || item.city || 'Locality'}
                         </span>
                         {item.pincode && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-100 text-slate-600 border border-slate-200">
                             📮 {item.pincode}
                           </span>
                         )}
-                        {item.is_upcoming && (
+                        {item.day_number === 1 && (
                           <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-50 text-teal-700 border border-teal-200">
                             Next Queue
                           </span>
@@ -294,7 +315,7 @@ export default function ScheduledTasksMonitor() {
                     </div>
                   </div>
 
-                  {/* Detail 4: Leads Received vs Target: 100 (3 cols) */}
+                  {/* Detail 4: Leads Received vs Target: 500 (3 cols) */}
                   <div className="md:col-span-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -302,7 +323,7 @@ export default function ScheduledTasksMonitor() {
                         Leads Received
                       </span>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200">
-                        Target: 100
+                        Target: {targetQuota}
                       </span>
                     </div>
 
@@ -313,7 +334,7 @@ export default function ScheduledTasksMonitor() {
                         }`}>
                           {item.leads_received || 0}
                         </span>
-                        <span className="text-xs font-bold text-slate-400">/ 100 leads</span>
+                        <span className="text-xs font-bold text-slate-400">/ {targetQuota} leads</span>
                       </div>
                       <span className={`text-xs font-extrabold ${
                         progress >= 100 ? 'text-emerald-600' : 'text-slate-500'
@@ -337,7 +358,11 @@ export default function ScheduledTasksMonitor() {
                     </div>
 
                     <span className="text-[10px] text-slate-400 block text-right font-medium">
-                      {progress >= 100 ? '✅ 100 Leads Guaranteed & Verified' : 'Guaranteed Unique Contacts'}
+                      {isCompleted
+                        ? `✅ ${targetQuota} Leads Guaranteed & Verified`
+                        : isRunning
+                        ? '⚡ Live Scraping Active'
+                        : `⏳ Scheduled for Execution (Target: ${targetQuota})`}
                     </span>
                   </div>
 

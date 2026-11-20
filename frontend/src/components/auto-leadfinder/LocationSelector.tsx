@@ -213,6 +213,10 @@ interface LocationSelectorProps {
   city: string;
   locationMode: 'kutch_systematic' | 'custom_city';
   targetCities: TargetCityItem[];
+  discoveredPincodes?: string[];
+  discoveredAreasCount?: number;
+  isDiscovering?: boolean;
+  onTriggerDiscovery?: (forceRefresh?: boolean) => void;
   onChangeLocation: (updated: {
     country: string;
     country_code: string;
@@ -232,6 +236,10 @@ export default function LocationSelector({
   city,
   locationMode,
   targetCities,
+  discoveredPincodes = [],
+  discoveredAreasCount = 0,
+  isDiscovering = false,
+  onTriggerDiscovery,
   onChangeLocation,
 }: LocationSelectorProps) {
   // Cascading options state
@@ -468,33 +476,69 @@ export default function LocationSelector({
         </div>
       </div>
 
-      {/* Active Target Banner */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-50/70 to-slate-50 border border-teal-200/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-xs text-lg">
+      {/* Active Target Banner with Discovered Postal Areas */}
+      <div className="p-4 rounded-2xl bg-gradient-to-r from-teal-50/70 to-slate-50 border border-teal-200/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-xs text-lg shrink-0 mt-0.5">
             {getUnicodeFlag(countryCode || 'IN')}
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-bold text-slate-800">Active Scraping Location:</span>
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-100 text-teal-800">
                 {isKutchMode ? 'KUTCH PRIORITY ENGINE' : 'MANUAL CITY SELECTION'}
               </span>
+              {discoveredAreasCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200 shadow-2xs">
+                  <Sparkles className="w-3 h-3 text-emerald-600" />
+                  <span>{discoveredAreasCount} Postal Areas Discovered</span>
+                </span>
+              )}
             </div>
             <p className="text-sm font-extrabold text-teal-950 mt-0.5">
               {city || 'Kutch district'}, {state || 'Gujarat'}, {country || 'India'}
             </p>
+
+            {/* Discovered PIN Codes Badges */}
+            {discoveredPincodes && discoveredPincodes.length > 0 && (
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                <span className="text-[10px] font-semibold text-slate-500">Discovered PIN Codes:</span>
+                {discoveredPincodes.map((pin) => (
+                  <span
+                    key={pin}
+                    className="px-2 py-0.5 bg-white border border-teal-200 text-teal-800 rounded-md text-[10px] font-bold shadow-2xs"
+                  >
+                    📮 {pin}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={handleSaveToTargetCities}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-white hover:bg-teal-50 border border-teal-300 text-teal-800 shadow-2xs transition-all cursor-pointer self-start sm:self-center"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Save to Target Cities List</span>
-        </button>
+        <div className="flex flex-wrap items-center gap-2 self-start md:self-center">
+          {onTriggerDiscovery && (
+            <button
+              type="button"
+              disabled={isDiscovering || !city}
+              onClick={() => onTriggerDiscovery(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white shadow-2xs transition-all cursor-pointer"
+              title="Automatically discover all PIN codes and postal areas for this city"
+            >
+              <Search className={`w-3.5 h-3.5 ${isDiscovering ? 'animate-spin' : ''}`} />
+              <span>{isDiscovering ? 'Discovering Postal Areas...' : 'Auto-Discover Areas (PIN Code API)'}</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            onClick={handleSaveToTargetCities}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-white hover:bg-teal-50 border border-teal-300 text-teal-800 shadow-2xs transition-all cursor-pointer"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Save to Target Cities</span>
+          </button>
+        </div>
       </div>
 
       {/* Cascading Dropdowns: Country → State → City */}

@@ -44,7 +44,19 @@ class SettingsUpdateRequest(BaseModel):
     state: Optional[str] = None
     state_code: Optional[str] = None
     city: Optional[str] = None
+    district: Optional[str] = None
     location_mode: Optional[str] = None
+    discovered_areas: Optional[List[Dict[str, Any]]] = None
+    discovered_pincodes: Optional[List[str]] = None
+    current_area_index: Optional[int] = None
+
+
+class DiscoverAreasRequest(BaseModel):
+    city: str
+    state: Optional[str] = "Gujarat"
+    country: Optional[str] = "India"
+    district: Optional[str] = None
+    force_refresh: Optional[bool] = False
 
 
 @router.get("/settings")
@@ -131,6 +143,82 @@ async def get_history_endpoint(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to load run history: {str(e)}"
+        )
+
+
+@router.post("/discover-areas")
+async def discover_city_postal_areas(
+    payload: DiscoverAreasRequest,
+    current_user: UserInDB = Depends(require_kutch_tour_guide)
+) -> Any:
+    """
+    Automatic City-Wise Area Discovery using the Indian Postal PIN Code API (api.postalpincode.in).
+    Discovers all PIN codes for the city, extracts unique PostOffice names as Areas,
+    and dynamically constructs Google Maps search queries in the format:
+    {Area Name}, {City}, {District}, {State}, {Country}
+    """
+    try:
+        from app.services.postal_discovery_service import postal_discovery_service
+        from app.services.auto_leadfinder_service import update_settings
+
+        result = await postal_discovery_service.discover_city_areas(
+            city=payload.city,
+            state=payload.state or "Gujarat",
+            country=payload.country or "India",
+            district=payload.district,
+            force_refresh=bool(payload.force_refresh)
+        )
+
+        # Automatically update settings with the discovered areas for the active scraping pipeline
+        await update_settings({
+            "city": payload.city,
+            "state": payload.state or "Gujarat",
+            "country": payload.country or "India",
+            "district": result.get("district") or payload.district or payload.city,
+            "discovered_areas": result.get("areas", []),
+            "discovered_pincodes": result.get("pincodes", []),
+            "current_area_index": 0,
+            "location_mode": "custom_city" if payload.city.lower() != "kutch district" else "kutch_systematic"
+        })
+
+        return {
+            "success": True,
+            "message": f"Successfully discovered {result.get('total_areas', 0)} areas across {len(result.get('pincodes', []))} PIN codes for {payload.city}.",
+            "data": result
+        }
+    except Exception as e:
+        logger.error(f"[AUTO_LEADFINDER_API] Area discovery failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Area discovery failed: {str(e)}"
+        )
+
+
+@router.get("/discovered-areas")
+async def get_active_discovered_areas(
+    current_user: UserInDB = Depends(require_kutch_tour_guide)
+) -> Any:
+    """
+    Retrieve currently loaded discovered postal areas and their Google Maps queries.
+    """
+    try:
+        stats = await get_kpi_stats()
+        return {
+            "success": True,
+            "city": stats.get("city", "Bhuj"),
+            "district": stats.get("district", "Kachchh"),
+            "state": stats.get("state", "Gujarat"),
+            "country": stats.get("country", "India"),
+            "pincodes": stats.get("discovered_pincodes", []),
+            "total_areas": len(stats.get("discovered_areas", [])),
+            "current_area_index": stats.get("current_area_index", 0),
+            "areas": stats.get("discovered_areas", [])
+        }
+    except Exception as e:
+        logger.error(f"[AUTO_LEADFINDER_API] Failed to get discovered areas: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch discovered areas: {str(e)}"
         )
 
 

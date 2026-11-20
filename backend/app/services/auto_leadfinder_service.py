@@ -233,11 +233,23 @@ async def update_settings(payload: Dict[str, Any], db = None) -> Dict[str, Any]:
         update_data["state_code"] = str(payload["state_code"]).strip()
     if "city" in payload and payload["city"]:
         update_data["city"] = str(payload["city"]).strip()
+    if "district" in payload and payload["district"]:
+        update_data["district"] = str(payload["district"]).strip()
     if "location_mode" in payload and payload["location_mode"]:
         update_data["location_mode"] = str(payload["location_mode"]).strip()
 
     if "target_cities" in payload and isinstance(payload["target_cities"], list):
         update_data["target_cities"] = payload["target_cities"]
+
+    if "discovered_areas" in payload and isinstance(payload["discovered_areas"], list):
+        update_data["discovered_areas"] = payload["discovered_areas"]
+    if "discovered_pincodes" in payload and isinstance(payload["discovered_pincodes"], list):
+        update_data["discovered_pincodes"] = payload["discovered_pincodes"]
+    if "current_area_index" in payload and payload["current_area_index"] is not None:
+        try:
+            update_data["current_area_index"] = max(0, int(payload["current_area_index"]))
+        except (ValueError, TypeError):
+            pass
 
     if "current_locality_index" in payload and payload["current_locality_index"] is not None:
         try:
@@ -320,8 +332,12 @@ async def get_kpi_stats(db = None) -> Dict[str, Any]:
         "state": settings.get("state", "Gujarat"),
         "state_code": settings.get("state_code", "GJ"),
         "city": settings.get("city", "Kutch district"),
+        "district": settings.get("district", "Kachchh"),
         "location_mode": settings.get("location_mode", "kutch_systematic"),
         "target_cities": settings.get("target_cities", []),
+        "discovered_areas": settings.get("discovered_areas", []),
+        "discovered_pincodes": settings.get("discovered_pincodes", []),
+        "current_area_index": settings.get("current_area_index", 0),
         "current_locality_index": curr_idx,
         "current_locality_name": f"{current_locality['locality']}, {current_locality['city']}",
         "total_kutch_localities": len(KUTCH_LOCALITIES_CATALOG),
@@ -446,12 +462,161 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
         progress_service = Progress()
         search_service = SearchService()
 
+        discovered_areas = settings.get("discovered_areas") or []
+        start_area_idx = settings.get("current_area_index", 0)
+        target_district = settings.get("district") or ("Kachchh" if "bhuj" in target_city.lower() or "kutch" in target_city.lower() else target_city)
+
+        # If no discovered areas exist in settings yet, discover them on the fly via Postal PIN Code API
+        if not discovered_areas and target_city:
+            try:
+                from app.services.postal_discovery_service import postal_discovery_service
+                disco_res = await postal_discovery_service.discover_city_areas(
+                    city=target_city,
+                    state=target_state,
+                    country=target_country,
+                    district=target_district
+                )
+                if disco_res and disco_res.get("areas"):
+                    discovered_areas = disco_res["areas"]
+                    await db["auto_leadfinder_settings"].update_one(
+                        {"user_email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},
+                        {"$set": {
+                            "discovered_areas": discovered_areas,
+                            "discovered_pincodes": disco_res.get("pincodes", []),
+                            "current_area_index": 0
+                        }}
+                    )
+                    logger.info(f"[AUTO_LEADFINDER] On-the-fly postal discovery completed: {len(discovered_areas)} areas discovered.")
+            except Exception as disco_err:
+                logger.warning(f"[AUTO_LEADFINDER] On-the-fly area discovery error: {disco_err}")
+
         total_catalog_len = len(KUTCH_LOCALITIES_CATALOG)
         curr_idx = start_locality_idx % total_catalog_len
 
         try:
-            if is_custom_city:
-                # Custom City Mode: Scrape across user-selected city hubs
+            if discovered_areas:
+                # Mode A: Discovered Postal Areas Execution (Postal PIN Code API extracted areas)
+                total_areas_len = len(discovered_areas)
+                area_idx = start_area_idx % total_areas_len
+                iteration_steps = 0
+                max_iterations = total_areas_len * 2
+                logger.info(f"[AUTO_LEADFINDER] Iterating {total_areas_len} discovered postal areas for {target_city}, starting from index {area_idx}")
+
+                # Prioritize "Travel Agency" and related tour guide keywords
+                active_keywords = ["Travel Agency"] + [k for k in industry_keywords if k != "Travel Agency"]
+
+                while total_collected < target_for_this_run and iteration_steps < max_iterations:
+                    area_item = discovered_areas[area_idx]
+                    area_name = area_item["name"]
+                    area_pin = area_item.get("pincode", "")
+                    area_district = area_item.get("district") or target_district
+                    maps_query = area_item.get("maps_query") or f"{area_name}, {target_city}, {area_district}, {target_state}, {target_country}"
+
+                    area_saved = 0
+                    area_dups = 0
+
+                    for keyword in active_keywords:
+                        needed = target_for_this_run - total_collected
+                        if needed <= 0:
+                            break
+
+                        batch_limit = min(needed, 20)
+                        search_query_keyword = f"{keyword}"
+                        search_area = f"{area_name}"
+
+                        job_id = await progress_service.create_job(
+                            keyword=search_query_keyword,
+                            area=search_area,
+                            city=target_city,
+                            state=target_state,
+                            country=target_country,
+                            limit=batch_limit,
+                            provider="Google Maps",
+                            user_id=user_id,
+                            exhaustive=True,
+                            grid_size=3,
+                            target_cap="ALL"
+                        )
+
+                        try:
+                            await search_service.execute_job(
+                                job_id=job_id,
+                                keyword=search_query_keyword,
+                                area=search_area,
+                                city=target_city,
+                                state=target_state,
+                                country=target_country,
+                                limit=batch_limit,
+                                provider="Google Maps",
+                                user_id=user_id,
+                                exhaustive=True,
+                                grid_size=3,
+                                target_cap="ALL"
+                            )
+                        except Exception as exec_err:
+                            logger.warning(f"[AUTO_LEADFINDER] Postal area batch failed for {keyword} in {area_name}, {target_city}: {exec_err}")
+
+                        tag_result = await db["leads"].update_many(
+                            {"source_job_id": job_id},
+                            {"$set": {
+                                "is_auto_lead": True,
+                                "source": "auto_leadfinder",
+                                "requested_provider": "Auto LeadFinder",
+                                "auto_scraped_area": area_name,
+                                "auto_scraped_pincode": area_pin,
+                                "auto_scraped_city": target_city,
+                                "auto_scraped_district": area_district,
+                                "auto_scraped_state": target_state,
+                                "auto_scraped_country": target_country,
+                                "auto_scraped_query": maps_query,
+                                "auto_scraped_at": datetime.now(timezone.utc)
+                            }}
+                        )
+
+                        newly_saved = tag_result.modified_count
+                        job_progress = await progress_service.get_job(job_id)
+                        job_duplicates = job_progress.get("duplicates", 0) if job_progress else 0
+
+                        area_saved += newly_saved
+                        area_dups += job_duplicates
+                        total_collected += newly_saved
+                        total_duplicates += job_duplicates
+
+                        logger.info(f"[AUTO_LEADFINDER] {area_name} ({area_pin}): Collected {newly_saved} unique, {job_duplicates} dups. Progress: {total_collected}/{target_for_this_run}")
+
+                        await db["auto_leadfinder_runs"].update_one(
+                            {"_id": run_id},
+                            {"$set": {
+                                "total_collected": total_collected,
+                                "duplicates_filtered": total_duplicates,
+                            }}
+                        )
+
+                    localities_processed.append({
+                        "city": target_city,
+                        "locality": area_name,
+                        "pincode": area_pin,
+                        "zone": f"PIN {area_pin}" if area_pin else "Discovered Postal Area",
+                        "maps_query": maps_query,
+                        "leads_collected": area_saved,
+                        "duplicates": area_dups
+                    })
+
+                    area_idx = (area_idx + 1) % total_areas_len
+                    iteration_steps += 1
+
+                # Update settings with next area index for future runs
+                end_utc = datetime.now(timezone.utc)
+                await db["auto_leadfinder_settings"].update_one(
+                    {"user_email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},
+                    {"$set": {
+                        "current_area_index": area_idx,
+                        "last_run_at": end_utc,
+                        "updated_at": end_utc
+                    }}
+                )
+            elif is_custom_city:
+                # Mode B: Fallback Custom City Centers
                 custom_areas = [
                     f"{target_city} Center",
                     f"{target_city} Tourist Hub & Sightseeing",
@@ -460,7 +625,7 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED") -> Dict[
                     f"{target_city} Resorts & Outskirts",
                     target_city
                 ]
-                logger.info(f"[AUTO_LEADFINDER] Scraping custom city: {target_city}, {target_state}, {target_country}")
+                logger.info(f"[AUTO_LEADFINDER] Scraping custom city hubs: {target_city}, {target_state}, {target_country}")
 
                 for area in custom_areas:
                     if total_collected >= target_for_this_run:

@@ -31,7 +31,8 @@ import {
   ChevronRight,
   Filter,
   Timer,
-  Activity
+  Activity,
+  Search
 } from 'lucide-react';
 import ScheduledTasksMonitor from '@/src/components/auto-leadfinder/ScheduledTasksMonitor';
 import LocationSelector, { TargetCityItem } from '@/src/components/auto-leadfinder/LocationSelector';
@@ -105,9 +106,16 @@ export default function AutoLeadFinderPage() {
   const [countryCode, setCountryCode] = useState<string>('IN');
   const [state, setState] = useState<string>('Gujarat');
   const [stateCode, setStateCode] = useState<string>('GJ');
-  const [city, setCity] = useState<string>('Kutch district');
-  const [locationMode, setLocationMode] = useState<'kutch_systematic' | 'custom_city'>('kutch_systematic');
+  const [city, setCity] = useState<string>('Bhuj');
+  const [district, setDistrict] = useState<string>('Kachchh');
+  const [locationMode, setLocationMode] = useState<'kutch_systematic' | 'custom_city'>('custom_city');
   const [targetCities, setTargetCities] = useState<TargetCityItem[]>([]);
+  const [discoveredAreas, setDiscoveredAreas] = useState<any[]>([]);
+  const [discoveredPincodes, setDiscoveredPincodes] = useState<string[]>([]);
+  const [currentAreaIndex, setCurrentAreaIndex] = useState<number>(0);
+  const [isDiscovering, setIsDiscovering] = useState<boolean>(false);
+  const [areaSearchFilter, setAreaSearchFilter] = useState<string>('');
+  const [showDiscoveredExplorer, setShowDiscoveredExplorer] = useState<boolean>(true);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isTriggeringRun, setIsTriggeringRun] = useState<boolean>(false);
   const [showCatalog, setShowCatalog] = useState<boolean>(false);
@@ -122,9 +130,13 @@ export default function AutoLeadFinderPage() {
       setCountryCode(settingsResponse.country_code || 'IN');
       setState(settingsResponse.state || 'Gujarat');
       setStateCode(settingsResponse.state_code || 'GJ');
-      setCity(settingsResponse.city || 'Kutch district');
-      setLocationMode(settingsResponse.location_mode || 'kutch_systematic');
+      setCity(settingsResponse.city || 'Bhuj');
+      setDistrict(settingsResponse.district || 'Kachchh');
+      setLocationMode(settingsResponse.location_mode || 'custom_city');
       setTargetCities(settingsResponse.target_cities || []);
+      setDiscoveredAreas(settingsResponse.discovered_areas || []);
+      setDiscoveredPincodes(settingsResponse.discovered_pincodes || []);
+      setCurrentAreaIndex(settingsResponse.current_area_index || 0);
     }
   }, [settingsResponse]);
 
@@ -135,6 +147,34 @@ export default function AutoLeadFinderPage() {
       </div>
     );
   }
+
+  const handleTriggerDiscovery = async (forceRefresh: boolean = false, targetCityName?: string) => {
+    const cName = targetCityName || city || 'Bhuj';
+    setIsDiscovering(true);
+    try {
+      const res = await api.post('/auto-leadfinder/discover-areas', {
+        city: cName,
+        state: state || 'Gujarat',
+        country: country || 'India',
+        district: district || 'Kachchh',
+        force_refresh: forceRefresh,
+      });
+      const data = res.data?.data;
+      if (data) {
+        setDiscoveredAreas(data.areas || []);
+        setDiscoveredPincodes(data.pincodes || []);
+        setDistrict(data.district || district);
+        toast.success(`Discovered ${data.total_areas || 0} postal areas across ${data.pincodes?.length || 0} PIN codes for ${cName}!`);
+        refetchSettings();
+      }
+    } catch (err: unknown) {
+      const errorObj = err as { response?: { data?: { detail?: string } }; message?: string };
+      const msg = errorObj?.response?.data?.detail || errorObj?.message || 'Failed to discover postal areas.';
+      toast.error(msg);
+    } finally {
+      setIsDiscovering(false);
+    }
+  };
 
   const handleSaveSettings = async (customPayload?: Record<string, any>) => {
     setIsSaving(true);
@@ -147,8 +187,12 @@ export default function AutoLeadFinderPage() {
         state,
         state_code: stateCode,
         city,
+        district,
         location_mode: locationMode,
         target_cities: targetCities,
+        discovered_areas: discoveredAreas,
+        discovered_pincodes: discoveredPincodes,
+        current_area_index: currentAreaIndex,
         ...(customPayload || {}),
       };
       await api.put('/auto-leadfinder/settings', payload);
@@ -172,6 +216,7 @@ export default function AutoLeadFinderPage() {
     location_mode: 'kutch_systematic' | 'custom_city';
     target_cities?: TargetCityItem[];
   }) => {
+    const prevCity = city;
     setCountry(updated.country);
     setCountryCode(updated.country_code);
     setState(updated.state);
@@ -181,13 +226,17 @@ export default function AutoLeadFinderPage() {
     if (updated.target_cities !== undefined) {
       setTargetCities(updated.target_cities);
     }
+    // Auto-discover areas via Indian Postal PIN Code API if city changed
+    if (updated.city && updated.city !== prevCity) {
+      handleTriggerDiscovery(false, updated.city);
+    }
   };
 
   const handleTriggerManualRun = async () => {
     setIsTriggeringRun(true);
     try {
       await api.post('/auto-leadfinder/run-now');
-      toast.success('Systematic Kutch lead scraping started! Tracking live progress.');
+      toast.success(`Systematic ${city || 'City'} lead scraping started! Tracking live progress.`);
       refetchSettings();
       refetchHistory();
     } catch (err: unknown) {
@@ -222,13 +271,17 @@ export default function AutoLeadFinderPage() {
           <div className="flex items-center gap-2 mb-1">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-teal-50 border border-teal-200/80 text-teal-700">
               <Compass className="w-3.5 h-3.5 text-teal-600" />
-              Priority #1: Kutch City & Localities Systematic Coverage
+              Priority #1: {city ? `${city} City & Localities Systematic Coverage` : 'City & Localities Systematic Coverage'}
             </span>
             <span className="text-xs text-slate-400">Exclusive for {TARGET_EMAIL}</span>
           </div>
           <PageHeader
             title="Auto LeadFinder"
-            description="Autonomous daily lead discovery system systematically covering all areas and localities of Kutch City first, gathering a guaranteed 100 unique leads every day."
+            description={
+              city
+                ? `Autonomous daily lead discovery system systematically covering all areas and localities of ${city} first, gathering a guaranteed 100 unique leads every day.`
+                : "Autonomous daily lead discovery system systematically covering all areas and localities of selected city first, gathering a guaranteed 100 unique leads every day."
+            }
           />
         </div>
 
@@ -277,7 +330,7 @@ export default function AutoLeadFinderPage() {
           }`}
         >
           <Compass className="w-4 h-4 text-teal-400" />
-          <span>Kutch Lead Discovery Engine</span>
+          <span>{city ? `${city} Lead Discovery Engine` : 'City Lead Discovery Engine'}</span>
         </button>
 
         <button
@@ -309,22 +362,28 @@ export default function AutoLeadFinderPage() {
         <div className="relative z-10 max-w-2xl space-y-3">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold bg-teal-500/20 border border-teal-400/30 text-teal-300">
             <Navigation className="w-3.5 h-3.5" />
-            <span>Kutch City Priority Sequence</span>
+            <span>{city ? `${city} Priority Sequence` : 'City Priority Sequence'}</span>
           </div>
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-white">
             Systematic Locality Coverage in Progress
           </h2>
           <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-            The system begins with <strong className="text-teal-300">Bhuj & Kutch City</strong>, thoroughly exploring all major areas and localities before moving outward. Every daily run targets a minimum of <strong className="text-teal-300">100 100% unique, fresh leads</strong> while strictly ignoring all duplicate contacts.
+            The system begins with <strong className="text-teal-300">{city ? `${city}${district && district !== city ? ` (${district})` : ''}${state ? `, ${state}` : ''}` : 'the selected city'}</strong>, thoroughly exploring all major areas and localities before moving outward. Every daily run targets a minimum of <strong className="text-teal-300">100 100% unique, fresh leads</strong> while strictly ignoring all duplicate contacts.
           </p>
           <div className="pt-2 flex flex-wrap items-center gap-4 text-xs">
             <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
               <span className="text-slate-400 block text-[10px]">Next Locality Queue:</span>
-              <span className="font-bold text-teal-300">{currentLocalityName}</span>
+              <span className="font-bold text-teal-300">
+                {discoveredAreas.length > 0 && discoveredAreas[currentAreaIndex]?.name
+                  ? `${discoveredAreas[currentAreaIndex].name} (${discoveredAreas[currentAreaIndex].pincode || city})`
+                  : currentLocalityName}
+              </span>
             </div>
             <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
-              <span className="text-slate-400 block text-[10px]">Kutch Localities Indexed:</span>
-              <span className="font-bold text-white">{totalLocalities} Areas & Localities</span>
+              <span className="text-slate-400 block text-[10px]">{city ? `${city} Areas Indexed:` : 'Areas Indexed:'}</span>
+              <span className="font-bold text-white">
+                {discoveredAreas.length > 0 ? `${discoveredAreas.length} Discovered Postal Areas` : `${totalLocalities} Areas & Localities`}
+              </span>
             </div>
             <div className="bg-white/10 backdrop-blur-md px-3.5 py-1.5 rounded-xl border border-white/10">
               <span className="text-slate-400 block text-[10px]">Daily Target Guarantee:</span>
@@ -342,9 +401,9 @@ export default function AutoLeadFinderPage() {
               <Loader2 className="w-5 h-5 animate-spin" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-amber-900">Systematic Lead Scraping Active in Kutch</h4>
+              <h4 className="text-sm font-bold text-amber-900">Systematic Lead Scraping Active in {city || 'Selected City'}</h4>
               <p className="text-xs text-amber-700 mt-0.5">
-                Exploring localities in Kutch for Tour Operators, Travel Agencies, and Tour Guides. Deduplicating against all existing records in real time.
+                Exploring localities in {city || 'Selected City'} for Tour Operators, Travel Agencies, and Tour Guides. Deduplicating against all existing records in real time.
               </p>
             </div>
           </div>
@@ -445,8 +504,136 @@ export default function AutoLeadFinderPage() {
         city={city}
         locationMode={locationMode}
         targetCities={targetCities}
+        discoveredPincodes={discoveredPincodes}
+        discoveredAreasCount={discoveredAreas.length}
+        isDiscovering={isDiscovering}
+        onTriggerDiscovery={handleTriggerDiscovery}
         onChangeLocation={handleLocationChange}
       />
+
+      {/* Discovered Postal Areas & Google Maps Queries Explorer */}
+      {discoveredAreas && discoveredAreas.length > 0 && (
+        <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4 animate-in fade-in">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600">
+                <Compass className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-base font-bold text-slate-900">
+                    Discovered Postal Areas in {city} ({discoveredAreas.length})
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 border border-teal-200 text-teal-700">
+                    Indian Postal PIN Code API
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Extracted <code className="text-teal-700 font-bold">PostOffice[].Name</code> areas with dynamically generated Google Maps queries.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 self-start sm:self-center">
+              <button
+                type="button"
+                onClick={() => handleTriggerDiscovery(true)}
+                disabled={isDiscovering}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold bg-slate-50 hover:bg-slate-100 border border-slate-200 text-slate-700 transition-colors cursor-pointer"
+                title="Force refresh areas from API"
+              >
+                <RotateCcw className={`w-3.5 h-3.5 ${isDiscovering ? 'animate-spin' : ''}`} />
+                <span>Re-Discover</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setShowDiscoveredExplorer(!showDiscoveredExplorer)}
+                className="text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100/70 border border-teal-200 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer"
+              >
+                {showDiscoveredExplorer ? 'Collapse Areas' : `View All ${discoveredAreas.length} Areas`}
+              </button>
+            </div>
+          </div>
+
+          {showDiscoveredExplorer && (
+            <div className="space-y-3 pt-1">
+              {/* Filter search bar */}
+              <div className="relative max-w-md">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Filter discovered areas or PIN codes..."
+                  value={areaSearchFilter}
+                  onChange={(e) => setAreaSearchFilter(e.target.value)}
+                  className="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-200 bg-slate-50/50 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 font-medium"
+                />
+              </div>
+
+              {/* Grid of Areas */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5 max-h-96 overflow-y-auto pr-1">
+                {discoveredAreas
+                  .filter((a: any) => {
+                    if (!areaSearchFilter.trim()) return true;
+                    const q = areaSearchFilter.toLowerCase();
+                    return (
+                      a.name.toLowerCase().includes(q) ||
+                      (a.pincode && a.pincode.includes(q)) ||
+                      (a.maps_query && a.maps_query.toLowerCase().includes(q))
+                    );
+                  })
+                  .map((area: any, idx: number) => {
+                    const isNextInQueue = idx === currentAreaIndex;
+                    return (
+                      <div
+                        key={`${area.name}-${area.pincode}-${idx}`}
+                        className={`p-3 rounded-2xl border text-xs flex flex-col justify-between gap-2 transition-all ${
+                          isNextInQueue
+                            ? 'bg-teal-50/80 border-teal-300 ring-2 ring-teal-500/20 shadow-xs'
+                            : 'bg-slate-50/50 border-slate-200/80 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <span className="font-extrabold text-slate-900 block text-xs">
+                              {area.name}
+                            </span>
+                            <span className="text-[10px] text-slate-400 block mt-0.5">
+                              {area.district || district} • {area.state}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {area.pincode && (
+                              <span className="px-2 py-0.5 rounded-md text-[9px] font-extrabold bg-white border border-slate-200 text-slate-700 shadow-2xs">
+                                📮 {area.pincode}
+                              </span>
+                            )}
+                            {isNextInQueue && (
+                              <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold bg-teal-600 text-white animate-pulse">
+                                NEXT
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Google Maps Generated Query */}
+                        <div className="p-2 rounded-xl bg-white border border-slate-100 text-[10px] space-y-1">
+                          <div className="flex items-center gap-1 text-slate-400 font-semibold">
+                            <MapPin className="w-2.5 h-2.5 text-teal-600" />
+                            <span>Google Maps Query:</span>
+                          </div>
+                          <p className="font-mono text-slate-700 truncate" title={area.maps_query}>
+                            {area.maps_query}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Systematic Kutch Localities Catalog Explorer */}
       <div className="bg-white border border-slate-200/80 rounded-3xl p-6 shadow-2xs space-y-4">
@@ -456,9 +643,15 @@ export default function AutoLeadFinderPage() {
               <MapPin className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="text-base font-bold text-slate-900">Kutch Localities Coverage Index</h3>
+              <h3 className="text-base font-bold text-slate-900">
+                {city.toLowerCase().includes('kutch') || city.toLowerCase().includes('bhuj')
+                  ? 'Kutch Localities Coverage Index'
+                  : `${city} Regional Coverage Index`}
+              </h3>
               <p className="text-xs text-slate-500">
-                All 38 key areas and localities across Bhuj, Gandhidham, Mandvi, White Desert, Anjar, Mundra, and Western/Eastern Kutch.
+                {city.toLowerCase().includes('kutch') || city.toLowerCase().includes('bhuj')
+                  ? 'All 38 key areas and localities across Bhuj, Gandhidham, Mandvi, White Desert, Anjar, Mundra, and Western/Eastern Kutch.'
+                  : `Localities and areas prioritized for lead generation in ${city}, ${district || state}.`}
               </p>
             </div>
           </div>
@@ -468,7 +661,7 @@ export default function AutoLeadFinderPage() {
             onClick={() => setShowCatalog(!showCatalog)}
             className="text-xs font-bold text-teal-700 hover:text-teal-800 bg-teal-50 hover:bg-teal-100/70 border border-teal-200 px-3.5 py-1.5 rounded-xl transition-all cursor-pointer self-start sm:self-center"
           >
-            {showCatalog ? 'Hide Localities List' : 'View All 38 Kutch Localities'}
+            {showCatalog ? 'Hide Localities List' : `View All ${kutchCatalog.length || 38} Reference Localities`}
           </button>
         </div>
 

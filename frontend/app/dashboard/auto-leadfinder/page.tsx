@@ -332,7 +332,9 @@ export default function AutoLeadFinderPage() {
               <Compass className="w-3.5 h-3.5 text-teal-600" />
               Priority #1: {displayCity ? `${displayCity} Systematic Locality Coverage` : 'City & Localities Systematic Coverage'}
             </span>
-            <span className="text-xs text-slate-400">Exclusive for {TARGET_EMAIL}</span>
+            <span className="text-xs text-slate-400">
+              {isKutchTarget ? `Exclusive for ${TARGET_EMAIL}` : `Target: ${assignedUserEmail || TARGET_EMAIL}`}
+            </span>
           </div>
           <PageHeader
             title="Auto LeadFinder"

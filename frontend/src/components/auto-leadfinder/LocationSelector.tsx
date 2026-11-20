@@ -675,7 +675,7 @@ export default function LocationSelector({
       <div className="flex items-start gap-2.5 p-3 rounded-xl bg-slate-50 border border-slate-200/70 text-slate-600 text-[11px] leading-relaxed">
         <Info className="w-4 h-4 text-teal-600 shrink-0 mt-0.5" />
         <div>
-          When <strong className="text-slate-800">Kutch Priority</strong> is active, the engine explores all 44 Kutch localities sequentially until reaching your 100 daily unique lead target. When a <strong className="text-slate-800">Custom City</strong> is selected (e.g. Ahmedabad, Jaipur, Udaipur), leads are collected specifically within that chosen urban area and assigned to <span className="font-semibold text-slate-800">kutchtourguide@gmail.com</span>.
+          When <strong className="text-slate-800">Kutch Priority</strong> is active, the engine explores all 44 Kutch localities sequentially until reaching your 100 daily unique lead target. When a <strong className="text-slate-800">Custom City</strong> is selected (e.g. Ahmedabad, Jaipur, Udaipur), leads are collected specifically within that chosen urban area and assigned to the configured target user account.
         </div>
       </div>
     </div>

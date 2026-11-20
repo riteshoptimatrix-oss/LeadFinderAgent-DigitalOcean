@@ -307,16 +307,24 @@ async def lifespan(app: FastAPI):
         """Wrapper for scheduled jobs to prevent scheduler crashes."""
         async def wrapped_job():
             job_start_time = time.time()
+            from app.services.scheduled_tasks_service import (
+                track_task_start,
+                track_task_success,
+                track_task_failure,
+            )
+            await track_task_start(job_name, job_name)
             try:
                 logger.info(f"SCHEDULER_JOB_START: {job_name}")
                 await job_func()
                 job_duration = time.time() - job_start_time
                 logger.info(f"SCHEDULER_JOB_SUCCESS: {job_name} completed in {job_duration:.2f}s")
+                await track_task_success(job_name, job_duration, job_name=job_name)
             except Exception as e:
                 job_duration = time.time() - job_start_time
                 logger.error(f"SCHEDULER_JOB_ERROR: {job_name} failed after {job_duration:.2f}s: {str(e)}")
                 import traceback
                 logger.error(f"SCHEDULER_JOB_TRACEBACK: {traceback.format_exc()}")
+                await track_task_failure(job_name, job_duration, e, job_name=job_name)
                 
                 # Log to job_logs for monitoring
                 try:
@@ -357,6 +365,32 @@ async def lifespan(app: FastAPI):
         hour=0, 
         minute=0,
         max_instances=1
+    )
+
+    # Auto LeadFinder daily scraping at 12:00 AM IST for kutchtourguide@gmail.com
+    async def _auto_leadfinder_daily():
+        try:
+            from app.services.auto_leadfinder_service import run_auto_leadfinder_pipeline
+            await run_auto_leadfinder_pipeline(trigger_type="SCHEDULED")
+        except Exception as e:
+            logger.error(f"Auto LeadFinder scheduled job error: {e}")
+            raise
+
+    try:
+        import zoneinfo
+        kolkata_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+    except Exception:
+        kolkata_tz = "Asia/Kolkata"
+
+    scheduler.add_job(
+        safe_scheduler_job(_auto_leadfinder_daily, "auto_leadfinder_daily"),
+        'cron',
+        hour=0,
+        minute=0,
+        timezone=kolkata_tz,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600
     )
 
     # Daily cleanup job - wrapped for safety
@@ -488,13 +522,15 @@ from app.api.routes import admin_activity, admin_users
 app.include_router(admin_users.router, prefix=f"{app_settings.API_V1_STR}/admin/users", tags=["admin-users"])
 app.include_router(admin_users.router, prefix="/api/admin/users", tags=["admin-users"])
 app.include_router(admin_activity.router, prefix=f"{app_settings.API_V1_STR}/admin", tags=["admin"])
-from app.api.routes import crm, whatsapp_ai, email_ai, email_ai_analytics, ai_content
+from app.api.routes import crm, whatsapp_ai, email_ai, email_ai_analytics, ai_content, auto_leadfinder
 app.include_router(crm.router, prefix=f"{app_settings.API_V1_STR}/crm", tags=["crm"])
 app.include_router(whatsapp_ai.router, prefix=f"{app_settings.API_V1_STR}/whatsapp-ai", tags=["whatsapp-ai"])
 app.include_router(email_ai.router, prefix=f"{app_settings.API_V1_STR}/email-ai", tags=["email-ai"])
 app.include_router(email_ai_analytics.router, prefix=f"{app_settings.API_V1_STR}/email-ai", tags=["email-ai-analytics"])
 app.include_router(ai_content.router, prefix=f"{app_settings.API_V1_STR}/ai-content", tags=["ai-content"])
 app.include_router(ai_content.router, prefix="/api/ai-content", tags=["ai-content"])
+app.include_router(auto_leadfinder.router, prefix=f"{app_settings.API_V1_STR}/auto-leadfinder", tags=["auto-leadfinder"])
+app.include_router(auto_leadfinder.router, prefix="/api/auto-leadfinder", tags=["auto-leadfinder"])
 from app.services.supervisor.dashboard import router as supervisor_router
 app.include_router(supervisor_router, prefix="", tags=["supervisor"])
 app.include_router(advanced_analysis.router, prefix="/api/advanced-analysis", tags=["advanced-analysis"])

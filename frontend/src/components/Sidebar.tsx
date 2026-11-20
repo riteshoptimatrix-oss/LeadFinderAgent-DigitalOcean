@@ -16,7 +16,8 @@ import {
   Sparkles,
   ChevronRight,
   ChevronLeft,
-  ChevronDown
+  ChevronDown,
+  Compass
 } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { useAuthStore } from '@/src/features/auth/store';
@@ -88,6 +89,9 @@ export default function Sidebar() {
     userProfile?.role?.toLowerCase() === 'admin' ||
     userProfile?.is_superuser === true;
 
+  const userEmail = (user?.email || userProfile?.email || '')?.toLowerCase();
+  const isKutchTourGuide = userEmail === 'kutchtourguide@gmail.com';
+
   const navGroups: NavGroupConfig[] = [
     {
       title: 'OVERVIEW',
@@ -142,6 +146,17 @@ export default function Sidebar() {
     {
       title: 'AUTOMATION',
       items: [
+        ...(isKutchTourGuide ? [{
+          name: 'Auto LeadFinder',
+          href: '/dashboard/auto-leadfinder',
+          icon: Compass,
+          status: 'Active',
+          badgeBox: {
+            bg: 'bg-teal-50',
+            text: 'text-teal-600',
+            border: 'border-teal-200/70'
+          }
+        }] : []),
         {
           name: 'AI Content Generator',
           href: '/dashboard/ai-content',

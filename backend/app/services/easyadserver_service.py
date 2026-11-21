@@ -419,3 +419,78 @@ async def send_leads_batch(
             f"{f', {len(skipped_leads)} skipped' if skipped_leads else ''}."
         )
     }
+
+
+async def dispatch_user_leads_to_easyadserver(
+    db: AsyncIOMotorDatabase,
+    user_id: str,
+    user_email: Optional[str] = None,
+    skip_already_sent: bool = True
+) -> Dict[str, Any]:
+    """
+    Central helper for sending all eligible leads belonging to a user to EasyAdServer.
+    Reused by both the manual Send button and the Auto Send scheduled background job.
+    Duplicates are skipped automatically when skip_already_sent=True.
+    """
+    user_query = {"_id": ObjectId(user_id)} if ObjectId.is_valid(user_id) else {"_id": user_id}
+    user_doc = await db["users"].find_one(user_query)
+    if not user_doc and user_email:
+        user_doc = await db["users"].find_one({"email": {"$regex": f"^{re.escape(user_email)}$", "$options": "i"}})
+
+    if not user_doc:
+        logger.warning(f"[EAS_DISPATCH] User {user_id} not found in database.")
+        return {"success": False, "message": "User not found"}
+
+    actual_user_email = user_doc.get("email") or user_email or ""
+    actual_user_id = str(user_doc.get("_id", user_id))
+
+    if not user_doc.get("easyadserver_access"):
+        logger.warning(f"[EAS_DISPATCH] EasyAdServer access not enabled for user {actual_user_email}.")
+        return {"success": False, "message": "EasyAdServer access not enabled"}
+
+    raw_token = user_doc.get("easyadserver_token", "")
+    token = clean_api_token(raw_token)
+    if not token:
+        logger.warning(f"[EAS_DISPATCH] No valid EasyAdServer token for user {actual_user_email}.")
+        return {"success": False, "message": "EasyAdServer API Token not configured"}
+
+    conditions: List[Dict[str, Any]] = [
+        {"user_id": actual_user_id},
+        {"assigned_to": actual_user_id},
+        {"assigned_user_email": {"$regex": f"^{re.escape(actual_user_email)}$", "$options": "i"}}
+    ]
+    if ObjectId.is_valid(actual_user_id):
+        conditions.append({"user_id": ObjectId(actual_user_id)})
+        conditions.append({"created_by": actual_user_id})
+        conditions.append({"created_by": ObjectId(actual_user_id)})
+
+    query = {
+        "$and": [
+            {"$or": conditions},
+            {"visibility": {"$ne": "hidden"}}
+        ]
+    }
+
+    leads_cursor = db["leads"].find(query)
+    leads = await leads_cursor.to_list(length=3000)
+
+    if not leads:
+        return {
+            "success": True,
+            "total_requested": 0,
+            "successful_count": 0,
+            "failed_count": 0,
+            "skipped_count": 0,
+            "results": [],
+            "message": "No matching leads found to dispatch."
+        }
+
+    return await send_leads_batch(
+        leads=leads,
+        token=token,
+        db=db,
+        user_id=actual_user_id,
+        user_email=actual_user_email,
+        skip_already_sent=skip_already_sent
+    )
+

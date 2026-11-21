@@ -48,7 +48,7 @@ interface SearchableDropdownProps {
   onSelect: (val: string, item?: OptionItem) => void;
 }
 
-function SearchableDropdown({
+export function SearchableDropdown({
   label,
   icon,
   options,
@@ -59,7 +59,9 @@ function SearchableDropdown({
 }: SearchableDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
 
   // Close on outside click
   useEffect(() => {
@@ -82,9 +84,57 @@ function SearchableDropdown({
 
   const displayed = useMemo(() => filtered.slice(0, 80), [filtered]);
 
+  // Reset highlight index on search change or open
+  useEffect(() => {
+    setHighlightedIndex(0);
+  }, [search, isOpen]);
+
   const selectedItem = useMemo(() => {
     return options.find((opt) => opt.value === value || opt.label === value);
   }, [options, value]);
+
+  const scrollItemIntoView = (index: number) => {
+    if (!listRef.current) return;
+    const items = listRef.current.querySelectorAll('li');
+    if (items[index]) {
+      items[index].scrollIntoView({ block: 'nearest' });
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (!isOpen) {
+      if (e.key === 'ArrowDown' || e.key === 'Enter') {
+        e.preventDefault();
+        setIsOpen(true);
+      }
+      return;
+    }
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setHighlightedIndex((prev) => {
+        const next = Math.min(prev + 1, displayed.length - 1);
+        scrollItemIntoView(next);
+        return next;
+      });
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setHighlightedIndex((prev) => {
+        const next = Math.max(prev - 1, 0);
+        scrollItemIntoView(next);
+        return next;
+      });
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (displayed[highlightedIndex]) {
+        onSelect(displayed[highlightedIndex].value, displayed[highlightedIndex]);
+        setIsOpen(false);
+      }
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsOpen(false);
+    }
+  };
 
   return (
     <div className="space-y-1.5 relative w-full" ref={containerRef}>
@@ -103,6 +153,7 @@ function SearchableDropdown({
               setSearch('');
             }
           }}
+          onKeyDown={handleKeyDown}
           className={`w-full px-3.5 py-2.5 bg-white border rounded-xl shadow-2xs text-left flex items-center justify-between text-xs font-semibold transition-all cursor-pointer ${
             disabled
               ? 'opacity-50 bg-slate-50 cursor-not-allowed border-slate-200 text-slate-400'
@@ -135,9 +186,10 @@ function SearchableDropdown({
               <input
                 type="text"
                 autoFocus
-                placeholder={`Search ${label}...`}
+                placeholder={`Search ${label}... (Use ↑↓ arrows & Enter)`}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={handleKeyDown}
                 className="w-full bg-transparent border-0 py-1 text-xs outline-hidden text-slate-900 placeholder:text-slate-400 font-medium"
               />
               {search && (
@@ -151,14 +203,16 @@ function SearchableDropdown({
               )}
             </div>
 
-            <ul className="max-h-56 overflow-y-auto py-1 divide-y divide-slate-50">
+            <ul ref={listRef} className="max-h-56 overflow-y-auto py-1 divide-y divide-slate-50">
               {displayed.length > 0 ? (
-                displayed.map((opt) => {
+                displayed.map((opt, idx) => {
                   const isSelected = opt.value === value || opt.label === value;
+                  const isHighlighted = idx === highlightedIndex;
                   return (
                     <li key={opt.value}>
                       <button
                         type="button"
+                        onMouseEnter={() => setHighlightedIndex(idx)}
                         onClick={() => {
                           onSelect(opt.value, opt);
                           setIsOpen(false);
@@ -166,6 +220,8 @@ function SearchableDropdown({
                         className={`w-full px-3 py-2 text-left text-xs flex items-center justify-between gap-2 transition-colors cursor-pointer ${
                           isSelected
                             ? 'bg-teal-50 text-teal-800 font-bold'
+                            : isHighlighted
+                            ? 'bg-slate-100 text-slate-900 font-medium'
                             : 'hover:bg-slate-50 text-slate-700'
                         }`}
                       >
@@ -681,3 +737,198 @@ export default function LocationSelector({
     </div>
   );
 }
+
+
+export interface CascadingLocationSelectorProps {
+  country: string;
+  countryCode: string;
+  state: string;
+  stateCode: string;
+  city: string;
+  disabled?: boolean;
+  onChange: (loc: {
+    country: string;
+    countryCode: string;
+    state: string;
+    stateCode: string;
+    city: string;
+  }) => void;
+}
+
+export function CascadingLocationSelector({
+  country,
+  countryCode,
+  state,
+  stateCode,
+  city,
+  disabled = false,
+  onChange,
+}: CascadingLocationSelectorProps) {
+  const [countries, setCountries] = useState<OptionItem[]>([]);
+  const [states, setStates] = useState<OptionItem[]>([]);
+  const [cities, setCities] = useState<OptionItem[]>([]);
+  const [customCityInput, setCustomCityInput] = useState('');
+  const [showCustomCityField, setShowCustomCityField] = useState(false);
+
+  useEffect(() => {
+    const rawCountries = Country.getAllCountries();
+    setCountries(
+      rawCountries.map((c) => ({
+        label: c.name,
+        value: c.isoCode,
+        code: c.isoCode,
+        icon: getUnicodeFlag(c.isoCode),
+      }))
+    );
+  }, []);
+
+  useEffect(() => {
+    const code = countryCode || 'IN';
+    const rawStates = State.getStatesOfCountry(code);
+    setStates(
+      rawStates.map((s) => ({
+        label: s.name,
+        value: s.isoCode,
+        code: s.isoCode,
+      }))
+    );
+  }, [countryCode]);
+
+  useEffect(() => {
+    const cCode = countryCode || 'IN';
+    const sCode = stateCode || 'GJ';
+    if (!cCode || !sCode) {
+      setCities([]);
+      return;
+    }
+    const rawCities = City.getCitiesOfState(cCode, sCode);
+    setCities(
+      rawCities.map((c) => ({
+        label: c.name,
+        value: c.name,
+        code: c.stateCode,
+      }))
+    );
+  }, [countryCode, stateCode]);
+
+  const handleSelectCountry = (cCode: string, item?: OptionItem) => {
+    onChange({
+      country: item?.label || cCode,
+      countryCode: cCode,
+      state: '',
+      stateCode: '',
+      city: '',
+    });
+    setShowCustomCityField(false);
+  };
+
+  const handleSelectState = (sCode: string, item?: OptionItem) => {
+    onChange({
+      country,
+      countryCode,
+      state: item?.label || sCode,
+      stateCode: sCode,
+      city: '',
+    });
+    setShowCustomCityField(false);
+  };
+
+  const handleSelectCity = (cityName: string) => {
+    onChange({
+      country,
+      countryCode,
+      state,
+      stateCode,
+      city: cityName,
+    });
+  };
+
+  const handleAddCustomCity = () => {
+    if (!customCityInput.trim()) return;
+    onChange({
+      country,
+      countryCode,
+      state,
+      stateCode,
+      city: customCityInput.trim(),
+    });
+    setCustomCityInput('');
+    setShowCustomCityField(false);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
+        {/* 1. Country */}
+        <SearchableDropdown
+          label="Country"
+          icon={<Globe className="w-3.5 h-3.5 text-teal-600" />}
+          options={countries}
+          value={countryCode}
+          placeholder="Select Country..."
+          disabled={disabled}
+          onSelect={(cCode, item) => handleSelectCountry(cCode, item)}
+        />
+
+        {/* 2. State */}
+        <SearchableDropdown
+          label="State / Province"
+          icon={<Building2 className="w-3.5 h-3.5 text-teal-600" />}
+          options={states}
+          value={stateCode}
+          placeholder={countryCode ? 'Select State...' : 'Select Country first'}
+          disabled={disabled || !countryCode}
+          onSelect={(sCode, item) => handleSelectState(sCode, item)}
+        />
+
+        {/* 3. City */}
+        <div className="space-y-1">
+          <SearchableDropdown
+            label="City"
+            icon={<MapPin className="w-3.5 h-3.5 text-teal-600" />}
+            options={cities}
+            value={city}
+            placeholder={stateCode ? 'Select City...' : 'Select State first'}
+            disabled={disabled || !stateCode}
+            onSelect={(cityName) => handleSelectCity(cityName)}
+          />
+          <div className="flex items-center justify-between pt-0.5">
+            <button
+              type="button"
+              disabled={disabled || !stateCode}
+              onClick={() => setShowCustomCityField(!showCustomCityField)}
+              className="text-[11px] font-semibold text-teal-700 hover:text-teal-900 transition-colors cursor-pointer disabled:opacity-40"
+            >
+              {showCustomCityField ? '✕ Cancel custom city' : '+ Enter custom city'}
+            </button>
+          </div>
+          {showCustomCityField && (
+            <div className="flex items-center gap-1.5 pt-1">
+              <input
+                type="text"
+                placeholder="Type town or city name..."
+                value={customCityInput}
+                onChange={(e) => setCustomCityInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddCustomCity();
+                  }
+                }}
+                className="w-full px-2.5 py-1 text-xs rounded-lg border border-slate-300 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
+              />
+              <button
+                type="button"
+                onClick={handleAddCustomCity}
+                className="px-2.5 py-1 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-bold shrink-0 cursor-pointer"
+              >
+                Set
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+

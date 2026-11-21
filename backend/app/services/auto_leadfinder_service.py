@@ -297,9 +297,14 @@ async def update_settings(payload: Dict[str, Any], user_email: Optional[str] = N
         try:
             val = int(payload["daily_limit"])
             if val > 0:
-                update_data["daily_limit"] = min(max(val, 10), 1000)
+                update_data["daily_limit"] = min(max(val, 100), 1000)
         except (ValueError, TypeError):
             pass
+
+    if "schedule_time" in payload and payload["schedule_time"]:
+        update_data["schedule_time"] = str(payload["schedule_time"]).strip()
+    if "auto_send_eas" in payload and payload["auto_send_eas"] is not None:
+        update_data["auto_send_eas"] = bool(payload["auto_send_eas"])
 
     if "country" in payload and payload["country"]:
         update_data["country"] = str(payload["country"]).strip()
@@ -662,14 +667,12 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
     })
 
     quota_remaining = max(0, daily_limit - today_already_collected)
-    if trigger_type == "SCHEDULED" and quota_remaining <= 0:
-        logger.info(f"[AUTO_LEADFINDER] Daily target of {daily_limit} leads already achieved today for {clean_email} ({today_already_collected} leads). Skipping.")
-        return {
-            "status": "skipped",
-            "message": f"Daily target of {daily_limit} leads has already been satisfied for today."
-        }
-
-    target_for_this_run = quota_remaining if trigger_type == "SCHEDULED" else (daily_limit if quota_remaining <= 0 else quota_remaining)
+    if trigger_type == "SCHEDULED":
+        # Rule 1.2: Each scheduled run must fetch at least 100 leads (minimum 100, no fewer)
+        target_for_this_run = max(quota_remaining, 100)
+    else:
+        target_for_this_run = daily_limit if quota_remaining <= 0 else quota_remaining
+        target_for_this_run = max(target_for_this_run, 100)
 
     run_id = ObjectId()
     now_utc = datetime.now(timezone.utc)
@@ -1132,6 +1135,20 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                 "localities_processed": localities_processed,
             }}
         )
+
+        # Rule 1.2: If user enabled automatic dispatch to EasyAdServer upon run completion
+        if settings.get("auto_send_eas") and user_id:
+            try:
+                from app.services.easyadserver_service import dispatch_user_leads_to_easyadserver
+                eas_res = await dispatch_user_leads_to_easyadserver(
+                    db=db,
+                    user_id=user_id,
+                    user_email=clean_email,
+                    skip_already_sent=True
+                )
+                logger.info(f"[AUTO_LEADFINDER] [{clean_email}] Auto EAS dispatch after scraping run {run_id}: {eas_res.get('message')}")
+            except Exception as eas_err:
+                logger.warning(f"[AUTO_LEADFINDER] [{clean_email}] Auto EAS dispatch failed after run {run_id}: {eas_err}")
 
         logger.info(f"[AUTO_LEADFINDER] [{clean_email}] Systematic run {run_id} completed. Total unique: {total_collected}, Duplicates: {total_duplicates}.")
         return {

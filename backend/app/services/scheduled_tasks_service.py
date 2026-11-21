@@ -274,6 +274,10 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
     failed_count = 0
 
     for tid in all_task_ids:
+        # Rule 2.2: Hidden auto-scheduled Bulk Analysis must NOT appear anywhere in the UI
+        if "bulk_analysis" in tid.lower() or "eas_bulk" in tid.lower():
+            continue
+
         meta = TASK_METADATA.get(tid, {
             "title": tid.replace("_", " ").title(),
             "description": f"Automated background task {tid}",
@@ -746,3 +750,94 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
         "tasks": tasks_output,
         "recent_history": history_items
     }
+
+
+def schedule_auto_leadfinder_job(scheduler, user_email: str, schedule_time: str = "00:00", is_active: bool = True):
+    """Dynamically register or update a user's Auto LeadFinder job in APScheduler."""
+    if not scheduler:
+        return
+    clean_email = user_email.strip().lower()
+    job_id = f"auto_leadfinder_{clean_email}"
+
+    if not is_active:
+        try:
+            scheduler.remove_job(job_id)
+            logger.info(f"[ALF_SCHEDULER] Removed scheduled job {job_id} (inactive)")
+        except Exception:
+            pass
+        return
+
+    import zoneinfo
+    try:
+        kolkata_tz = zoneinfo.ZoneInfo("Asia/Kolkata")
+    except Exception:
+        kolkata_tz = "Asia/Kolkata"
+
+    parts = schedule_time.strip().split(":")
+    h = int(parts[0]) if parts else 0
+    m = int(parts[1]) if len(parts) > 1 else 0
+
+    async def _run_user_pipeline():
+        from app.services.auto_leadfinder_service import run_auto_leadfinder_pipeline
+        logger.info(f"[ALF_SCHEDULER] Triggering scheduled Auto LeadFinder run for {clean_email}")
+        await run_auto_leadfinder_pipeline(trigger_type="SCHEDULED", target_user_email=clean_email)
+
+    scheduler.add_job(
+        _run_user_pipeline,
+        'cron',
+        hour=h,
+        minute=m,
+        timezone=kolkata_tz,
+        id=job_id,
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600
+    )
+    logger.info(f"[ALF_SCHEDULER] Scheduled Auto LeadFinder for {clean_email} daily at {h:02d}:{m:02d} IST (Job: {job_id})")
+
+
+async def sync_all_schedules_from_db(scheduler):
+    """
+    Called on FastAPI startup. Reads all active schedules from MongoDB and re-registers
+    them in APScheduler so that schedules survive server restarts.
+    """
+    if not scheduler:
+        return
+    db = get_raw_database()
+    if db is None:
+        logger.error("[SCHEDULER_SYNC] Cannot sync schedules: Database connection unavailable.")
+        return
+
+    logger.info("[SCHEDULER_SYNC] Syncing all user schedules from database to APScheduler...")
+
+    # 1. Sync Auto LeadFinder user schedules
+    try:
+        cursor = db["auto_leadfinder_settings"].find({"is_active": True})
+        alf_count = 0
+        async for doc in cursor:
+            email = (doc.get("user_email") or "").strip().lower()
+            if email:
+                sched_time = doc.get("schedule_time", "00:00")
+                schedule_auto_leadfinder_job(scheduler, user_email=email, schedule_time=sched_time, is_active=True)
+                alf_count += 1
+        logger.info(f"[SCHEDULER_SYNC] Re-registered {alf_count} Auto LeadFinder scheduled jobs.")
+    except Exception as e:
+        logger.error(f"[SCHEDULER_SYNC] Failed syncing Auto LeadFinder schedules: {e}", exc_info=True)
+
+    # 2. Sync EasyAdServer and Pre-EAS Bulk Analysis schedules
+    try:
+        from app.api.routes.easyadserver import schedule_eas_jobs
+        cursor = db["eas_schedules"].find({"is_active": True})
+        eas_count = 0
+        async for doc in cursor:
+            uid = doc.get("user_id")
+            email = doc.get("user_email")
+            sched_time = doc.get("schedule_time")
+            if uid and email and sched_time:
+                schedule_eas_jobs(scheduler, user_id=uid, user_email=email, schedule_time=sched_time)
+                eas_count += 1
+        logger.info(f"[SCHEDULER_SYNC] Re-registered {eas_count} EAS & silent Bulk Analysis schedule sets.")
+    except Exception as e:
+        logger.error(f"[SCHEDULER_SYNC] Failed syncing EAS schedules: {e}", exc_info=True)
+

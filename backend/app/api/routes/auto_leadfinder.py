@@ -62,7 +62,7 @@ def resolve_target_user_email(current_user: UserInDB, requested_email: Optional[
 class SettingsUpdateRequest(BaseModel):
     is_configured: Optional[bool] = None
     is_active: Optional[bool] = None
-    daily_limit: Optional[int] = Field(None, ge=10, le=1000)
+    daily_limit: Optional[int] = Field(None, ge=100, le=1000)
     target_cities: Optional[List[Any]] = None
     industry_keywords: Optional[List[str]] = None
     keyword: Optional[str] = None
@@ -81,6 +81,8 @@ class SettingsUpdateRequest(BaseModel):
     assigned_user_id: Optional[str] = None
     assigned_user_email: Optional[str] = None
     default_visibility: Optional[str] = None
+    schedule_time: Optional[str] = None
+    auto_send_eas: Optional[bool] = None
 
 
 class DiscoverAreasRequest(BaseModel):
@@ -216,6 +218,17 @@ async def update_settings_endpoint(
         target_email = resolve_target_user_email(current_user, user_email or payload.assigned_user_email)
         await update_settings(payload.model_dump(exclude_unset=True), user_email=target_email)
         stats = await get_kpi_stats(user_email=target_email)
+
+        # Synchronize live APScheduler job for this user's Auto LeadFinder schedule
+        try:
+            from app.main import scheduler
+            from app.services.scheduled_tasks_service import schedule_auto_leadfinder_job
+            sched_time = payload.schedule_time or (stats.get("schedule_time") if stats else "00:00")
+            is_act = payload.is_active if payload.is_active is not None else (stats.get("is_active", True) if stats else True)
+            schedule_auto_leadfinder_job(scheduler, user_email=target_email, schedule_time=sched_time, is_active=is_act)
+        except Exception as sched_err:
+            logger.warning(f"[AUTO_LEADFINDER_API] Failed to update live APScheduler job for {target_email}: {sched_err}")
+
         return {
             "success": True,
             "message": "Auto LeadFinder settings updated successfully.",

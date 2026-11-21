@@ -36,6 +36,8 @@ import {
   ChevronDown
 } from 'lucide-react';
 import ScheduledTasksMonitor from '@/src/components/auto-leadfinder/ScheduledTasksMonitor';
+import { CascadingLocationSelector } from '@/src/components/auto-leadfinder/LocationSelector';
+import TimePicker from '@/src/components/common/TimePicker';
 
 const TARGET_EMAIL = 'kutchtourguide@gmail.com';
 
@@ -154,8 +156,12 @@ export default function AutoLeadFinderPage() {
   const [dailyLimit, setDailyLimit] = useState<number>(100);
   const [keywordInput, setKeywordInput] = useState<string>('');
   const [country, setCountry] = useState<string>('India');
+  const [countryCode, setCountryCode] = useState<string>('IN');
   const [state, setState] = useState<string>('');
+  const [stateCode, setStateCode] = useState<string>('');
   const [city, setCity] = useState<string>('');
+  const [scheduleTime, setScheduleTime] = useState<string>('00:00');
+  const [autoSendEAS, setAutoSendEAS] = useState<boolean>(false);
   const [discoveredAreas, setDiscoveredAreas] = useState<any[]>([]);
   const [discoveredPincodes, setDiscoveredPincodes] = useState<string[]>([]);
   const [currentAreaIndex, setCurrentAreaIndex] = useState<number>(0);
@@ -175,8 +181,12 @@ export default function AutoLeadFinderPage() {
       setDailyLimit(settingsResponse.daily_limit ?? (isKutchUser ? 500 : 100));
       setKeywordInput(isKutchUser ? 'Travel Agency' : (settingsResponse.keyword || ''));
       setCountry(settingsResponse.country || 'India');
+      setCountryCode(settingsResponse.country_code || 'IN');
       setState(settingsResponse.state || (isKutchUser ? 'Gujarat' : ''));
+      setStateCode(settingsResponse.state_code || (isKutchUser ? 'GJ' : ''));
       setCity(settingsResponse.city || (isKutchUser ? 'Kutch district' : ''));
+      setScheduleTime(settingsResponse.schedule_time || '00:00');
+      setAutoSendEAS(settingsResponse.auto_send_eas ?? false);
       setDiscoveredAreas(settingsResponse.discovered_areas || []);
       setDiscoveredPincodes(settingsResponse.discovered_pincodes || []);
       setCurrentAreaIndex(settingsResponse.current_area_index || 0);
@@ -184,6 +194,9 @@ export default function AutoLeadFinderPage() {
       setKeywordInput('');
       setCity('');
       setState('');
+      setStateCode('');
+      setScheduleTime('00:00');
+      setAutoSendEAS(false);
       setDiscoveredAreas([]);
       setDiscoveredPincodes([]);
     }
@@ -273,13 +286,17 @@ export default function AutoLeadFinderPage() {
       const payload = {
         is_configured: true,
         is_active: isActive,
-        daily_limit: Number(dailyLimit),
+        daily_limit: Math.max(Number(dailyLimit), 100),
         keyword: finalKeyword,
         industry_keywords: [finalKeyword],
         country: (country || 'India').trim(),
+        country_code: countryCode || 'IN',
         state: (state || '').trim(),
+        state_code: stateCode || '',
         city: (city || '').trim(),
         district: (city || '').trim(),
+        schedule_time: scheduleTime || '00:00',
+        auto_send_eas: autoSendEAS,
         discovered_areas: discoveredAreas,
         discovered_pincodes: discoveredPincodes,
         current_area_index: currentAreaIndex,
@@ -529,131 +546,187 @@ export default function AutoLeadFinderPage() {
           </div>
         </div>
 
-        {/* Inputs Grid: Location + Keyword + Daily Limit + Save Button */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-3 items-end">
-          {/* Input 1: Country (2 cols) */}
-          <div className="lg:col-span-2 space-y-1">
-            <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-              <Globe className="w-3.5 h-3.5 text-teal-600" />
-              <span>Country</span>
-            </label>
-            <input
-              type="text"
-              value={country}
-              onChange={(e) => setCountry(e.target.value)}
-              placeholder="e.g. India"
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-            />
-          </div>
-
-          {/* Input 2: State (2 cols) */}
-          <div className="lg:col-span-2 space-y-1">
-            <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5 text-teal-600" />
-              <span>State / Province</span>
-            </label>
-            <input
-              type="text"
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-              placeholder="e.g. Gujarat"
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-            />
-          </div>
-
-          {/* Input 3: City (2 cols) */}
-          <div className="lg:col-span-2 space-y-1">
-            <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-              <Building2 className="w-3.5 h-3.5 text-teal-600" />
-              <span>Target City</span>
-            </label>
-            <input
-              type="text"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              placeholder="e.g. Bhuj, Ahmedabad..."
-              className="w-full px-3 py-2 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500"
-            />
-          </div>
-
-          {/* Input 4: Target Industry Keyword (3 cols) */}
-          <div className="lg:col-span-3 space-y-1">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-                <Tag className="w-3.5 h-3.5 text-teal-600" />
-                <span>Industry Keyword</span>
-              </label>
-              {isKeywordFixed && (
-                <span className="text-[10px] font-bold text-amber-700 flex items-center gap-0.5">
-                  <Lock className="w-2.5 h-2.5" /> Fixed
+        {/* 3-Part Preferences Form */}
+        <div className="space-y-4 pt-1">
+          {/* ─────────────────────────────────────────────────────────── */}
+          {/* PART 1: Location Selector (Cascading Country → State → City) */}
+          {/* ─────────────────────────────────────────────────────────── */}
+          <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/90 space-y-3 shadow-2xs">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-2xs">1</span>
+                <span className="text-sm font-extrabold text-slate-900">Location Selector</span>
+                <span className="text-[11px] font-medium text-slate-500">(Cascading: Country → State → City with search &amp; keyboard navigation)</span>
+              </span>
+              {city && (
+                <span className="text-[11px] font-semibold text-teal-800 bg-teal-50/80 px-2.5 py-0.5 rounded-full border border-teal-200 shadow-2xs">
+                  📍 {city}, {state || 'Gujarat'}, {country || 'India'}
                 </span>
               )}
             </div>
-            <input
-              type="text"
-              disabled={isKeywordFixed}
-              value={isKeywordFixed ? 'Travel Agency' : keywordInput}
-              onChange={(e) => setKeywordInput(e.target.value)}
-              placeholder="e.g. Real Estate, Doctors..."
-              className={`w-full px-3 py-2 rounded-xl border text-xs font-semibold transition-all ${
-                isKeywordFixed
-                  ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
-                  : 'border-slate-200 bg-slate-50/50 text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500'
-              }`}
+
+            <CascadingLocationSelector
+              country={country}
+              countryCode={countryCode}
+              state={state}
+              stateCode={stateCode}
+              city={city}
+              disabled={isKutchUser}
+              onChange={(loc) => {
+                setCountry(loc.country);
+                setCountryCode(loc.countryCode);
+                setState(loc.state);
+                setStateCode(loc.stateCode);
+                setCity(loc.city);
+                if (loc.city !== city) {
+                  setDiscoveredAreas([]);
+                  setDiscoveredPincodes([]);
+                }
+              }}
             />
           </div>
 
-          {/* Input 5: Daily Limit (1.5 cols) */}
-          <div className="lg:col-span-1.5 space-y-1">
-            <label className="text-xs font-bold text-slate-700 block">
-              Daily Limit
-            </label>
-            <select
-              value={dailyLimit}
-              onChange={(e) => setDailyLimit(Number(e.target.value))}
-              className="w-full px-2.5 py-2 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 cursor-pointer"
-            >
-              <option value={100}>100 leads</option>
-              <option value={250}>250 leads</option>
-              <option value={500}>500 leads</option>
-              <option value={1000}>1000 leads</option>
-            </select>
+          {/* ─────────────────────────────────────────────────────────── */}
+          {/* PART 2: What to Search (Keyword, Quota & Quick Niches)      */}
+          {/* ─────────────────────────────────────────────────────────── */}
+          <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/90 space-y-3 shadow-2xs">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-2xs">2</span>
+                <span className="text-sm font-extrabold text-slate-900">What to Search</span>
+                <span className="text-[11px] font-medium text-slate-500">(Target business keyword &amp; quota)</span>
+              </span>
+              <span className="text-[11px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200">
+                ⚡ Minimum 100 leads per run
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+              {/* Keyword Input (8 cols) */}
+              <div className="sm:col-span-8 space-y-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Tag className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Industry Keyword / Business Type</span>
+                  </label>
+                  {isKeywordFixed && (
+                    <span className="text-[10px] font-bold text-amber-700 flex items-center gap-0.5">
+                      <Lock className="w-2.5 h-2.5" /> Fixed
+                    </span>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  disabled={isKeywordFixed}
+                  value={isKeywordFixed ? 'Travel Agency' : keywordInput}
+                  onChange={(e) => setKeywordInput(e.target.value)}
+                  placeholder="e.g. Bakery &amp; Cake Shops, Real Estate, Doctors..."
+                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
+                    isKeywordFixed
+                      ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
+                      : 'border-slate-200 bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500'
+                  }`}
+                />
+              </div>
+
+              {/* Daily Limit (4 cols) */}
+              <div className="sm:col-span-4 space-y-1">
+                <label className="text-xs font-bold text-slate-700 block">
+                  Daily Limit (Quota)
+                </label>
+                <select
+                  value={dailyLimit}
+                  onChange={(e) => setDailyLimit(Math.max(Number(e.target.value), 100))}
+                  className="w-full px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-900 text-xs font-semibold focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 cursor-pointer"
+                >
+                  <option value={100}>100 leads (Minimum)</option>
+                  <option value={250}>250 leads</option>
+                  <option value={500}>500 leads</option>
+                  <option value={1000}>1000 leads</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Quick Niches Chips for Normal Users */}
+            {!isKeywordFixed && (
+              <div className="pt-2 border-t border-slate-200/60 flex items-center gap-1.5 flex-wrap">
+                <span className="text-[11px] text-slate-400 font-medium">Quick Niches:</span>
+                {NICHE_PRESETS.map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setKeywordInput(p)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer ${
+                      keywordInput === p
+                        ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold shadow-2xs'
+                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
-          {/* Action: Save Button (1.5 cols) */}
-          <div className="lg:col-span-1.5">
-            <button
-              type="button"
-              onClick={handleSaveSettings}
-              disabled={isSaving}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-2xs transition-all cursor-pointer disabled:opacity-50 active:scale-95"
-            >
-              {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-              <span>Save</span>
-            </button>
+          {/* ─────────────────────────────────────────────────────────── */}
+          {/* PART 3: Schedule Time (Clock / Automated Execution)         */}
+          {/* ─────────────────────────────────────────────────────────── */}
+          <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/90 space-y-3 shadow-2xs">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-2xs">3</span>
+                <span className="text-sm font-extrabold text-slate-900">Schedule Time</span>
+                <span className="text-[11px] font-medium text-slate-500">(Automated daily execution clock)</span>
+              </span>
+              <span className="text-[10px] font-medium text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                Runs automatically even if page is closed
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
+              {/* Clock Picker (7 cols) */}
+              <div className="lg:col-span-7">
+                <TimePicker
+                  value={scheduleTime}
+                  onChange={(t) => setScheduleTime(t)}
+                  label="Daily Execution Time"
+                />
+              </div>
+
+              {/* EAS Option + Save Button (5 cols) */}
+              <div className="lg:col-span-5 space-y-3">
+                <label className="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-slate-300 transition-colors shadow-2xs">
+                  <input
+                    type="checkbox"
+                    checked={autoSendEAS}
+                    onChange={(e) => setAutoSendEAS(e.target.checked)}
+                    className="mt-0.5 rounded text-teal-600 focus:ring-teal-500 w-4 h-4 cursor-pointer"
+                  />
+                  <div className="text-[11px] leading-snug text-slate-700">
+                    <span className="font-bold text-slate-900 block flex items-center gap-1.5">
+                      <span>Send to EasyAdServer Automatically</span>
+                      <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-extrabold">EAS</span>
+                    </span>
+                    <span className="text-slate-500 text-[10px]">
+                      Automatically dispatch freshly scraped leads to EasyAdServer after this run completes.
+                    </span>
+                  </div>
+                </label>
+
+                <button
+                  type="button"
+                  onClick={handleSaveSettings}
+                  disabled={isSaving}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50 active:scale-98"
+                >
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                  <span>Save Configuration &amp; Schedule</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
-
-        {/* Quick Niche Chips for Normal Users */}
-        {!isKeywordFixed && (
-          <div className="pt-2 border-t border-slate-100 flex items-center gap-1.5 flex-wrap">
-            <span className="text-[11px] text-slate-400 font-medium">Quick Niches:</span>
-            {NICHE_PRESETS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => setKeywordInput(p)}
-                className={`px-2 py-0.5 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer ${
-                  keywordInput === p
-                    ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold'
-                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* ========================================================================= */}

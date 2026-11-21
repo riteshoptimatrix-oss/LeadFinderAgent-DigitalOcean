@@ -414,6 +414,13 @@ async def lifespan(app: FastAPI):
     scheduler.start()
     logger.info("APScheduler started.")
 
+    # Synchronize all active user schedules (Auto LeadFinder, EAS auto-send, and silent Bulk Analysis) from DB
+    try:
+        from app.services.scheduled_tasks_service import sync_all_schedules_from_db
+        asyncio.create_task(sync_all_schedules_from_db(scheduler))
+    except Exception as sync_err:
+        logger.error(f"Failed to initiate schedule sync from DB: {sync_err}")
+
     # Register signal handlers for graceful shutdown
     loop = asyncio.get_event_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):

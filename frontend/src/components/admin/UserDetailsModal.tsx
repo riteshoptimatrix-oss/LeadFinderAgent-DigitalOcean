@@ -1,13 +1,14 @@
 'use client';
 
 import React from 'react';
-import { 
-  X, User, Mail, Phone, Building2, MapPin, Calendar, Clock, 
+import {
+  X, User, Mail, Phone, Building2, MapPin, Calendar, Clock,
   ShieldCheck, LogIn, Target, Search, Zap, Send, Compass
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { StatusBadge } from '@/src/components/common/StatusBadge';
+
 
 interface UserDetailsModalProps {
   userId: string | null;
@@ -36,7 +37,7 @@ export default function UserDetailsModal({ userId, isOpen, onClose, onImpersonat
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-200">
-      <div 
+      <div
         className="bg-white rounded-3xl border border-slate-200/90 shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >

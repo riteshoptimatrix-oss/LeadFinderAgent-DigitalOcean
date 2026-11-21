@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { useAuthStore } from '@/src/features/auth/store';
 import { PageHeader } from '@/src/components/common/PageHeader';
@@ -52,6 +52,7 @@ const NICHE_PRESETS = [
 
 export default function AutoLeadFinderPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const user = useAuthStore((state) => state.user);
 
   // Fetch user profile to verify role and email
@@ -209,6 +210,8 @@ export default function AutoLeadFinderPage() {
         setDiscoveredAreas(data.areas || []);
         setDiscoveredPincodes(data.pincodes || []);
         toast.success(`Discovered ${data.total_areas || 0} postal areas for ${cName}!`);
+        queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-settings', effectiveEmail] });
+        queryClient.invalidateQueries({ queryKey: ['scheduled-tasks-live-monitor', effectiveEmail] });
         refetchSettings();
       }
     } catch (err: unknown) {
@@ -243,12 +246,19 @@ export default function AutoLeadFinderPage() {
       await api.put('/auto-leadfinder/settings', payload, {
         params: { user_email: effectiveEmail }
       });
-      toast.success(`Auto LeadFinder configuration saved successfully for ${effectiveEmail}!`);
+      toast.success(`Auto LeadFinder configuration saved & scheduled for ${effectiveEmail}!`);
+      
+      // Invalidate both settings and live schedule monitor so upcoming schedules show immediately
+      await queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-settings', effectiveEmail] });
+      await queryClient.invalidateQueries({ queryKey: ['scheduled-tasks-live-monitor', effectiveEmail] });
+      await queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-history', effectiveEmail] });
       refetchSettings();
+      refetchHistory();
 
       // If city is entered and no areas are discovered yet, discover them
       if (payload.city && discoveredAreas.length === 0) {
-        handleTriggerDiscovery(false, payload.city);
+        await handleTriggerDiscovery(false, payload.city);
+        await queryClient.invalidateQueries({ queryKey: ['scheduled-tasks-live-monitor', effectiveEmail] });
       }
     } catch (err: unknown) {
       const errorObj = err as { response?: { data?: { detail?: string } }; message?: string };
@@ -270,6 +280,9 @@ export default function AutoLeadFinderPage() {
         params: { user_email: effectiveEmail }
       });
       toast.success(`Lead scraping started for ${city || 'Target City'}!`);
+      await queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-settings', effectiveEmail] });
+      await queryClient.invalidateQueries({ queryKey: ['scheduled-tasks-live-monitor', effectiveEmail] });
+      await queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-history', effectiveEmail] });
       refetchSettings();
       refetchHistory();
     } catch (err: unknown) {
@@ -289,6 +302,9 @@ export default function AutoLeadFinderPage() {
       });
       toast.success(`All schedules and execution logs for ${effectiveEmail} have been deleted.`);
       setShowDeleteModal(false);
+      await queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-settings', effectiveEmail] });
+      await queryClient.invalidateQueries({ queryKey: ['scheduled-tasks-live-monitor', effectiveEmail] });
+      await queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-history', effectiveEmail] });
       refetchSettings();
       refetchHistory();
     } catch (err: unknown) {
@@ -301,6 +317,9 @@ export default function AutoLeadFinderPage() {
   };
 
   const handleRefreshAll = () => {
+    queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-settings', effectiveEmail] });
+    queryClient.invalidateQueries({ queryKey: ['scheduled-tasks-live-monitor', effectiveEmail] });
+    queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-history', effectiveEmail] });
     refetchSettings();
     refetchHistory();
   };

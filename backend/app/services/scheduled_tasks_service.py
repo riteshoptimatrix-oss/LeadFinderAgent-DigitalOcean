@@ -1,12 +1,14 @@
 import logging
 import asyncio
 import time
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
 from bson import ObjectId
 import zoneinfo
 
 from app.db.database import get_db, db_instance
+from app.services.auto_leadfinder_service import TARGET_USER_EMAIL, KUTCH_LOCALITIES_CATALOG
 
 logger = logging.getLogger(__name__)
 
@@ -460,6 +462,15 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
         target_state = auto_settings.get("state", "") or ("Gujarat" if is_kutch else "")
         target_country = auto_settings.get("country", "") or ("India" if is_kutch else "")
         discovered_areas = auto_settings.get("discovered_areas") or []
+        if is_kutch and not discovered_areas:
+            discovered_areas = [
+                {
+                    "name": loc["locality"],
+                    "pincode": loc.get("pincode", "370001"),
+                    "maps_query": f"{loc['locality']}, {target_city}, {target_district}, {target_state}, {target_country}"
+                }
+                for loc in KUTCH_LOCALITIES_CATALOG
+            ]
         current_area_idx = auto_settings.get("current_area_index", 0)
         target_keyword = auto_settings.get("keyword", "") or ("Travel Agency" if is_kutch else "Business")
         lead_target = auto_settings.get("daily_limit", 500 if is_kutch else 100)
@@ -547,10 +558,10 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                         day_leads = today_leads_count
                     elif not is_active:
                         day_status = "CANCELLED"
-                        day_leads = 0
+                        day_leads = today_leads_count
                     else:
                         day_status = "SCHEDULED"
-                        day_leads = 0
+                        day_leads = today_leads_count
                 elif day_offset == 1:
                     day_label = "Day 2 (Tomorrow Night)"
                     day_status = "SCHEDULED" if is_active else "CANCELLED"
@@ -660,6 +671,11 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
     except Exception as e:
         logger.error(f"[SCHEDULED_TASKS] Error generating lead_schedules: {e}", exc_info=True)
 
+    lead_sched_count = len([s for s in lead_schedules if s.get("status") == "SCHEDULED"])
+    lead_run_count = len([s for s in lead_schedules if s.get("status") == "RUNNING"])
+    lead_comp_count = len([s for s in lead_schedules if s.get("status") == "COMPLETED"])
+    lead_fail_count = len([s for s in lead_schedules if s.get("status") == "FAILED"])
+
     return {
         "success": True,
         "server_time_ist": now_ist.strftime("%d %b %Y, %I:%M:%S %p IST"),
@@ -667,10 +683,10 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
         "lead_schedules": lead_schedules,
         "summary": {
             "total_tasks": len(lead_schedules),
-            "running_now": running_count,
-            "scheduled": scheduled_count,
-            "completed_runs": completed_count,
-            "failed_runs": failed_count,
+            "running_now": lead_run_count,
+            "scheduled": lead_sched_count,
+            "completed_runs": lead_comp_count,
+            "failed_runs": lead_fail_count,
         },
         "tasks": tasks_output,
         "recent_history": history_items

@@ -6,6 +6,7 @@ import asyncio
 import os
 import time
 import json
+import re
 from bson import ObjectId
 import io
 import openpyxl
@@ -264,6 +265,7 @@ def build_lead_filters(
     assigned_to: Optional[str] = None,
     is_auto_lead: Optional[bool] = None,
     visibility: Optional[str] = None,
+    user_id_alias: Optional[str] = None,
 ) -> dict:
     """Build the Mongo query used to filter leads on the /leads page."""
     query: dict = {}
@@ -300,12 +302,24 @@ def build_lead_filters(
                 ]
             })
         else:
-            filter_clauses.append({
-                "$or": [
-                    {"assigned_to": assigned_to},
-                    {"assigned_user_email": assigned_to},
-                ]
-            })
+            or_parts = [
+                {"assigned_to": assigned_to},
+                {"user_id": assigned_to},
+                {"owner_id": assigned_to},
+                {"assigned_user_email": {"$regex": f"^{re.escape(assigned_to)}$", "$options": "i"}},
+                {"assigned_to_email": {"$regex": f"^{re.escape(assigned_to)}$", "$options": "i"}},
+                {"user_email": {"$regex": f"^{re.escape(assigned_to)}$", "$options": "i"}},
+            ]
+            if ObjectId.is_valid(assigned_to):
+                or_parts.append({"assigned_to": ObjectId(assigned_to)})
+                or_parts.append({"user_id": ObjectId(assigned_to)})
+            if user_id_alias:
+                or_parts.append({"user_id": user_id_alias})
+                or_parts.append({"assigned_to": user_id_alias})
+                if ObjectId.is_valid(user_id_alias):
+                    or_parts.append({"user_id": ObjectId(user_id_alias)})
+                    or_parts.append({"assigned_to": ObjectId(user_id_alias)})
+            filter_clauses.append({"$or": or_parts})
 
     if is_auto_lead is True:
         filter_clauses.append({
@@ -400,6 +414,12 @@ async def get_leads(
     # Use keyword if provided, otherwise use search
     search_term = keyword or search
 
+    user_id_alias = None
+    if assigned_to and "@" in assigned_to:
+        matched_user = await db["users"].find_one({"email": {"$regex": f"^{re.escape(assigned_to)}$", "$options": "i"}})
+        if matched_user:
+            user_id_alias = str(matched_user["_id"])
+
     query = build_lead_filters(
         search_term=search_term,
         job_id=job_id,
@@ -413,6 +433,7 @@ async def get_leads(
         assigned_to=assigned_to,
         is_auto_lead=is_auto_lead,
         visibility=visibility,
+        user_id_alias=user_id_alias,
     )
     if current_user.role != "ADMIN":
         ownership_vis_clauses = [

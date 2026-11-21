@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense, useCallback } from 'react';
+import { useState, useEffect, Suspense, useCallback, useRef, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 
@@ -37,7 +37,9 @@ import {
   UserCheck,
   Eye,
   EyeOff,
-  UserPlus
+  UserPlus,
+  Users,
+  Check
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import dynamic from 'next/dynamic';
@@ -238,6 +240,54 @@ function LeadsPageContent() {
     },
     enabled: isAdmin,
   });
+
+  // Leads by User Dropdown State (Admin Only)
+  const [isUserDropdownOpen, setIsUserDropdownOpen] = useState(false);
+  const [userSearchTerm, setUserSearchTerm] = useState('');
+  const userDropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (userDropdownRef.current && !userDropdownRef.current.contains(event.target as Node)) {
+        setIsUserDropdownOpen(false);
+      }
+    }
+    if (isUserDropdownOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isUserDropdownOpen]);
+
+  const allUsersList = useMemo(() => {
+    const list = [...assignableUsersData];
+    if (!list.some(u => u.email?.toLowerCase() === 'kutchtourguide@gmail.com')) {
+      list.push({
+        id: 'kutch_default',
+        email: 'kutchtourguide@gmail.com',
+        full_name: 'Kutch Tour Guide',
+        role: 'USER',
+        company_name: 'Kutch Tour Guide'
+      });
+    }
+    return list;
+  }, [assignableUsersData]);
+
+  const filteredUsersList = useMemo(() => {
+    if (!userSearchTerm.trim()) return allUsersList;
+    const term = userSearchTerm.toLowerCase();
+    return allUsersList.filter(
+      u => u.full_name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || (u as any).company_name?.toLowerCase().includes(term)
+    );
+  }, [allUsersList, userSearchTerm]);
+
+  const selectedUserObj = useMemo(() => {
+    if (!filterAssignedTo) return null;
+    return allUsersList.find(
+      u => u.email?.toLowerCase() === filterAssignedTo.toLowerCase() || u.id === filterAssignedTo
+    );
+  }, [allUsersList, filterAssignedTo]);
+
+  const selectedUserDisplayName = selectedUserObj?.full_name || selectedUserObj?.email || filterAssignedTo;
 
   // Admin Assignment modal state
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -1150,7 +1200,126 @@ function LeadsPageContent() {
       {/* TOP HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Leads</h1>
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Leads</h1>
+
+            {/* Leads by User Button (Admin Only) */}
+            {isAdmin && (
+              <div className="relative" ref={userDropdownRef}>
+                <div className="inline-flex items-center">
+                  <button
+                    type="button"
+                    onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
+                      filterAssignedTo
+                        ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-2 ring-indigo-500/20'
+                        : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                    }`}
+                    title="Filter leads by user (Admin only)"
+                  >
+                    <Users className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>
+                      {filterAssignedTo ? `Leads: ${selectedUserDisplayName}` : 'Leads by User'}
+                    </span>
+                    <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isUserDropdownOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {filterAssignedTo && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFilterAssignedTo('');
+                        setPage(0);
+                      }}
+                      className="ml-1 p-1 hover:bg-slate-100 text-slate-400 hover:text-slate-600 rounded-lg transition-colors cursor-pointer"
+                      title="Clear user filter"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+
+                {isUserDropdownOpen && (
+                  <div className="absolute left-0 top-full mt-1.5 w-72 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 p-2 animate-in fade-in zoom-in-95">
+                    <div className="px-2 py-1.5 border-b border-slate-100 flex items-center justify-between">
+                      <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Filter by User</span>
+                      {filterAssignedTo && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFilterAssignedTo('');
+                            setPage(0);
+                            setIsUserDropdownOpen(false);
+                          }}
+                          className="text-[10px] text-indigo-600 hover:text-indigo-800 font-bold cursor-pointer"
+                        >
+                          Show All
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="p-1.5">
+                      <input
+                        type="text"
+                        value={userSearchTerm}
+                        onChange={(e) => setUserSearchTerm(e.target.value)}
+                        placeholder="Search user..."
+                        className="w-full text-xs px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:bg-white focus:border-indigo-400"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    </div>
+
+                    <div className="max-h-60 overflow-y-auto space-y-0.5 mt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFilterAssignedTo('');
+                          setPage(0);
+                          setIsUserDropdownOpen(false);
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between cursor-pointer transition-colors ${
+                          !filterAssignedTo ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <Users className="w-3.5 h-3.5 text-slate-400" />
+                          <span>All Users (All Leads)</span>
+                        </div>
+                        {!filterAssignedTo && <Check className="w-3.5 h-3.5 text-indigo-600" />}
+                      </button>
+
+                      {filteredUsersList.map((u) => {
+                        const isSelected =
+                          filterAssignedTo?.toLowerCase() === u.email?.toLowerCase() ||
+                          filterAssignedTo === u.id;
+                        return (
+                          <button
+                            key={u.id || u.email}
+                            type="button"
+                            onClick={() => {
+                              setFilterAssignedTo(u.email || u.id);
+                              setPage(0);
+                              setIsUserDropdownOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between cursor-pointer transition-colors ${
+                              isSelected ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'
+                            }`}
+                          >
+                            <div className="truncate pr-2">
+                              <div className="font-bold truncate text-slate-800">{u.full_name || u.email}</div>
+                              <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
+                            </div>
+                            {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
           <p className="text-sm text-slate-500 mt-0.5">
             Manage and analyze your business leads with AI-powered insights.
           </p>
@@ -1740,14 +1909,11 @@ function LeadsPageContent() {
                                 </span>
                               )}
                             </div>
-                            <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5 truncate">
-                              <span>{lead.category || 'UNCATEGORIZED'}</span>
-                              {isAdmin && lead.assigned_user_email && (
-                                <span className="text-indigo-600 lowercase font-medium">
-                                  • {lead.assigned_user_email}
-                                </span>
-                              )}
-                            </div>
+                            {lead.category && lead.category.trim().toUpperCase() !== 'UNCATEGORIZED' && (
+                              <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5 truncate">
+                                <span>{lead.category}</span>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -1987,11 +2153,6 @@ function LeadsPageContent() {
                       {isAdmin && lead.visibility === 'hidden' && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 border border-amber-200 text-amber-700">
                           <EyeOff className="w-2.5 h-2.5" /> Hidden
-                        </span>
-                      )}
-                      {isAdmin && lead.assigned_user_email && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 border border-indigo-200 text-indigo-700">
-                          Assigned: {lead.assigned_user_email}
                         </span>
                       )}
                     </div>

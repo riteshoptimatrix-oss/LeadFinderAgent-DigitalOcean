@@ -246,6 +246,26 @@ export default function AutoLeadFinderPage() {
     }
   };
 
+  const handleToggleAutomation = async (newVal: boolean) => {
+    setIsActive(newVal);
+    try {
+      await api.put(
+        '/auto-leadfinder/settings',
+        {
+          is_active: newVal,
+          is_configured: true,
+        },
+        { params: { user_email: effectiveEmail } }
+      );
+      toast.success(newVal ? 'Daily automation ENABLED' : 'Daily automation PAUSED / DISABLED');
+      await queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-settings', effectiveEmail] });
+      await queryClient.invalidateQueries({ queryKey: ['scheduled-tasks-live-monitor', effectiveEmail] });
+      refetchSettings();
+    } catch {
+      toast.error('Failed to update automation status.');
+    }
+  };
+
   const handleSaveSettings = async () => {
     setIsSaving(true);
     try {
@@ -491,7 +511,7 @@ export default function AutoLeadFinderPage() {
               <span className="text-[11px] font-semibold text-slate-600">Daily Automation:</span>
               <button
                 type="button"
-                onClick={() => setIsActive(!isActive)}
+                onClick={() => handleToggleAutomation(!isActive)}
                 className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
                   isActive ? 'bg-teal-600' : 'bg-slate-300'
                 }`}

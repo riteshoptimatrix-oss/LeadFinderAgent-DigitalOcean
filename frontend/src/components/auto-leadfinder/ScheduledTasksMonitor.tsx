@@ -123,6 +123,14 @@ export default function ScheduledTasksMonitor({
             <span>🔴 Failed</span>
           </span>
         );
+      case 'DISABLED':
+      case 'PAUSED':
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-extrabold bg-slate-100 text-slate-700 border border-slate-300 shadow-2xs">
+            <span className="w-2 h-2 rounded-full bg-slate-400" />
+            <span>⚪ Disabled / Paused</span>
+          </span>
+        );
       case 'CANCELLED':
       default:
         return (
@@ -227,6 +235,21 @@ export default function ScheduledTasksMonitor({
           </div>
         </div>
       </div>
+
+      {/* Prominent banner if automation is disabled/paused */}
+      {schedules.some((s) => s.status === 'DISABLED' || s.id === 'disabled_automation_notice') && (
+        <div className="bg-amber-50/80 border border-amber-200 rounded-3xl p-5 flex items-center gap-3.5 shadow-2xs animate-in fade-in">
+          <div className="w-10 h-10 rounded-2xl bg-amber-100 border border-amber-200 flex items-center justify-center text-amber-700 shrink-0">
+            <AlertTriangle className="w-5 h-5" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-amber-900">Auto LeadFinder is Currently Disabled / Paused</h4>
+            <p className="text-[11px] text-amber-700 mt-0.5">
+              Daily automated scraping has been paused for <strong>{userEmail || 'this user'}</strong>. No automated runs will execute until Daily Automation is enabled.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Filter Tabs Bar */}
       <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3 flex-wrap">

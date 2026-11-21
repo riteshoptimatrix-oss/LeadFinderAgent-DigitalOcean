@@ -478,6 +478,13 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
         # Calculate today's leads collected for this specific user
         user = await get_target_user(user_email=clean_email, db=db)
         user_id = str(user["_id"]) if user else ""
+        has_access = True
+        if user and not is_kutch:
+            user_role = (user.get("role") or "").strip().upper()
+            if user_role != "ADMIN":
+                has_access = bool(user.get("auto_leadfinder_access", False))
+
+        is_active = bool(auto_settings.get("is_active", True)) and is_configured and has_access
         today_midnight = get_today_midnight_utc()
         today_leads_count = 0
 
@@ -521,7 +528,7 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                 "city": "Unconfigured",
                 "district": "",
                 "pincode": "",
-                "status": "CANCELLED",
+                "status": "DISABLED",
                 "status_label": "⚪ Pending Setup",
                 "leads_received": 0,
                 "target": lead_target,
@@ -529,8 +536,31 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                 "is_upcoming": True,
                 "created_at": schedule_created_str
             })
+        elif not is_active:
+            # Case B: Automation is Disabled or Paused: display clearly that automation is stopped!
+            lead_schedules.append({
+                "id": "disabled_automation_notice",
+                "day_number": 1,
+                "day_label": "Automation Disabled",
+                "title": f"Daily Scraping Disabled ({clean_email})",
+                "scheduled_date_time": schedule_created_str,
+                "next_execution_time": "Automation Paused / Disabled",
+                "next_execution_relative": "Stopped",
+                "area": f"{target_city}, {target_district}, {target_state}",
+                "area_name": target_city or "Target Location",
+                "city": target_city,
+                "district": target_district,
+                "pincode": "",
+                "status": "DISABLED",
+                "status_label": "⚪ Disabled / Paused",
+                "leads_received": today_leads_count,
+                "target": lead_target,
+                "progress_percentage": 0,
+                "is_upcoming": True,
+                "created_at": schedule_created_str
+            })
         else:
-            # Case B: Configured user (or Kutch Tour Guide) -> 10-Day Lookahead Queue
+            # Case C: Active Configured user (or Kutch Tour Guide) -> 10-Day Lookahead Queue
             total_discovered = len(discovered_areas)
 
             for day_offset in range(10):

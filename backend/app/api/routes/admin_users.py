@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import Any, List, Optional, Dict
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -374,6 +375,18 @@ async def toggle_auto_leadfinder_access(
         update_doc["auto_leadfinder_visibility"] = "visible"
 
     await raw_db["users"].update_one(target_query, {"$set": update_doc})
+
+    # Keep auto_leadfinder_settings is_active in sync with user's access state
+    if u_email:
+        await raw_db["auto_leadfinder_settings"].update_one(
+            {"user_email": {"$regex": f"^{re.escape(u_email)}$", "$options": "i"}},
+            {"$set": {
+                "is_active": new_state,
+                "auto_leadfinder_access": new_state,
+                "updated_at": datetime.now(timezone.utc)
+            }},
+            upsert=True
+        )
 
     ip_address = request.client.host if request.client else "Unknown"
     await log_audit_action(

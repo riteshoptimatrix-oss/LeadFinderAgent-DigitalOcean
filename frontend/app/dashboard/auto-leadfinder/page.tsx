@@ -128,7 +128,7 @@ export default function AutoLeadFinderPage() {
       return res.data?.data;
     },
     enabled: isAuthorized && !!effectiveEmail,
-    refetchInterval: 10000,
+    refetchInterval: 3000,
   });
 
   // Run history query for this specific user
@@ -146,7 +146,7 @@ export default function AutoLeadFinderPage() {
       return res.data?.data || [];
     },
     enabled: isAuthorized && !!effectiveEmail,
-    refetchInterval: 10000,
+    refetchInterval: 3000,
   });
 
   // Local state for unified configuration form

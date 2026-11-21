@@ -315,6 +315,11 @@ export default function ScheduledTasksMonitor({
                       <span className="px-2.5 py-0.5 rounded-lg text-xs font-black bg-teal-50 text-teal-700 border border-teal-200">
                         {item.day_label}
                       </span>
+                    ) : isRunning ? (
+                      <span className="px-2.5 py-0.5 rounded-lg text-xs font-extrabold bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1.5 shadow-2xs">
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
+                        Active Run
+                      </span>
                     ) : (
                       <span className="px-2.5 py-0.5 rounded-lg text-xs font-semibold bg-slate-100 text-slate-600">
                         Past Run
@@ -336,11 +341,14 @@ export default function ScheduledTasksMonitor({
                       <Clock className="w-3.5 h-3.5 text-teal-600" />
                       Next Execution
                     </span>
-                    <p className="font-bold text-slate-900 text-xs">
-                      {item.next_execution_time}
+                    <p className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
+                      {isRunning && !item.day_label && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-ping inline-block" />
+                      )}
+                      {isRunning && !item.day_label ? 'Currently Executing' : item.next_execution_time}
                     </p>
                     <span className="text-[11px] text-teal-600 font-semibold block">
-                      {item.next_execution_relative}
+                      {isRunning && !item.day_label ? (item.next_execution_relative || 'Live Scraping Active') : item.next_execution_relative}
                     </span>
                   </div>
 

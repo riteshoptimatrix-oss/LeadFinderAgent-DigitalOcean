@@ -107,11 +107,11 @@ def map_lead_to_easyadserver_payload(lead: Dict[str, Any]) -> Dict[str, Any]:
     ).strip()
 
     # Business / Company Name
-    company_name = (lead.get("business_name") or lead.get("name") or "").strip()
-    business_name = (lead.get("business_name") or lead.get("name") or "").strip()
+    company_name = (lead.get("company_name") or lead.get("business_name") or lead.get("name") or "").strip()
+    business_name = (lead.get("business_name") or lead.get("company_name") or lead.get("name") or "").strip()
     
     # Category / Keyword
-    business_category = (lead.get("category") or lead.get("search_keyword") or "").strip()
+    business_category = (lead.get("category") or lead.get("business_category") or lead.get("search_keyword") or "").strip()
     
     # Designation / Role
     designation = (lead.get("designation") or contact_disc.get("role") or "").strip()
@@ -130,9 +130,10 @@ def map_lead_to_easyadserver_payload(lead: Dict[str, Any]) -> Dict[str, Any]:
     country = (lead.get("country") or "India").strip()
     pincode = extract_pincode(address, lead)
 
-    # Coordinates
-    lat_val = lead.get("latitude")
-    lng_val = lead.get("longitude")
+    # Coordinates (supports top-level latitude/longitude or nested coordinates dict)
+    coords = lead.get("coordinates") if isinstance(lead.get("coordinates"), dict) else {}
+    lat_val = lead.get("latitude") or coords.get("latitude") or coords.get("lat")
+    lng_val = lead.get("longitude") or coords.get("longitude") or coords.get("lng")
     lat_str = str(lat_val).strip() if lat_val is not None else ""
     lng_str = str(lng_val).strip() if lng_val is not None else ""
 

@@ -466,18 +466,35 @@ async def get_kpi_stats(user_email: Optional[str] = None, db = None) -> Dict[str
         "$and": [{"$or": lead_source_or}]
     })
 
-    is_running = _scraping_lock.locked()
-    if not is_running:
-        stale_threshold = datetime.now(timezone.utc) - timedelta(minutes=15)
-        await db["auto_leadfinder_runs"].update_many(
-            {"status": "RUNNING", "started_at": {"$lt": stale_threshold}},
-            {"$set": {"status": "COMPLETED", "completed_at": datetime.now(timezone.utc)}}
-        )
-        active_run = await db["auto_leadfinder_runs"].find_one({
-            "status": "RUNNING",
-            "user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}
-        })
-        is_running = active_run is not None
+    # Active run check & stale cleanup
+    active_run = await db["auto_leadfinder_runs"].find_one({
+        "status": "RUNNING",
+        "user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}
+    })
+
+    now_utc = datetime.now(timezone.utc)
+    if active_run:
+        run_start = active_run.get("started_at") or now_utc
+        if run_start.tzinfo is None:
+            run_start = run_start.replace(tzinfo=timezone.utc)
+        
+        # Stale run cleanup: if older than 35 mins or scraping lock is not locked
+        if (now_utc - run_start) > timedelta(minutes=35) or not _scraping_lock.locked():
+            final_status = "COMPLETED" if active_run.get("total_collected", 0) > 0 else "CANCELLED"
+            await db["auto_leadfinder_runs"].update_one(
+                {"_id": active_run["_id"]},
+                {"$set": {"status": final_status, "completed_at": now_utc}}
+            )
+            is_running = False
+        else:
+            is_running = True
+            active_job_id = active_run.get("active_job_id")
+            if active_job_id:
+                job_cnt = await db["leads"].count_documents({"source_job_id": active_job_id})
+                live_run_total = max(active_run.get("total_collected", 0), active_run.get("batch_base_collected", 0) + job_cnt)
+                today_leads_collected = max(today_leads_collected, live_run_total)
+    else:
+        is_running = False
 
     latest_run = await db["auto_leadfinder_runs"].find(
         {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}}
@@ -759,11 +776,22 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                         state=target_state or "Gujarat",
                         country=target_country or "India",
                         limit=batch_limit,
-                        provider="Google Maps",
+                        provider="Auto LeadFinder",
                         user_id=user_id or "system",
                         exhaustive=True,
                         grid_size=3,
                         target_cap="ALL"
+                    )
+
+                    await db["auto_leadfinder_runs"].update_one(
+                        {"_id": run_id},
+                        {"$set": {
+                            "active_job_id": job_id,
+                            "batch_base_collected": total_collected,
+                            "current_area": area_name,
+                            "current_keyword": keyword,
+                            "last_heartbeat": datetime.now(timezone.utc)
+                        }}
                     )
 
                     try:
@@ -775,7 +803,7 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                             state=target_state or "Gujarat",
                             country=target_country or "India",
                             limit=batch_limit,
-                            provider="Google Maps",
+                            provider="Auto LeadFinder",
                             user_id=user_id or "system",
                             exhaustive=True,
                             grid_size=3,
@@ -884,11 +912,22 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                         state=target_state or "Gujarat",
                         country=target_country or "India",
                         limit=batch_limit,
-                        provider="Google Maps",
+                        provider="Auto LeadFinder",
                         user_id=user_id or "system",
                         exhaustive=True,
                         grid_size=3,
                         target_cap="ALL"
+                    )
+
+                    await db["auto_leadfinder_runs"].update_one(
+                        {"_id": run_id},
+                        {"$set": {
+                            "active_job_id": job_id,
+                            "batch_base_collected": total_collected,
+                            "current_area": area,
+                            "current_keyword": keyword,
+                            "last_heartbeat": datetime.now(timezone.utc)
+                        }}
                     )
 
                     try:
@@ -900,7 +939,7 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                             state=target_state or "Gujarat",
                             country=target_country or "India",
                             limit=batch_limit,
-                            provider="Google Maps",
+                            provider="Auto LeadFinder",
                             user_id=user_id or "system",
                             exhaustive=True,
                             grid_size=3,
@@ -987,11 +1026,22 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                         state="Gujarat",
                         country="India",
                         limit=batch_limit,
-                        provider="Google Maps",
+                        provider="Auto LeadFinder",
                         user_id=user_id or "system",
                         exhaustive=True,
                         grid_size=3,
                         target_cap="ALL"
+                    )
+
+                    await db["auto_leadfinder_runs"].update_one(
+                        {"_id": run_id},
+                        {"$set": {
+                            "active_job_id": job_id,
+                            "batch_base_collected": total_collected,
+                            "current_area": locality,
+                            "current_keyword": keyword,
+                            "last_heartbeat": datetime.now(timezone.utc)
+                        }}
                     )
 
                     try:
@@ -1003,7 +1053,7 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                             state="Gujarat",
                             country="India",
                             limit=batch_limit,
-                            provider="Google Maps",
+                            provider="Auto LeadFinder",
                             user_id=user_id or "system",
                             exhaustive=True,
                             grid_size=3,

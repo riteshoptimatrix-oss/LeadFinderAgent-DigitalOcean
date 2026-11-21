@@ -583,15 +583,8 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                 # Day label & status mapping
                 if day_offset == 0:
                     day_label = "Day 1 (Tonight)"
-                    if _scraping_lock.locked():
-                        day_status = "RUNNING"
-                        day_leads = today_leads_count
-                    elif not is_active:
-                        day_status = "CANCELLED"
-                        day_leads = today_leads_count
-                    else:
-                        day_status = "SCHEDULED"
-                        day_leads = today_leads_count
+                    day_status = "SCHEDULED" if is_active else "CANCELLED"
+                    day_leads = today_leads_count
                 elif day_offset == 1:
                     day_label = "Day 2 (Tomorrow Night)"
                     day_status = "SCHEDULED" if is_active else "CANCELLED"
@@ -655,15 +648,47 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
 
             run_leads = run.get("total_collected", 0)
             run_status = run.get("status", "COMPLETED")
-            if run_status == "RUNNING" and not _scraping_lock.locked():
-                run_status = "COMPLETED" if run_leads > 0 else "CANCELLED"
+            is_active_running = False
+
+            if run_status == "RUNNING":
+                is_stale = (now_utc - run_started_utc) > timedelta(minutes=35) or not _scraping_lock.locked()
+                if is_stale:
+                    run_status = "COMPLETED" if run_leads > 0 else "CANCELLED"
+                    await db["auto_leadfinder_runs"].update_one(
+                        {"_id": run["_id"]},
+                        {"$set": {"status": run_status, "completed_at": now_utc}}
+                    )
+                else:
+                    is_active_running = True
+                    active_job_id = run.get("active_job_id")
+                    live_leads = run_leads
+                    if active_job_id:
+                        job_leads = await db["leads"].count_documents({"source_job_id": active_job_id})
+                        live_leads = max(live_leads, run.get("batch_base_collected", 0) + job_leads)
+
+                    since_start_count = await db["leads"].count_documents({
+                        "created_at": {"$gte": run_started_utc},
+                        "$or": user_match_filters,
+                        "$and": [{"$or": [
+                            {"source": "auto_leadfinder"},
+                            {"requested_provider": "Auto LeadFinder"},
+                            {"is_auto_lead": True}
+                        ]}]
+                    })
+                    run_leads = max(live_leads, since_start_count)
+
+                    if run_leads > run.get("total_collected", 0):
+                        await db["auto_leadfinder_runs"].update_one(
+                            {"_id": run["_id"]},
+                            {"$set": {"total_collected": run_leads}}
+                        )
 
             lead_schedules.append({
                 "id": str(run["_id"]),
                 "title": f"{target_keyword} Scraping Run ({run_city})",
                 "scheduled_date_time": run_started_str,
-                "next_execution_time": "-",
-                "next_execution_relative": format_relative_time(run_started_utc),
+                "next_execution_time": "Running Now" if is_active_running else "-",
+                "next_execution_relative": "Active Scraping in Progress" if is_active_running else format_relative_time(run_started_utc),
                 "area": run_full_area,
                 "area_name": run_area_name,
                 "city": run_city,

@@ -175,10 +175,16 @@ class Storage:
                 
             dup_query["$or"].append({"fingerprint": fingerprint})
             
+            is_auto = (
+                (requested_provider and "auto" in requested_provider.lower()) or 
+                (provider and "auto" in provider.lower())
+            )
+
             # Map the parsed data to the Lead model schema
             lead_doc = {
                 "source_job_id": job_id,
                 "user_id": user_id,
+                "assigned_to": user_id,
                 "name": name,
                 "company_name": name,
                 "google_maps_url": data.get("url"),
@@ -200,10 +206,11 @@ class Storage:
                 "opening_hours": data.get("opening_hours", []),
                 "images": data.get("images", []),
                 "fingerprint": fingerprint,
-                "source": (requested_provider or provider or "google_maps").lower().replace(" ", "_"),
-                "provider": requested_provider or provider or "Google Maps",
+                "source": "auto_leadfinder" if is_auto else (requested_provider or provider or "google_maps").lower().replace(" ", "_"),
+                "provider": "Auto LeadFinder" if is_auto else (requested_provider or provider or "Google Maps"),
                 "active_provider": "Google Maps",
-                "requested_provider": requested_provider or provider or "Google Maps",
+                "requested_provider": "Auto LeadFinder" if is_auto else (requested_provider or provider or "Google Maps"),
+                "is_auto_lead": True if is_auto else False,
                 "processing_status": "SAVED",
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),

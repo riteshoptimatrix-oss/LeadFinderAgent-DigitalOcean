@@ -53,6 +53,9 @@ class TemplateParser:
             
             # Fetch the value, fallback to empty string if missing or None
             value = lead_data.get(dict_key, "")
+            if normalized_var in ("name", "business_name", "businessname", "company_name", "companyname") and value:
+                from app.utils.text_cleaning import clean_business_or_lead_name
+                value = clean_business_or_lead_name(str(value))
             return str(value) if value is not None else ""
 
         # Regex to find {{ Anything }}

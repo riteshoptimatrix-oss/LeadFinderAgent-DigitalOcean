@@ -1,6 +1,7 @@
 import hashlib
 import re
 from app.db.database import get_db, db_instance
+from app.utils.text_cleaning import clean_business_or_lead_name
 from datetime import datetime, timezone
 import logging
 
@@ -168,10 +169,14 @@ class Storage:
             if data.get("website"): dup_query["$or"].append({"website": data.get("website")})
             if data.get("coordinates"): dup_query["$or"].append({"coordinates": data.get("coordinates")})
             
-            name = data.get("name")
+            raw_name = data.get("name") or ""
+            clean_name = clean_business_or_lead_name(raw_name)
+            name = clean_name or raw_name
             address = data.get("address")
-            if name and address:
+            if raw_name and address:
                 dup_query["$or"].append({"name": name, "address": address})
+                dup_query["$or"].append({"raw_name": raw_name, "address": address})
+                dup_query["$or"].append({"name": raw_name, "address": address})
                 
             dup_query["$or"].append({"fingerprint": fingerprint})
             
@@ -186,7 +191,9 @@ class Storage:
                 "user_id": user_id,
                 "assigned_to": user_id,
                 "name": name,
+                "raw_name": raw_name,
                 "company_name": name,
+                "business_name": name,
                 "google_maps_url": data.get("url"),
                 "category": data.get("category"),
                 "rating": data.get("rating"),

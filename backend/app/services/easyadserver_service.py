@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import httpx
 from bson.objectid import ObjectId
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from app.utils.text_cleaning import clean_business_or_lead_name
 
 logger = logging.getLogger(__name__)
 
@@ -77,15 +78,36 @@ def map_lead_to_easyadserver_payload(lead: Dict[str, Any]) -> Dict[str, Any]:
     Dynamically map a database lead document to the exact JSON payload format
     expected by https://easyadserver.com/api/lead_finder.php.
     """
-    # Name mapping
-    contact_disc = lead.get("contact_discovery") if isinstance(lead.get("contact_discovery"), dict) else {}
-    name = (
-        lead.get("name") or 
+    # 1. Clean business name (removes colon taglines, slogans, pipes, keyword spam)
+    raw_biz_name = (
         lead.get("business_name") or 
-        contact_disc.get("name") or 
+        lead.get("company_name") or 
+        lead.get("name") or 
         lead.get("category") or 
         "Business Lead"
     ).strip()
+    clean_biz = clean_business_or_lead_name(raw_biz_name, max_chars=40)
+
+    # 2. Individual contact person name (if discovered)
+    contact_disc = lead.get("contact_discovery") if isinstance(lead.get("contact_discovery"), dict) else {}
+    person_candidate = (
+        lead.get("contact_person") or 
+        lead.get("owner_name") or 
+        lead.get("person_name") or 
+        contact_disc.get("name") or 
+        contact_disc.get("person_name") or 
+        ""
+    ).strip()
+
+    # If a real person name is present and clean, use it for 'name'; otherwise use the clean business name
+    if person_candidate and len(person_candidate) <= 35 and not any(sep in person_candidate for sep in [":", "|", " - ", " – "]):
+        name = person_candidate
+    else:
+        name = clean_biz or "Business Lead"
+
+    # Business / Company Name
+    company_name = clean_biz
+    business_name = clean_biz
 
     # Phone mapping
     raw_phone = (
@@ -105,10 +127,6 @@ def map_lead_to_easyadserver_payload(lead: Dict[str, Any]) -> Dict[str, Any]:
         (all_emails[0] if all_emails else "") or 
         ""
     ).strip()
-
-    # Business / Company Name
-    company_name = (lead.get("company_name") or lead.get("business_name") or lead.get("name") or "").strip()
-    business_name = (lead.get("business_name") or lead.get("company_name") or lead.get("name") or "").strip()
     
     # Category / Keyword
     business_category = (lead.get("category") or lead.get("business_category") or lead.get("search_keyword") or "").strip()

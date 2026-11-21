@@ -746,6 +746,7 @@ export interface CascadingLocationSelectorProps {
   stateCode: string;
   city: string;
   disabled?: boolean;
+  layout?: 'vertical' | 'horizontal';
   onChange: (loc: {
     country: string;
     countryCode: string;
@@ -762,6 +763,7 @@ export function CascadingLocationSelector({
   stateCode,
   city,
   disabled = false,
+  layout = 'horizontal',
   onChange,
 }: CascadingLocationSelectorProps) {
   const [countries, setCountries] = useState<OptionItem[]>([]);
@@ -858,7 +860,7 @@ export function CascadingLocationSelector({
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-start">
+      <div className={layout === 'vertical' ? 'space-y-3' : 'grid grid-cols-1 sm:grid-cols-3 gap-3 items-start'}>
         {/* 1. Country */}
         <SearchableDropdown
           label="Country"

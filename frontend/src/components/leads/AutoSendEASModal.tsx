@@ -182,12 +182,13 @@ export default function AutoSendEASModal({
                     </button>
                   </div>
 
-                  {/* Time Picker */}
+                  {/* Time Picker with Analog Wall Clock */}
                   <TimePicker
                     value={scheduleTime}
                     onChange={(val) => setScheduleTime(val)}
                     disabled={!isActive}
                     label="Auto Send Daily Execution Time"
+                    clockSize={180}
                   />
 
                   {/* Status Banner */}

@@ -546,68 +546,79 @@ export default function AutoLeadFinderPage() {
           </div>
         </div>
 
-        {/* 3-Part Preferences Form */}
-        <div className="space-y-4 pt-1">
+        {/* 3-Part Preferences Form: 3 Vertical Columns Side-by-Side */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch pt-1">
           {/* ─────────────────────────────────────────────────────────── */}
-          {/* PART 1: Location Selector (Cascading Country → State → City) */}
+          {/* COLUMN 1 / PART 1: Location Selector                        */}
           {/* ─────────────────────────────────────────────────────────── */}
-          <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/90 space-y-3 shadow-2xs">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-2xs">1</span>
-                <span className="text-sm font-extrabold text-slate-900">Location Selector</span>
-                <span className="text-[11px] font-medium text-slate-500">(Cascading: Country → State → City with search &amp; keyboard navigation)</span>
-              </span>
-              {city && (
-                <span className="text-[11px] font-semibold text-teal-800 bg-teal-50/80 px-2.5 py-0.5 rounded-full border border-teal-200 shadow-2xs">
-                  📍 {city}, {state || 'Gujarat'}, {country || 'India'}
+          <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/90 flex flex-col justify-between shadow-2xs space-y-4">
+            <div className="space-y-3.5">
+              <div className="flex items-center justify-between flex-wrap gap-1.5 border-b border-slate-200/70 pb-2.5">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-2xs">1</span>
+                  <span className="text-sm font-extrabold text-slate-900">Location Selector</span>
                 </span>
-              )}
+                <span className="text-[10px] font-medium text-slate-400">Cascading</span>
+              </div>
+
+              <CascadingLocationSelector
+                country={country}
+                countryCode={countryCode}
+                state={state}
+                stateCode={stateCode}
+                city={city}
+                disabled={isKutchUser}
+                layout="vertical"
+                onChange={(loc) => {
+                  setCountry(loc.country);
+                  setCountryCode(loc.countryCode);
+                  setState(loc.state);
+                  setStateCode(loc.stateCode);
+                  setCity(loc.city);
+                  if (loc.city !== city) {
+                    setDiscoveredAreas([]);
+                    setDiscoveredPincodes([]);
+                  }
+                }}
+              />
             </div>
 
-            <CascadingLocationSelector
-              country={country}
-              countryCode={countryCode}
-              state={state}
-              stateCode={stateCode}
-              city={city}
-              disabled={isKutchUser}
-              onChange={(loc) => {
-                setCountry(loc.country);
-                setCountryCode(loc.countryCode);
-                setState(loc.state);
-                setStateCode(loc.stateCode);
-                setCity(loc.city);
-                if (loc.city !== city) {
-                  setDiscoveredAreas([]);
-                  setDiscoveredPincodes([]);
-                }
-              }}
-            />
+            {/* Selected Location Pill */}
+            <div className="pt-2 border-t border-slate-200/60">
+              {city ? (
+                <div className="flex items-center gap-1.5 text-[11px] font-bold text-teal-800 bg-teal-50 px-3 py-1.5 rounded-xl border border-teal-200 shadow-2xs">
+                  <MapPin className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <span className="truncate">{city}, {state || 'Gujarat'}, {country || 'India'}</span>
+                </div>
+              ) : (
+                <div className="text-[11px] font-medium text-slate-400 bg-slate-100/80 px-3 py-1.5 rounded-xl border border-slate-200/60">
+                  Select Country, State &amp; City above
+                </div>
+              )}
+            </div>
           </div>
 
           {/* ─────────────────────────────────────────────────────────── */}
-          {/* PART 2: What to Search (Keyword, Quota & Quick Niches)      */}
+          {/* COLUMN 2 / PART 2: What to Search (Keyword, Quota & Niches) */}
           {/* ─────────────────────────────────────────────────────────── */}
-          <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/90 space-y-3 shadow-2xs">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-2xs">2</span>
-                <span className="text-sm font-extrabold text-slate-900">What to Search</span>
-                <span className="text-[11px] font-medium text-slate-500">(Target business keyword &amp; quota)</span>
-              </span>
-              <span className="text-[11px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200">
-                ⚡ Minimum 100 leads per run
-              </span>
-            </div>
+          <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/90 flex flex-col justify-between shadow-2xs space-y-4">
+            <div className="space-y-3.5">
+              <div className="flex items-center justify-between flex-wrap gap-1.5 border-b border-slate-200/70 pb-2.5">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-2xs">2</span>
+                  <span className="text-sm font-extrabold text-slate-900">What to Search</span>
+                </span>
+                <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-200">
+                  ⚡ Min 100 leads
+                </span>
+              </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
-              {/* Keyword Input (8 cols) */}
-              <div className="sm:col-span-8 space-y-1">
+              {/* Keyword Input */}
+              <div className="space-y-1">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
                     <Tag className="w-3.5 h-3.5 text-teal-600" />
-                    <span>Industry Keyword / Business Type</span>
+                    <span>Industry Keyword / Niche</span>
                   </label>
                   {isKeywordFixed && (
                     <span className="text-[10px] font-bold text-amber-700 flex items-center gap-0.5">
@@ -620,8 +631,8 @@ export default function AutoLeadFinderPage() {
                   disabled={isKeywordFixed}
                   value={isKeywordFixed ? 'Travel Agency' : keywordInput}
                   onChange={(e) => setKeywordInput(e.target.value)}
-                  placeholder="e.g. Bakery &amp; Cake Shops, Real Estate, Doctors..."
-                  className={`w-full px-3.5 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
+                  placeholder="e.g. Bakery &amp; Cake Shops, Doctors..."
+                  className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
                     isKeywordFixed
                       ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
                       : 'border-slate-200 bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500'
@@ -629,8 +640,8 @@ export default function AutoLeadFinderPage() {
                 />
               </div>
 
-              {/* Daily Limit (4 cols) */}
-              <div className="sm:col-span-4 space-y-1">
+              {/* Daily Limit (Quota) */}
+              <div className="space-y-1">
                 <label className="text-xs font-bold text-slate-700 block">
                   Daily Limit (Quota)
                 </label>
@@ -645,85 +656,93 @@ export default function AutoLeadFinderPage() {
                   <option value={1000}>1000 leads</option>
                 </select>
               </div>
+
+              {/* Quick Niches Chips for Normal Users */}
+              {!isKeywordFixed && (
+                <div className="space-y-1.5 pt-1">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Quick Niches:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {NICHE_PRESETS.map((p) => (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setKeywordInput(p)}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer ${
+                          keywordInput === p
+                            ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold shadow-2xs'
+                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                        }`}
+                      >
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Quick Niches Chips for Normal Users */}
-            {!isKeywordFixed && (
-              <div className="pt-2 border-t border-slate-200/60 flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] text-slate-400 font-medium">Quick Niches:</span>
-                {NICHE_PRESETS.map((p) => (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setKeywordInput(p)}
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer ${
-                      keywordInput === p
-                        ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold shadow-2xs'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                    }`}
-                  >
-                    {p}
-                  </button>
-                ))}
-              </div>
-            )}
+            {/* Quota Guarantee Notice */}
+            <div className="text-[10px] text-slate-500 bg-white px-3 py-2 rounded-xl border border-slate-200/80 leading-relaxed">
+              Every scheduled execution will scrape a minimum of <strong className="text-slate-800">100 unique leads</strong> according to your chosen quota.
+            </div>
           </div>
 
           {/* ─────────────────────────────────────────────────────────── */}
-          {/* PART 3: Schedule Time (Clock / Automated Execution)         */}
+          {/* COLUMN 3 / PART 3: Schedule Time (Round Analog Clock UI)    */}
           {/* ─────────────────────────────────────────────────────────── */}
-          <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/90 space-y-3 shadow-2xs">
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
-                <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-2xs">3</span>
-                <span className="text-sm font-extrabold text-slate-900">Schedule Time</span>
-                <span className="text-[11px] font-medium text-slate-500">(Automated daily execution clock)</span>
-              </span>
-              <span className="text-[10px] font-medium text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200">
-                Runs automatically even if page is closed
-              </span>
+          <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/90 flex flex-col justify-between shadow-2xs space-y-4">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-1.5 border-b border-slate-200/70 pb-2.5">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-2xs">3</span>
+                  <span className="text-sm font-extrabold text-slate-900">Schedule Time</span>
+                </span>
+                <span className="text-[10px] font-medium text-slate-500 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                  Runs in background
+                </span>
+              </div>
+
+              {/* Round Analog Clock Picker (matching Image 2) */}
+              <TimePicker
+                value={scheduleTime}
+                onChange={(t) => setScheduleTime(t)}
+                label="Daily Execution Time"
+                clockSize={190}
+                showPresets={true}
+              />
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-center">
-              {/* Clock Picker (7 cols) */}
-              <div className="lg:col-span-7">
-                <TimePicker
-                  value={scheduleTime}
-                  onChange={(t) => setScheduleTime(t)}
-                  label="Daily Execution Time"
+            {/* EAS Option + Save Button */}
+            <div className="space-y-3 pt-2 border-t border-slate-200/70">
+              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-slate-300 transition-colors shadow-2xs">
+                <input
+                  type="checkbox"
+                  checked={autoSendEAS}
+                  onChange={(e) => setAutoSendEAS(e.target.checked)}
+                  className="mt-0.5 rounded text-teal-600 focus:ring-teal-500 w-4 h-4 cursor-pointer"
                 />
-              </div>
+                <div className="text-[11px] leading-snug text-slate-700">
+                  <span className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <span>Send to EasyAdServer Automatically</span>
+                    <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-extrabold">EAS</span>
+                  </span>
+                  <span className="text-slate-500 text-[10px]">
+                    Automatically dispatch freshly scraped leads to EasyAdServer after this run completes.
+                  </span>
+                </div>
+              </label>
 
-              {/* EAS Option + Save Button (5 cols) */}
-              <div className="lg:col-span-5 space-y-3">
-                <label className="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-slate-300 transition-colors shadow-2xs">
-                  <input
-                    type="checkbox"
-                    checked={autoSendEAS}
-                    onChange={(e) => setAutoSendEAS(e.target.checked)}
-                    className="mt-0.5 rounded text-teal-600 focus:ring-teal-500 w-4 h-4 cursor-pointer"
-                  />
-                  <div className="text-[11px] leading-snug text-slate-700">
-                    <span className="font-bold text-slate-900 block flex items-center gap-1.5">
-                      <span>Send to EasyAdServer Automatically</span>
-                      <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-extrabold">EAS</span>
-                    </span>
-                    <span className="text-slate-500 text-[10px]">
-                      Automatically dispatch freshly scraped leads to EasyAdServer after this run completes.
-                    </span>
-                  </div>
-                </label>
-
-                <button
-                  type="button"
-                  onClick={handleSaveSettings}
-                  disabled={isSaving}
-                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50 active:scale-98"
-                >
-                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                  <span>Save Configuration &amp; Schedule</span>
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={handleSaveSettings}
+                disabled={isSaving}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-xs font-bold bg-teal-600 hover:bg-teal-700 text-white shadow-xs transition-all cursor-pointer disabled:opacity-50 active:scale-98"
+              >
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                <span>Save Configuration &amp; Schedule</span>
+              </button>
             </div>
           </div>
         </div>

@@ -105,9 +105,12 @@ async def get_users_with_auto_leadfinder_access(
         if hasattr(db, "_db"):
             db = db._db
 
+        curr_admin_email = (getattr(current_user, "email", "") or "").strip().lower()
         cursor = db["users"].find({
             "$or": [
+                {"role": {"$regex": "^admin$", "$options": "i"}},
                 {"email": {"$regex": f"^{re.escape(TARGET_USER_EMAIL)}$", "$options": "i"}},
+                {"email": {"$regex": f"^{re.escape(curr_admin_email)}$", "$options": "i"}},
                 {"auto_leadfinder_access": True}
             ],
             "account_status": {"$ne": "Deactivated"}
@@ -118,7 +121,7 @@ async def get_users_with_auto_leadfinder_access(
         for u in users:
             email = u.get("email", "")
             is_kutch = email.lower() == TARGET_USER_EMAIL.lower()
-            keyword = "Travel Agency" if is_kutch else (u.get("auto_leadfinder_keyword") or "Travel Agency")
+            keyword = "Travel Agency" if is_kutch else (u.get("auto_leadfinder_keyword") or "")
             result.append({
                 "id": str(u["_id"]),
                 "email": email,
@@ -133,9 +136,25 @@ async def get_users_with_auto_leadfinder_access(
                 "visibility": u.get("auto_leadfinder_visibility", "visible")
             })
 
+        # Ensure current admin is in the list
+        if curr_admin_email and not any(x["email"].lower() == curr_admin_email for x in result):
+            result.insert(0, {
+                "id": str(getattr(current_user, "id", "") or "admin_curr"),
+                "email": curr_admin_email,
+                "full_name": getattr(current_user, "full_name", "") or curr_admin_email,
+                "role": "ADMIN",
+                "company_name": getattr(current_user, "company_name", ""),
+                "city": "",
+                "state": "",
+                "country": "India",
+                "keyword": "",
+                "is_kutch": False,
+                "visibility": "visible"
+            })
+
         # Ensure kutchtourguide is always present in list even if not yet in users table
         if not any(x["email"].lower() == TARGET_USER_EMAIL.lower() for x in result):
-            result.insert(0, {
+            result.append({
                 "id": "kutch_default",
                 "email": TARGET_USER_EMAIL,
                 "full_name": "Kutch Tour Guide (Default)",

@@ -365,8 +365,10 @@ async def toggle_auto_leadfinder_access(
 
     if is_kutch:
         update_doc["auto_leadfinder_keyword"] = "Travel Agency"
-    elif new_state and not existing_user.get("auto_leadfinder_keyword"):
-        update_doc["auto_leadfinder_keyword"] = "Travel Agency"
+    else:
+        # Normal users start fresh with no hardcoded keyword
+        if new_state and not existing_user.get("auto_leadfinder_keyword"):
+            update_doc["auto_leadfinder_keyword"] = ""
 
     if new_state and not existing_user.get("auto_leadfinder_visibility"):
         update_doc["auto_leadfinder_visibility"] = "visible"

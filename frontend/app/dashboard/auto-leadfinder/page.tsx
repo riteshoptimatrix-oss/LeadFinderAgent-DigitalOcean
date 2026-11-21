@@ -100,11 +100,17 @@ export default function AutoLeadFinderPage() {
 
   const usersWithAccess: any[] = usersWithAccessResponse || [];
 
-  // Active user context selection
-  const [selectedUserEmail, setSelectedUserEmail] = useState<string>(TARGET_EMAIL);
+  // Active user context selection: initialized to empty, automatically synced to logged-in userEmail
+  const [selectedUserEmail, setSelectedUserEmail] = useState<string>('');
 
-  // Effective email being viewed/configured
-  const effectiveEmail = (isAdmin ? selectedUserEmail : userEmail) || TARGET_EMAIL;
+  useEffect(() => {
+    if (userEmail && !selectedUserEmail) {
+      setSelectedUserEmail(userEmail);
+    }
+  }, [userEmail, selectedUserEmail]);
+
+  // Effective email being viewed/configured: strictly defaults to logged-in user!
+  const effectiveEmail = (isAdmin && selectedUserEmail ? selectedUserEmail : userEmail) || userEmail || TARGET_EMAIL;
   const isKutchUser = effectiveEmail.toLowerCase() === TARGET_EMAIL.toLowerCase();
 
   // Settings & KPI stats query for this specific user
@@ -148,8 +154,8 @@ export default function AutoLeadFinderPage() {
   const [dailyLimit, setDailyLimit] = useState<number>(100);
   const [keywordInput, setKeywordInput] = useState<string>('');
   const [country, setCountry] = useState<string>('India');
-  const [state, setState] = useState<string>('Gujarat');
-  const [city, setCity] = useState<string>('Bhuj');
+  const [state, setState] = useState<string>('');
+  const [city, setCity] = useState<string>('');
   const [discoveredAreas, setDiscoveredAreas] = useState<any[]>([]);
   const [discoveredPincodes, setDiscoveredPincodes] = useState<string[]>([]);
   const [currentAreaIndex, setCurrentAreaIndex] = useState<number>(0);
@@ -167,15 +173,32 @@ export default function AutoLeadFinderPage() {
     if (settingsResponse) {
       setIsActive(settingsResponse.is_active ?? true);
       setDailyLimit(settingsResponse.daily_limit ?? (isKutchUser ? 500 : 100));
-      setKeywordInput(settingsResponse.keyword || (isKutchUser ? 'Travel Agency' : ''));
+      setKeywordInput(isKutchUser ? 'Travel Agency' : (settingsResponse.keyword || ''));
       setCountry(settingsResponse.country || 'India');
       setState(settingsResponse.state || (isKutchUser ? 'Gujarat' : ''));
       setCity(settingsResponse.city || (isKutchUser ? 'Kutch district' : ''));
       setDiscoveredAreas(settingsResponse.discovered_areas || []);
       setDiscoveredPincodes(settingsResponse.discovered_pincodes || []);
       setCurrentAreaIndex(settingsResponse.current_area_index || 0);
+    } else if (!isKutchUser) {
+      setKeywordInput('');
+      setCity('');
+      setState('');
+      setDiscoveredAreas([]);
+      setDiscoveredPincodes([]);
     }
   }, [settingsResponse, isKutchUser]);
+
+  // Clear transient form state when switching users
+  useEffect(() => {
+    if (!isKutchUser) {
+      setKeywordInput('');
+      setCity('');
+      setState('');
+      setDiscoveredAreas([]);
+      setDiscoveredPincodes([]);
+    }
+  }, [effectiveEmail, isKutchUser]);
 
   if (profileLoading || !isAuthorized) {
     return (
@@ -362,20 +385,27 @@ export default function AutoLeadFinderPage() {
             <span className="text-xs text-slate-300 font-medium whitespace-nowrap">Switch User:</span>
             <div className="relative min-w-[240px] sm:min-w-[280px]">
               <select
-                value={selectedUserEmail}
+                value={effectiveEmail}
                 onChange={(e) => setSelectedUserEmail(e.target.value)}
                 className="w-full appearance-none pl-3 pr-8 py-1.5 rounded-xl bg-slate-800 border border-teal-500/40 text-xs font-bold text-white focus:outline-hidden focus:ring-2 focus:ring-teal-400 cursor-pointer"
               >
                 {usersWithAccess.length > 0 ? (
                   usersWithAccess.map((u: any) => (
                     <option key={u.email} value={u.email} className="bg-slate-900 text-white">
-                      {u.full_name} ({u.email}) {u.is_kutch ? '★ Travel Agency' : `• ${u.keyword || 'Custom'}`}
+                      {u.full_name} ({u.email}) {u.is_kutch ? '★ Travel Agency (Fixed)' : `• ${u.keyword || 'Dynamic'}`}
                     </option>
                   ))
                 ) : (
-                  <option value={TARGET_EMAIL} className="bg-slate-900 text-white">
-                    Vipul Shah (kutchtourguide@gmail.com)
-                  </option>
+                  <>
+                    {userEmail && (
+                      <option value={userEmail} className="bg-slate-900 text-white">
+                        {userEmail} (Current User)
+                      </option>
+                    )}
+                    <option value={TARGET_EMAIL} className="bg-slate-900 text-white">
+                      Vipul Shah (kutchtourguide@gmail.com)
+                    </option>
+                  </>
                 )}
               </select>
               <ChevronDown className="w-3.5 h-3.5 text-teal-300 pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2" />

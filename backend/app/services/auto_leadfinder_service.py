@@ -242,15 +242,28 @@ async def get_or_create_settings(user_email: Optional[str] = None, db = None) ->
             needs_sync["industry_keywords"] = ["Travel Agency"]
             needs_sync["keyword"] = "Travel Agency"
     else:
-        # For normal users, determine is_configured
-        if "is_configured" not in settings:
-            has_city = bool(settings.get("city") and str(settings.get("city")).strip())
-            has_kw = bool(settings.get("keyword") and str(settings.get("keyword")).strip())
-            # Do not consider default Kutch as configured for normal users
-            if has_city and has_kw and "kutch" not in settings.get("city", "").lower():
-                needs_sync["is_configured"] = True
-            else:
-                needs_sync["is_configured"] = False
+        # For normal users: if they accidentally inherited Kutch legacy defaults, scrub them
+        if settings.get("city", "").lower() == "kutch district" or settings.get("priority_region") == "Kutch City & District":
+            needs_sync["city"] = ""
+            needs_sync["state"] = ""
+            needs_sync["district"] = ""
+            needs_sync["priority_region"] = ""
+            needs_sync["discovered_areas"] = []
+            needs_sync["discovered_pincodes"] = []
+            needs_sync["location_mode"] = "custom_city"
+            needs_sync["is_configured"] = False
+
+        if settings.get("keyword") == "Travel Agency" and not settings.get("niche"):
+            needs_sync["keyword"] = ""
+            needs_sync["industry_keywords"] = []
+            needs_sync["is_configured"] = False
+
+        # Determine is_configured for normal users
+        current_city = needs_sync.get("city", settings.get("city", ""))
+        current_kw = needs_sync.get("keyword", settings.get("keyword", ""))
+        has_city = bool(current_city and str(current_city).strip() and "kutch" not in str(current_city).lower())
+        has_kw = bool(current_kw and str(current_kw).strip() and str(current_kw).lower() != "travel agency")
+        needs_sync["is_configured"] = bool(has_city and has_kw)
 
     if needs_sync:
         settings.update(needs_sync)

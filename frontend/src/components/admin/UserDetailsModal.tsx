@@ -218,6 +218,24 @@ export default function UserDetailsModal({ userId, isOpen, onClose, onImpersonat
                       </span>
                     </div>
                   </div>
+
+                  <div className={`p-3 rounded-xl border flex items-center gap-3 transition-colors ${user.easyadserver_access
+                    ? 'bg-emerald-50/60 border-emerald-200/60'
+                    : 'bg-slate-100/80 border-slate-200'
+                    }`}>
+                    <Send className={`w-4 h-4 shrink-0 ${user.easyadserver_access ? 'text-emerald-600' : 'text-slate-400'
+                      }`} />
+                    <div>
+                      <span className={`text-[10px] block font-bold uppercase tracking-wider ${user.easyadserver_access ? 'text-emerald-700' : 'text-slate-500'
+                        }`}>EasyAdServer Access</span>
+                      <span className={`font-bold ${user.easyadserver_access ? 'text-slate-900' : 'text-slate-600'
+                        }`}>
+                        {user.easyadserver_access
+                          ? `Enabled ${user.easyadserver_token ? '(Token Configured)' : '(No Token Set)'}`
+                          : 'Disabled'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </>

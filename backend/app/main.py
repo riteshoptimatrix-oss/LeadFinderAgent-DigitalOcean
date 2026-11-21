@@ -522,7 +522,7 @@ from app.api.routes import admin_activity, admin_users
 app.include_router(admin_users.router, prefix=f"{app_settings.API_V1_STR}/admin/users", tags=["admin-users"])
 app.include_router(admin_users.router, prefix="/api/admin/users", tags=["admin-users"])
 app.include_router(admin_activity.router, prefix=f"{app_settings.API_V1_STR}/admin", tags=["admin"])
-from app.api.routes import crm, whatsapp_ai, email_ai, email_ai_analytics, ai_content, auto_leadfinder
+from app.api.routes import crm, whatsapp_ai, email_ai, email_ai_analytics, ai_content, auto_leadfinder, easyadserver
 app.include_router(crm.router, prefix=f"{app_settings.API_V1_STR}/crm", tags=["crm"])
 app.include_router(whatsapp_ai.router, prefix=f"{app_settings.API_V1_STR}/whatsapp-ai", tags=["whatsapp-ai"])
 app.include_router(email_ai.router, prefix=f"{app_settings.API_V1_STR}/email-ai", tags=["email-ai"])
@@ -531,6 +531,8 @@ app.include_router(ai_content.router, prefix=f"{app_settings.API_V1_STR}/ai-cont
 app.include_router(ai_content.router, prefix="/api/ai-content", tags=["ai-content"])
 app.include_router(auto_leadfinder.router, prefix=f"{app_settings.API_V1_STR}/auto-leadfinder", tags=["auto-leadfinder"])
 app.include_router(auto_leadfinder.router, prefix="/api/auto-leadfinder", tags=["auto-leadfinder"])
+app.include_router(easyadserver.router, prefix=f"{app_settings.API_V1_STR}/easyadserver", tags=["easyadserver"])
+app.include_router(easyadserver.router, prefix="/api/easyadserver", tags=["easyadserver"])
 from app.services.supervisor.dashboard import router as supervisor_router
 app.include_router(supervisor_router, prefix="", tags=["supervisor"])
 app.include_router(advanced_analysis.router, prefix="/api/advanced-analysis", tags=["advanced-analysis"])

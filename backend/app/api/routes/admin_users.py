@@ -3,6 +3,7 @@ import re
 from typing import Any, List, Optional, Dict
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson.objectid import ObjectId
 
@@ -199,6 +200,8 @@ async def create_user(
         "auto_leadfinder_access": bool(payload.auto_leadfinder_access) if payload.auto_leadfinder_access is not None else False,
         "auto_leadfinder_keyword": "Travel Agency" if email_clean == "kutchtourguide@gmail.com" else (payload.auto_leadfinder_keyword.strip() if payload.auto_leadfinder_keyword else None),
         "auto_leadfinder_visibility": (payload.auto_leadfinder_visibility or "visible").strip().lower(),
+        "easyadserver_access": bool(payload.easyadserver_access) if payload.easyadserver_access is not None else False,
+        "easyadserver_token": payload.easyadserver_token.strip() if payload.easyadserver_token else None,
         "created_at": now,
         "updated_at": now,
         "last_login": None,
@@ -290,6 +293,12 @@ async def update_user(
 
     if payload.auto_leadfinder_access is not None:
         update_fields["auto_leadfinder_access"] = bool(payload.auto_leadfinder_access)
+
+    if payload.easyadserver_access is not None:
+        update_fields["easyadserver_access"] = bool(payload.easyadserver_access)
+
+    if payload.easyadserver_token is not None:
+        update_fields["easyadserver_token"] = payload.easyadserver_token.strip() if payload.easyadserver_token else None
 
     effective_user_email = (new_email if payload.email is not None else existing_user.get("email", "")).strip().lower()
     is_kutch_target = effective_user_email == "kutchtourguide@gmail.com"
@@ -420,6 +429,69 @@ async def toggle_auto_leadfinder_access(
         "success": True,
         "auto_leadfinder_access": new_state,
         "message": f"Auto LeadFinder access {'enabled' if new_state else 'disabled'} for {existing_user.get('email')}"
+    }
+
+
+class AdminToggleEasyAdServerRequest(BaseModel):
+    easyadserver_access: Optional[bool] = None
+    easyadserver_token: Optional[str] = None
+
+
+@router.patch("/{user_id}/toggle-easyadserver")
+async def toggle_easyadserver_access(
+    user_id: str,
+    request: Request,
+    payload: Optional[AdminToggleEasyAdServerRequest] = None,
+    current_admin: UserInDB = Depends(require_admin)
+) -> Any:
+    """
+    Admin: Dynamic toggle and token management for EasyAdServer integration for a user.
+    """
+    raw_db = get_raw_db()
+    target_query = {"_id": ObjectId(user_id)} if ObjectId.is_valid(user_id) else {"_id": user_id}
+    existing_user = await raw_db["users"].find_one(target_query)
+    if not existing_user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    current_access = bool(existing_user.get("easyadserver_access", False))
+    if payload and payload.easyadserver_access is not None:
+        new_state = bool(payload.easyadserver_access)
+    else:
+        new_state = not current_access
+
+    update_doc: Dict[str, Any] = {
+        "easyadserver_access": new_state,
+        "updated_at": datetime.now(timezone.utc)
+    }
+
+    if payload and payload.easyadserver_token is not None:
+        update_doc["easyadserver_token"] = payload.easyadserver_token.strip() if payload.easyadserver_token else None
+
+    await raw_db["users"].update_one(target_query, {"$set": update_doc})
+
+    ip_address = request.client.host if request.client else "Unknown"
+    await log_audit_action(
+        action="ADMIN_TOGGLE_EASYADSERVER",
+        user_id=user_id,
+        user_email=existing_user.get("email"),
+        resource="users",
+        resource_id=user_id,
+        ip_address=ip_address,
+        details={
+            "admin_id": str(current_admin.id),
+            "admin_email": current_admin.email,
+            "easyadserver_access": new_state,
+            "easyadserver_token_updated": bool(payload and payload.easyadserver_token is not None)
+        }
+    )
+
+    updated_user = await raw_db["users"].find_one(target_query)
+
+    return {
+        "success": True,
+        "easyadserver_access": new_state,
+        "easyadserver_token": updated_user.get("easyadserver_token"),
+        "message": f"EasyAdServer access {'enabled' if new_state else 'disabled'} for {existing_user.get('email')}"
     }
 
 

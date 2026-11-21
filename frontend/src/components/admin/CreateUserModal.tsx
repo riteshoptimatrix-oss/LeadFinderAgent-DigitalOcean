@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, UserPlus, Loader2, AlertCircle, Eye, EyeOff, Compass } from 'lucide-react';
+import { X, UserPlus, Loader2, AlertCircle, Eye, EyeOff, Compass, Send, Key } from 'lucide-react';
 import api from '@/src/lib/axios';
 import { toast } from 'sonner';
 
@@ -23,7 +23,9 @@ export default function CreateUserModal({ isOpen, onClose, onSuccess }: CreateUs
     role: 'USER',
     account_status: 'Active',
     is_active: true,
-    auto_leadfinder_access: false
+    auto_leadfinder_access: false,
+    easyadserver_access: false,
+    easyadserver_token: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -271,6 +273,53 @@ export default function CreateUserModal({ isOpen, onClose, onSuccess }: CreateUs
                   />
                 </button>
               </div>
+            </div>
+
+            {/* EasyAdServer Access */}
+            <div className="sm:col-span-2 pt-2 border-t border-slate-100 space-y-3">
+              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                    <Send className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <span className="text-xs font-bold text-slate-900 block">EasyAdServer Access</span>
+                    <span className="text-[11px] text-slate-500">Enable lead export directly to EasyAdServer API.</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, easyadserver_access: !formData.easyadserver_access })}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                    formData.easyadserver_access ? 'bg-emerald-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
+                      formData.easyadserver_access ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {formData.easyadserver_access && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1.5 animate-in fade-in">
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>EasyAdServer API Token</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.easyadserver_token}
+                    onChange={(e) => setFormData({ ...formData, easyadserver_token: e.target.value })}
+                    placeholder="e.g. eas_9e20435003f9e6e1baa3b9c5052755ec81a225861c38ef13652d747c2dd905b6"
+                    className="w-full text-xs font-mono bg-white border border-slate-200 rounded-xl p-2.5 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all text-slate-900"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Bearer token used to authenticate this user&apos;s lead export requests to EasyAdServer.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

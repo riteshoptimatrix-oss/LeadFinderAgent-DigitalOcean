@@ -12,6 +12,7 @@ import CreateUserModal from '@/src/components/admin/CreateUserModal';
 import EditUserModal from '@/src/components/admin/EditUserModal';
 import UserDetailsModal from '@/src/components/admin/UserDetailsModal';
 import DeleteUserDialog from '@/src/components/admin/DeleteUserDialog';
+import EasyAdServerConfigModal from '@/src/components/admin/EasyAdServerConfigModal';
 
 import {
   Users,
@@ -35,7 +36,9 @@ import {
   UserX,
   ShieldCheck,
   CheckCircle2,
-  Compass
+  Compass,
+  Send,
+  Key
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -188,6 +191,13 @@ export default function AdminUsersPage() {
   };
 
   const [togglingUserId, setTogglingUserId] = useState<string | null>(null);
+  const [easyAdServerUser, setEasyAdServerUser] = useState<any | null>(null);
+  const [isEasyAdServerModalOpen, setIsEasyAdServerModalOpen] = useState(false);
+
+  const handleOpenEasyAdServerConfig = (u: any) => {
+    setEasyAdServerUser(u);
+    setIsEasyAdServerModalOpen(true);
+  };
 
   const handleToggleAutoLeadFinder = async (targetId: string, targetUser: any) => {
     setTogglingUserId(targetId);
@@ -197,6 +207,28 @@ export default function AdminUsersPage() {
       refetchUsers();
     } catch (err: any) {
       toast.error(err?.response?.data?.detail || 'Failed to update Auto LeadFinder access');
+    } finally {
+      setTogglingUserId(null);
+    }
+  };
+
+  const handleToggleEasyAdServer = async (targetId: string, targetUser: any) => {
+    // If user does not currently have access, prompt modal to enter/verify API token
+    if (!targetUser.easyadserver_access) {
+      handleOpenEasyAdServerConfig(targetUser);
+      return;
+    }
+
+    // If currently enabled, toggle off directly
+    setTogglingUserId(targetId);
+    try {
+      const res = await api.patch(`/admin/users/${targetId}/toggle-easyadserver`, {
+        easyadserver_access: false
+      });
+      toast.success(res.data?.message || 'EasyAdServer access disabled!');
+      refetchUsers();
+    } catch (err: any) {
+      toast.error(err?.response?.data?.detail || 'Failed to update EasyAdServer access');
     } finally {
       setTogglingUserId(null);
     }
@@ -363,6 +395,7 @@ export default function AdminUsersPage() {
                 <th className="py-4 px-4">Role</th>
                 <th className="py-4 px-4">Status</th>
                 <th className="py-4 px-4">Auto LeadFinder</th>
+                <th className="py-4 px-4">EasyAdServer</th>
                 <th className="py-4 px-4">Company & Location</th>
                 <th className="py-4 px-4">Registered</th>
                 <th className="py-4 px-4">Last Login</th>
@@ -372,14 +405,14 @@ export default function AdminUsersPage() {
             <tbody className="divide-y divide-slate-100">
               {loadingUsers ? (
                 <tr>
-                  <td colSpan={8} className="py-16 text-center text-slate-400">
+                  <td colSpan={9} className="py-16 text-center text-slate-400">
                     <div className="w-8 h-8 rounded-full border-2 border-indigo-600 border-t-transparent animate-spin mx-auto mb-3" />
                     <span>Loading platform users...</span>
                   </td>
                 </tr>
               ) : usersList.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-16 text-center text-slate-400">
+                  <td colSpan={9} className="py-16 text-center text-slate-400">
                     <Users className="w-8 h-8 mx-auto mb-2 text-slate-300" />
                     <p className="font-semibold text-slate-600 text-sm">No users found</p>
                     <p className="text-xs text-slate-400 mt-1">
@@ -482,6 +515,59 @@ export default function AdminUsersPage() {
                                 ? (u.email?.toLowerCase() === 'kutchtourguide@gmail.com' ? 'Travel Agency [Fixed]' : (u.auto_leadfinder_keyword || 'Active'))
                                 : 'Disabled'}
                             </span>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* EasyAdServer Access Toggle */}
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleEasyAdServer(userId, u)}
+                            disabled={togglingUserId === userId}
+                            title={
+                              u.easyadserver_access
+                                ? 'Click to disable EasyAdServer for this user'
+                                : 'Click to configure and enable EasyAdServer for this user'
+                            }
+                            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden disabled:opacity-50 ${
+                              u.easyadserver_access
+                                ? 'bg-emerald-600'
+                                : 'bg-slate-300'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
+                                u.easyadserver_access
+                                  ? 'translate-x-4'
+                                  : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                          <div className="flex items-center gap-1">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                u.easyadserver_access
+                                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                  : 'bg-slate-100 text-slate-500'
+                              }`}
+                            >
+                              <Send className="w-2.5 h-2.5" />
+                              {u.easyadserver_access ? 'Enabled' : 'Disabled'}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenEasyAdServerConfig(u)}
+                              title={u.easyadserver_token ? 'Edit EasyAdServer Token (Configured)' : 'Set EasyAdServer Token'}
+                              className={`p-1 rounded-md transition-colors cursor-pointer ${
+                                u.easyadserver_token
+                                  ? 'text-emerald-700 bg-emerald-50 hover:bg-emerald-100'
+                                  : 'text-slate-400 hover:text-slate-700 hover:bg-slate-100'
+                              }`}
+                            >
+                              <Key className="w-3 h-3" />
+                            </button>
                           </div>
                         </div>
                       </td>
@@ -616,6 +702,16 @@ export default function AdminUsersPage() {
         user={selectedUserForDelete}
         isOpen={!!selectedUserForDelete}
         onClose={() => setSelectedUserForDelete(null)}
+        onSuccess={() => {
+          refetchUsers();
+          refetchStats();
+        }}
+      />
+
+      <EasyAdServerConfigModal
+        user={easyAdServerUser}
+        isOpen={isEasyAdServerModalOpen}
+        onClose={() => setIsEasyAdServerModalOpen(false)}
         onSuccess={() => {
           refetchUsers();
           refetchStats();

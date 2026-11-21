@@ -224,10 +224,14 @@ function LeadsPageContent() {
   const [sessionsModalOpen, setSessionsModalOpen] = useState(false);
   const [activeSession, setActiveSession] = useState<SearchSession | null>(null);
 
-  // Send to EasyAdServer state (Exclusive for Kutch Tour Guide / kutchtourguide@gmail.com)
+  // Send to EasyAdServer state (Dynamic for all authorized users)
   const authUser = useAuthStore((state) => state.user);
   const [showEasyAdServerModal, setShowEasyAdServerModal] = useState(false);
   const [isSendingToEasyAdServer, setIsSendingToEasyAdServer] = useState(false);
+  const [easyAdServerMode, setEasyAdServerMode] = useState<'selected' | 'all'>('selected');
+  const [skipAlreadySent, setSkipAlreadySent] = useState(true);
+  const [singleLeadTarget, setSingleLeadTarget] = useState<any | null>(null);
+  const [easyAdServerResult, setEasyAdServerResult] = useState<any | null>(null);
 
   const { data: userProfile } = useQuery({
     queryKey: ['userProfile'],
@@ -248,7 +252,7 @@ function LeadsPageContent() {
     userProfile?.is_superuser === true;
 
   // Assignable users for Admin assignment
-  const { data: assignableUsersData = [] } = useQuery<{ id: string; email: string; full_name: string; role: string }[]>({
+  const { data: assignableUsersData = [] } = useQuery<{ id: string; email: string; full_name: string; role: string; company_name?: string }[]>({
     queryKey: ['assignable-users-leads-page'],
     queryFn: async () => {
       try {
@@ -377,23 +381,79 @@ function LeadsPageContent() {
 
   const impersonatedEmail = typeof window !== 'undefined' ? localStorage.getItem('impersonated_target_email') : '';
   const activeUserEmail = (impersonatedEmail || userProfile?.email || authUser?.email || '').toLowerCase();
-  const isKutchUser = activeUserEmail === 'kutchtourguide@gmail.com' || activeUserEmail.includes('kutchtourguide');
+  const isEasyAdServerEnabled = Boolean(
+    userProfile?.easyadserver_access ||
+    (authUser as any)?.easyadserver_access
+  );
 
-  const handleSendToEasyAdServer = () => {
+  const { data: easyAdServerStatus, refetch: refetchEasyAdServerStatus } = useQuery({
+    queryKey: ['easyadserver-status'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/easyadserver/status');
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+    enabled: isEasyAdServerEnabled && showEasyAdServerModal,
+  });
+
+  const handleSendToEasyAdServer = (singleLead?: any) => {
+    if (singleLead) {
+      setSingleLeadTarget(singleLead);
+      setEasyAdServerMode('selected');
+    } else {
+      setSingleLeadTarget(null);
+      setEasyAdServerMode(selectedIds.size > 0 ? 'selected' : 'all');
+    }
+    setEasyAdServerResult(null);
     setShowEasyAdServerModal(true);
   };
 
-  const handleConfirmSendToEasyAdServer = () => {
+  const handleConfirmSendToEasyAdServer = async () => {
     setIsSendingToEasyAdServer(true);
-    const count = selectedIds.size > 0 ? selectedIds.size : leads.length;
-    setTimeout(() => {
+    setEasyAdServerResult(null);
+    try {
+      const payload: any = {
+        skip_already_sent: skipAlreadySent
+      };
+
+      if (singleLeadTarget) {
+        payload.lead_id = singleLeadTarget._id || singleLeadTarget.id;
+      } else if (easyAdServerMode === 'selected') {
+        if (selectedIds.size === 0) {
+          toast.error('Please select at least one lead from the table.');
+          setIsSendingToEasyAdServer(false);
+          return;
+        }
+        payload.lead_ids = Array.from(selectedIds);
+      } else {
+        payload.send_all = true;
+      }
+
+      const res = await api.post('/easyadserver/send', payload);
+      const data = res.data;
+      setEasyAdServerResult(data);
+
+      if (data.successful_count > 0) {
+        toast.success(`Leads dispatched to EasyAdServer!`, {
+          description: `${data.successful_count} sent successfully${data.failed_count > 0 ? `, ${data.failed_count} failed` : ''}${data.skipped_count > 0 ? `, ${data.skipped_count} skipped` : ''}.`,
+          duration: 5000,
+        });
+        queryClient.invalidateQueries({ queryKey: ['leads'] });
+        refetchEasyAdServerStatus();
+      } else if (data.skipped_count > 0 && data.failed_count === 0) {
+        toast.info('All requested leads were skipped because they were already dispatched previously.');
+      } else {
+        toast.error(data.message || 'Failed to dispatch leads to EasyAdServer.');
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || err?.message || 'Failed to send leads to EasyAdServer.';
+      toast.error(msg);
+    } finally {
       setIsSendingToEasyAdServer(false);
-      setShowEasyAdServerModal(false);
-      toast.success(`Successfully dispatched ${count} lead(s) to EasyAdServer!`, {
-        description: 'Frontend integration complete. Ready for live API connection.',
-        duration: 4000,
-      });
-    }, 1200);
+    }
   };
 
   // Available campaigns for dropdown and lookup
@@ -998,92 +1058,287 @@ function LeadsPageContent() {
         }}
       />
 
-      {/* EasyAdServer Integration Preview Modal (Exclusive for Kutch Tour Guide) */}
+      {/* EasyAdServer Live Integration Modal (Dynamic for all authorized users) */}
       {showEasyAdServerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in">
-          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xl max-w-lg w-full p-6 space-y-5 animate-in zoom-in-95">
+          <div className="bg-white rounded-3xl border border-slate-200/80 shadow-2xl max-w-xl w-full p-6 space-y-5 animate-in zoom-in-95 max-h-[90vh] overflow-y-auto">
+            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-teal-50 border border-teal-100 flex items-center justify-center text-teal-600 font-black">
+                <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 text-white flex items-center justify-center shadow-xs">
                   <Send className="w-5 h-5" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-bold text-slate-900">Send to EasyAdServer</h3>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 text-teal-700 border border-teal-200">
-                      Frontend Preview
-                    </span>
+                    {easyAdServerStatus && (
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
+                        easyAdServerStatus.has_token
+                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                          : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
+                        {easyAdServerStatus.has_token ? 'API Connected' : 'Token Required'}
+                      </span>
+                    )}
                   </div>
                   <p className="text-xs text-slate-500">
-                    Dispatch verified leads to EasyAdServer campaign audience.
+                    Dispatch verified lead data directly to EasyAdServer API.
                   </p>
                 </div>
               </div>
               <button
                 type="button"
-                onClick={() => setShowEasyAdServerModal(false)}
+                onClick={() => {
+                  setShowEasyAdServerModal(false);
+                  setEasyAdServerResult(null);
+                  setSingleLeadTarget(null);
+                }}
+                disabled={isSendingToEasyAdServer}
                 className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 space-y-3 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500 font-medium">Target Platform:</span>
-                <span className="font-bold text-slate-800">EasyAdServer Lead Engine</span>
+            {/* Warning if Admin has not configured token */}
+            {easyAdServerStatus && !easyAdServerStatus.has_token && (
+              <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-bold block">EasyAdServer Token Not Configured</span>
+                  <p className="text-amber-800 text-[11px]">
+                    The Administrator has enabled EasyAdServer for your account, but an API Token has not been set yet.
+                    Please contact your Administrator to configure your token in the Admin Panel.
+                  </p>
+                </div>
               </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500 font-medium">Authorized Account:</span>
-                <span className="font-bold text-teal-700">{activeUserEmail || 'kutchtourguide@gmail.com'}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500 font-medium">Leads to Dispatch:</span>
-                <span className="font-black text-slate-900 bg-white px-2.5 py-1 rounded-lg border border-slate-200">
-                  {selectedIds.size > 0 ? `${selectedIds.size} Selected Lead(s)` : `All ${leads.length} Visible Lead(s)`}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-500 font-medium">Payload Data:</span>
-                <span className="font-semibold text-slate-700">Business, Phone, Email, Location &amp; Rating</span>
-              </div>
-            </div>
+            )}
 
-            <div className="p-3 bg-amber-50/70 border border-amber-200/80 rounded-xl text-amber-800 text-[11px] flex items-start gap-2">
-              <Sparkles className="w-4 h-4 shrink-0 text-amber-600 mt-0.5" />
-              <span>
-                <strong>Frontend Integration Ready:</strong> Clicking &quot;Confirm &amp; Send to EasyAdServer&quot; simulates the full payload dispatch for Kutch Tour Guide. Backend API connection can be hooked up next.
-              </span>
-            </div>
+            {/* If Dispatch Results are available */}
+            {easyAdServerResult ? (
+              <div className="space-y-4 animate-in fade-in">
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-700">Dispatch Summary:</span>
+                    <span className={`text-xs font-extrabold px-2.5 py-0.5 rounded-full border ${
+                      easyAdServerResult.failed_count === 0
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                    }`}>
+                      {easyAdServerResult.failed_count === 0 ? 'All Dispatched' : 'Completed with Errors'}
+                    </span>
+                  </div>
 
-            <div className="flex items-center justify-end gap-2.5 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowEasyAdServerModal(false)}
-                disabled={isSendingToEasyAdServer}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmSendToEasyAdServer}
-                disabled={isSendingToEasyAdServer}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50"
-              >
-                {isSendingToEasyAdServer ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>Dispatching Payload...</span>
-                  </>
-                ) : (
-                  <>
-                    <Send className="w-3.5 h-3.5" />
-                    <span>Confirm &amp; Send to EasyAdServer</span>
-                  </>
+                  {/* Stat Counters */}
+                  <div className="grid grid-cols-4 gap-2 pt-1 text-center">
+                    <div className="p-2.5 rounded-xl bg-white border border-slate-200">
+                      <span className="text-[10px] text-slate-400 block font-bold uppercase">Requested</span>
+                      <span className="text-base font-black text-slate-800">{easyAdServerResult.total_requested}</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200">
+                      <span className="text-[10px] text-emerald-600 block font-bold uppercase">Success</span>
+                      <span className="text-base font-black text-emerald-700">{easyAdServerResult.successful_count}</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-rose-50/80 border border-rose-200">
+                      <span className="text-[10px] text-rose-600 block font-bold uppercase">Failed</span>
+                      <span className="text-base font-black text-rose-700">{easyAdServerResult.failed_count}</span>
+                    </div>
+                    <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200">
+                      <span className="text-[10px] text-amber-600 block font-bold uppercase">Skipped</span>
+                      <span className="text-base font-black text-amber-700">{easyAdServerResult.skipped_count || 0}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Detailed Results List */}
+                {easyAdServerResult.results && easyAdServerResult.results.length > 0 && (
+                  <div className="space-y-2">
+                    <span className="text-[11px] font-bold text-slate-600 block">Lead Dispatch Details:</span>
+                    <div className="max-h-48 overflow-y-auto space-y-1.5 border border-slate-200 rounded-2xl p-2 bg-slate-50/50 divide-y divide-slate-100">
+                      {easyAdServerResult.results.map((r: any, idx: number) => (
+                        <div key={idx} className="pt-1.5 first:pt-0 flex items-center justify-between text-xs gap-2">
+                          <div className="min-w-0">
+                            <span className="font-bold text-slate-800 block truncate">{r.name || `Lead #${r.lead_id}`}</span>
+                            {r.error && (
+                              <span className="text-[11px] text-rose-600 block truncate">{r.error}</span>
+                            )}
+                            {r.message && !r.error && (
+                              <span className="text-[11px] text-slate-500 block truncate">{r.message}</span>
+                            )}
+                          </div>
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold shrink-0 border ${
+                            r.status === 'SUCCESS' || r.success
+                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                              : r.status === 'SKIPPED'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-rose-50 text-rose-700 border-rose-200'
+                          }`}>
+                            {r.action ? `${r.action.toUpperCase()}` : (r.status || (r.success ? 'SENT' : 'FAILED'))}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
-              </button>
-            </div>
+
+                <div className="flex items-center justify-end pt-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEasyAdServerModal(false);
+                      setEasyAdServerResult(null);
+                      setSingleLeadTarget(null);
+                    }}
+                    className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-slate-800 hover:bg-slate-900 transition-colors cursor-pointer"
+                  >
+                    Done &amp; Close
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Before Sending Form */
+              <div className="space-y-4">
+                {/* Target lead preview (if single) or Option A / Option B Scope Picker */}
+                {singleLeadTarget ? (
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-700">Option A: Send Individual Lead</span>
+                      <span className="px-2 py-0.5 rounded-md bg-indigo-50 text-indigo-700 border border-indigo-200 text-[10px] font-bold">
+                        Single Lead
+                      </span>
+                    </div>
+                    <div className="p-3 bg-white rounded-xl border border-slate-200 text-xs space-y-1">
+                      <div className="font-bold text-slate-900 text-sm">
+                        {singleLeadTarget.name || singleLeadTarget.business_name || 'Business Lead'}
+                      </div>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1 text-slate-500 text-[11px]">
+                        <span>📞 {singleLeadTarget.phone || 'No Phone'}</span>
+                        <span>✉️ {singleLeadTarget.email || 'No Email'}</span>
+                        <span>📍 {singleLeadTarget.city || singleLeadTarget.area || '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <span className="text-xs font-bold text-slate-700 block">Select Sending Option:</span>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {/* Option A: Selected Leads */}
+                      <button
+                        type="button"
+                        onClick={() => setEasyAdServerMode('selected')}
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                          easyAdServerMode === 'selected'
+                            ? 'bg-emerald-50/80 border-emerald-300 ring-2 ring-emerald-500/20'
+                            : 'bg-white border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-slate-900">Option A: Selected Leads</span>
+                          <span className="px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                            {selectedIds.size} Selected
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          {selectedIds.size > 0
+                            ? `Dispatch only the ${selectedIds.size} lead(s) currently checked in the table.`
+                            : 'No leads selected. Check checkboxes in table to select.'}
+                        </p>
+                      </button>
+
+                      {/* Option B: Send All Leads */}
+                      <button
+                        type="button"
+                        onClick={() => setEasyAdServerMode('all')}
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                          easyAdServerMode === 'all'
+                            ? 'bg-emerald-50/80 border-emerald-300 ring-2 ring-emerald-500/20'
+                            : 'bg-white border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-bold text-slate-900">Option B: Send All Leads</span>
+                          <span className="px-2 py-0.5 rounded-md bg-teal-100 text-teal-800 text-[10px] font-extrabold">
+                            All ({leads.length})
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          Dispatch all available leads belonging to your account ({activeUserEmail}).
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* API Specs Information */}
+                <div className="bg-slate-50 border border-slate-200/80 rounded-2xl p-4 space-y-2.5 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Target API Endpoint:</span>
+                    <span className="font-mono text-[11px] text-slate-800 font-semibold truncate max-w-[260px]">
+                      https://easyadserver.com/api/lead_finder.php
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Authorized User Account:</span>
+                    <span className="font-bold text-teal-700">{activeUserEmail}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Data Mapping:</span>
+                    <span className="font-semibold text-slate-700">Dynamic JSON payload (name, mobile, address, etc.)</span>
+                  </div>
+                </div>
+
+                {/* Prevent Duplicate Submissions Checkbox */}
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <input
+                    type="checkbox"
+                    id="skipAlreadySentCheck"
+                    checked={skipAlreadySent}
+                    onChange={(e) => setSkipAlreadySent(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                  />
+                  <label htmlFor="skipAlreadySentCheck" className="text-xs text-slate-700 cursor-pointer select-none">
+                    <strong className="font-semibold">Prevent duplicate submissions:</strong> Skip leads that were already successfully dispatched to EasyAdServer.
+                  </label>
+                </div>
+
+                {/* Footer Buttons */}
+                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowEasyAdServerModal(false);
+                      setSingleLeadTarget(null);
+                    }}
+                    disabled={isSendingToEasyAdServer}
+                    className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmSendToEasyAdServer}
+                    disabled={
+                      isSendingToEasyAdServer ||
+                      (easyAdServerStatus && !easyAdServerStatus.has_token) ||
+                      (!singleLeadTarget && easyAdServerMode === 'selected' && selectedIds.size === 0)
+                    }
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 transition-all shadow-xs cursor-pointer active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSendingToEasyAdServer ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Sending to EasyAdServer...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Confirm &amp; Send to EasyAdServer</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1340,13 +1595,13 @@ function LeadsPageContent() {
         </div>
 
         <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
-          {/* Send to EasyAdServer Button (Exclusive for Kutch Tour Guide / kutchtourguide@gmail.com) */}
-          {isKutchUser && (
+          {/* Send to EasyAdServer Button (Dynamic for all authorized users) */}
+          {isEasyAdServerEnabled && (
             <button
               type="button"
-              onClick={handleSendToEasyAdServer}
+              onClick={() => handleSendToEasyAdServer()}
               className="inline-flex items-center gap-2 px-3.5 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs hover:shadow-sm cursor-pointer active:scale-95"
-              title="Send leads to EasyAdServer (Frontend Preview)"
+              title="Send leads to EasyAdServer"
             >
               <Send className="w-3.5 h-3.5 text-white" />
               <span>Send to EasyAdServer</span>
@@ -1922,6 +2177,11 @@ function LeadsPageContent() {
                                   <EyeOff className="w-2.5 h-2.5" /> Hidden
                                 </span>
                               )}
+                              {lead.easyadserver_sent && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-700 shrink-0" title={`Sent to EasyAdServer (Contact #${lead.easyadserver_contact_id || ''})`}>
+                                  <Send className="w-2.5 h-2.5" /> EasyAdServer
+                                </span>
+                              )}
                             </div>
                             {lead.category && lead.category.trim().toUpperCase() !== 'UNCATEGORIZED' && (
                               <div className="flex items-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-wider mt-0.5 truncate">
@@ -2114,6 +2374,25 @@ function LeadsPageContent() {
                             </button>
                           )}
 
+                          {/* Send Individual Lead to EasyAdServer (Option A) */}
+                          {isEasyAdServerEnabled && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSendToEasyAdServer(lead);
+                              }}
+                              title={lead.easyadserver_sent ? "Sent to EasyAdServer (Click to re-send)" : "Send this lead to EasyAdServer (Option A)"}
+                              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                                lead.easyadserver_sent
+                                  ? 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+                                  : 'text-slate-400 bg-white border-slate-200 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50/50'
+                              }`}
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+
                           {/* Right-facing arrow: EXCLUSIVELY opens the individual lead detail page */}
                           <button
                             onClick={(e) => handleOpenLeadDetail(lead._id, e)}
@@ -2169,6 +2448,11 @@ function LeadsPageContent() {
                       {isAdmin && lead.visibility === 'hidden' && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 border border-amber-200 text-amber-700">
                           <EyeOff className="w-2.5 h-2.5" /> Hidden
+                        </span>
+                      )}
+                      {lead.easyadserver_sent && (
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-50 border border-emerald-200 text-emerald-700" title={`Sent to EasyAdServer (Contact #${lead.easyadserver_contact_id || ''})`}>
+                          <Send className="w-2.5 h-2.5" /> EasyAdServer
                         </span>
                       )}
                     </div>
@@ -2271,6 +2555,23 @@ function LeadsPageContent() {
                         className="flex-1 px-3 py-2 rounded-xl border text-xs font-semibold shadow-2xs flex items-center justify-center gap-1.5 transition-all cursor-pointer bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100"
                       >
                         <RefreshCw className="w-3.5 h-3.5 text-rose-600" /> Retry
+                      </button>
+                    )}
+                    {isEasyAdServerEnabled && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleSendToEasyAdServer(lead);
+                        }}
+                        className={`p-2 border rounded-xl transition-all cursor-pointer ${
+                          lead.easyadserver_sent
+                            ? 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+                            : 'text-slate-500 bg-white border-slate-200 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50/50'
+                        }`}
+                        title={lead.easyadserver_sent ? "Sent to EasyAdServer (Click to re-send)" : "Send to EasyAdServer (Option A)"}
+                      >
+                        <Send className="w-3.5 h-3.5" />
                       </button>
                     )}
                     <button

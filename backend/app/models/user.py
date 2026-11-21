@@ -63,6 +63,9 @@ class UserBase(BaseModel):
     auto_leadfinder_keyword: Optional[str] = None
     auto_leadfinder_visibility: Optional[str] = "visible"
 
+    # EasyAdServer Permissions & Configuration
+    easyadserver_access: bool = False
+
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=128)
     
@@ -82,6 +85,7 @@ class UserCreate(UserBase):
 class UserInDB(UserBase):
     id: str = Field(alias="_id")
     hashed_password: str
+    easyadserver_token: Optional[str] = None
 
     @field_validator("id", mode="before")
     @classmethod
@@ -152,6 +156,8 @@ class AdminCreateUserRequest(BaseModel):
     auto_leadfinder_access: Optional[bool] = False
     auto_leadfinder_keyword: Optional[str] = None
     auto_leadfinder_visibility: Optional[str] = "visible"
+    easyadserver_access: Optional[bool] = False
+    easyadserver_token: Optional[str] = None
 
     @field_validator("role", mode="before")
     @classmethod
@@ -177,6 +183,8 @@ class AdminUpdateUserRequest(BaseModel):
     auto_leadfinder_access: Optional[bool] = None
     auto_leadfinder_keyword: Optional[str] = None
     auto_leadfinder_visibility: Optional[str] = None
+    easyadserver_access: Optional[bool] = None
+    easyadserver_token: Optional[str] = None
 
     @field_validator("role", mode="before")
     @classmethod

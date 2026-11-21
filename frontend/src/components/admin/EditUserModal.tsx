@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, UserCheck, Loader2, AlertCircle, Eye, EyeOff, Compass, Lock, Tag } from 'lucide-react';
+import { X, UserCheck, Loader2, AlertCircle, Eye, EyeOff, Compass, Lock, Tag, Send, Key } from 'lucide-react';
 import api from '@/src/lib/axios';
 import { toast } from 'sonner';
 
@@ -26,7 +26,9 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
     is_active: true,
     auto_leadfinder_access: false,
     auto_leadfinder_keyword: 'Travel Agency',
-    auto_leadfinder_visibility: 'visible'
+    auto_leadfinder_visibility: 'visible',
+    easyadserver_access: false,
+    easyadserver_token: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -49,7 +51,9 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
         is_active: user.is_active !== false,
         auto_leadfinder_access: Boolean(user.auto_leadfinder_access),
         auto_leadfinder_keyword: isKutch ? 'Travel Agency' : (user.auto_leadfinder_keyword || 'Travel Agency'),
-        auto_leadfinder_visibility: user.auto_leadfinder_visibility || 'visible'
+        auto_leadfinder_visibility: user.auto_leadfinder_visibility || 'visible',
+        easyadserver_access: Boolean(user.easyadserver_access),
+        easyadserver_token: user.easyadserver_token || ''
       });
       setError(null);
     }
@@ -86,7 +90,9 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
         is_active: formData.account_status === 'Active',
         auto_leadfinder_access: formData.auto_leadfinder_access,
         auto_leadfinder_keyword: isKutch ? 'Travel Agency' : (formData.auto_leadfinder_keyword.trim() || 'Travel Agency'),
-        auto_leadfinder_visibility: formData.auto_leadfinder_visibility
+        auto_leadfinder_visibility: formData.auto_leadfinder_visibility,
+        easyadserver_access: formData.easyadserver_access,
+        easyadserver_token: formData.easyadserver_token ? formData.easyadserver_token.trim() : null
       };
 
       if (formData.password.trim()) {
@@ -399,6 +405,67 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
                         : 'Requires Admin approval before showing to user.'}
                     </p>
                   </div>
+                </div>
+              )}
+            </div>
+
+            {/* EasyAdServer Feature Access Section */}
+            <div className="sm:col-span-2 pt-3 border-t border-slate-100 space-y-3">
+              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-100/90 border border-emerald-200 flex items-center justify-center text-emerald-700">
+                    <Send className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900">EasyAdServer Feature Access</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        formData.easyadserver_access
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        {formData.easyadserver_access ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      When enabled, this user sees the &quot;Send EasyAdServer&quot; button in their leads panel.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, easyadserver_access: !formData.easyadserver_access })}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                    formData.easyadserver_access ? 'bg-emerald-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                      formData.easyadserver_access ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Sub-settings when enabled */}
+              {formData.easyadserver_access && (
+                <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-1.5 animate-in fade-in">
+                  <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                    <Key className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>EasyAdServer API Token</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.easyadserver_token}
+                    onChange={(e) => setFormData({ ...formData, easyadserver_token: e.target.value })}
+                    placeholder="e.g. eas_9e20435003f9e6e1baa3b9c5052755ec81a225861c38ef13652d747c2dd905b6"
+                    className="w-full text-xs font-mono bg-white border border-slate-200 rounded-xl p-2.5 focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none transition-all text-slate-900"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    Bearer token used to authenticate this user&apos;s lead export requests to EasyAdServer.
+                  </p>
                 </div>
               )}
             </div>

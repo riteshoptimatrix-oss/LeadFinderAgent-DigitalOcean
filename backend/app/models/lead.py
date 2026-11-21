@@ -52,11 +52,23 @@ def _extract_all_contacts(data: Any, target: str, default_country: Any = None) -
     """Universally search and extract phones or emails from relevant keys only."""
     results = []
     
+    EXCLUDED_CONTACT_KEYS = {
+        'assigned_user_email', 'assigned_to_email', 'assigned_email',
+        'user_email', 'owner_email', 'admin_email', 'creator_email',
+        'sender_email', 'author_email', 'account_email', 'operator_email',
+        'system_email', 'smtp_email', 'manager_email', 'client_email',
+        'assigned_to', 'assigned_by', 'assigned_user_id', 'user_id'
+    }
+
     def _is_relevant_key(k: str) -> bool:
         k_lower = k.lower()
         if target == "phone":
+            if any(k_lower.startswith(p) for p in ['user_', 'assigned_', 'admin_', 'creator_']):
+                return False
             return any(x in k_lower for x in ['phone', 'mobile', 'whatsapp', 'number', 'contact', 'telephone'])
         else:
+            if k_lower in EXCLUDED_CONTACT_KEYS or any(k_lower.startswith(p) for p in ['assigned_', 'user_', 'owner_', 'admin_', 'creator_', 'sender_']):
+                return False
             return 'email' in k_lower
 
     def _process_value(v):

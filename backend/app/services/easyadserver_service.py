@@ -264,10 +264,37 @@ async def send_single_lead_to_easyadserver(
 
         log_doc["response_body"] = res_json
 
-        if status_code in (200, 201) and res_json.get("success") is True:
-            action = res_json.get("action", "inserted")
-            contact_id = res_json.get("contact_id")
-            group_id = res_json.get("group_id")
+        is_success = False
+        action = res_json.get("action", "inserted")
+        contact_id = res_json.get("contact_id")
+        group_id = res_json.get("group_id")
+
+        raw_success = res_json.get("success")
+        raw_status = str(res_json.get("status", "")).lower()
+
+        if status_code in (200, 201):
+            if raw_success is True or str(raw_success).lower() in ("true", "1"):
+                is_success = True
+            elif raw_status in ("success", "ok", "true", "200"):
+                is_success = True
+            elif contact_id is not None and str(contact_id).strip() != "":
+                is_success = True
+
+        err_msg = res_json.get("error") or res_json.get("message") or ""
+        if isinstance(err_msg, dict):
+            err_msg = str(err_msg)
+        err_lower = str(err_msg).lower()
+
+        # Duplicate detection: If already present on EasyAdServer, treat as handled
+        is_duplicate = any(kw in err_lower for kw in [
+            "already exist", "already registered", "duplicate", "already added",
+            "phone exists", "number exists", "mobile exists", "contact exists"
+        ])
+
+        if is_success or is_duplicate:
+            if is_duplicate and not is_success:
+                action = "existing"
+                contact_id = contact_id or lead.get("easyadserver_contact_id")
 
             log_doc["status"] = "SUCCESS"
             log_doc["action"] = action
@@ -290,6 +317,7 @@ async def send_single_lead_to_easyadserver(
 
             await db["easyadserver_logs"].insert_one(log_doc)
 
+            contact_label = f" #{contact_id}" if contact_id else ""
             return {
                 "success": True,
                 "lead_id": lead_id_str,
@@ -297,10 +325,11 @@ async def send_single_lead_to_easyadserver(
                 "action": action,
                 "contact_id": contact_id,
                 "group_id": group_id,
-                "message": f"Successfully {action} contact #{contact_id} in EasyAdServer"
+                "message": f"Successfully {action} contact{contact_label} in EasyAdServer"
             }
         else:
-            err_msg = res_json.get("error") or res_json.get("message") or f"HTTP {status_code}: {response.text[:200]}"
+            if not err_msg:
+                err_msg = f"HTTP {status_code}: {response.text[:200]}"
             if "errors" in res_json and isinstance(res_json["errors"], dict):
                 sub_errors = ", ".join(f"{k}: {v}" for k, v in res_json["errors"].items())
                 err_msg = f"{err_msg} ({sub_errors})"

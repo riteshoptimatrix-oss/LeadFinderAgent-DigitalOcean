@@ -432,7 +432,7 @@ function LeadsPageContent() {
     setEasyAdServerResult(null);
     try {
       const payload: any = {
-        skip_already_sent: skipAlreadySent
+        skip_already_sent: singleLeadTarget ? false : skipAlreadySent
       };
 
       if (singleLeadTarget) {
@@ -1241,6 +1241,11 @@ function LeadsPageContent() {
                         <span>✉️ {singleLeadTarget.email || 'No Email'}</span>
                         <span>📍 {singleLeadTarget.city || singleLeadTarget.area || '—'}</span>
                       </div>
+                      {singleLeadTarget.easyadserver_sent && (
+                        <div className="mt-2 text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded-lg px-2.5 py-1">
+                          ℹ️ This lead was previously marked sent. Re-sending will dispatch it directly to EasyAdServer even if deleted there.
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -1312,19 +1317,21 @@ function LeadsPageContent() {
                   </div>
                 </div>
 
-                {/* Prevent Duplicate Submissions Checkbox */}
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
-                  <input
-                    type="checkbox"
-                    id="skipAlreadySentCheck"
-                    checked={skipAlreadySent}
-                    onChange={(e) => setSkipAlreadySent(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
-                  />
-                  <label htmlFor="skipAlreadySentCheck" className="text-xs text-slate-700 cursor-pointer select-none">
-                    <strong className="font-semibold">Prevent duplicate submissions:</strong> Skip leads that were already successfully dispatched to EasyAdServer.
-                  </label>
-                </div>
+                {/* Prevent Duplicate Submissions Checkbox (only for bulk/selected) */}
+                {!singleLeadTarget && (
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                    <input
+                      type="checkbox"
+                      id="skipAlreadySentCheck"
+                      checked={skipAlreadySent}
+                      onChange={(e) => setSkipAlreadySent(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                    />
+                    <label htmlFor="skipAlreadySentCheck" className="text-xs text-slate-700 cursor-pointer select-none">
+                      <strong className="font-semibold">Prevent duplicate submissions:</strong> Skip leads that were already successfully dispatched to EasyAdServer.
+                    </label>
+                  </div>
+                )}
 
                 {/* Footer Buttons */}
                 <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
@@ -1357,7 +1364,7 @@ function LeadsPageContent() {
                     ) : (
                       <>
                         <Send className="w-3.5 h-3.5" />
-                        <span>Confirm &amp; Send to EasyAdServer</span>
+                        <span>{singleLeadTarget?.easyadserver_sent ? 'Re-send to EasyAdServer' : 'Confirm & Send to EasyAdServer'}</span>
                       </>
                     )}
                   </button>

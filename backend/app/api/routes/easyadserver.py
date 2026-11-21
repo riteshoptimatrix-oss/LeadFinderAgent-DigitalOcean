@@ -154,14 +154,15 @@ async def send_leads_to_easyadserver(
             "message": "No matching leads found to dispatch."
         }
 
-    # Execute dispatch via service
+    # Execute dispatch via service (for explicit single lead send, never skip even if previously sent)
+    skip_sent = False if payload.lead_id else bool(payload.skip_already_sent)
     batch_result = await send_leads_batch(
         leads=leads,
         token=token,
         db=raw_db,
         user_id=str(current_user.id),
         user_email=current_user.email,
-        skip_already_sent=bool(payload.skip_already_sent)
+        skip_already_sent=skip_sent
     )
 
     return batch_result

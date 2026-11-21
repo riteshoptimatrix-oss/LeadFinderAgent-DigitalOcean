@@ -123,12 +123,32 @@ function LeadsPageContent() {
   const urlStatus = searchParams.get('status') || '';
   const urlSortBy = searchParams.get('sort_by') || 'created_at';
   const urlSortOrder = searchParams.get('sort_order') ? parseInt(searchParams.get('sort_order')!, 10) : -1;
+  const urlAssignedTo = searchParams.get('assigned_to') || '';
+  const urlIsAutoLead = searchParams.get('is_auto_lead') || 'all';
+  const urlVisibility = searchParams.get('visibility') || '';
 
   const [page, setPage] = useState(() => (urlPage ? Math.max(0, parseInt(urlPage, 10)) : 0));
   const [limit, setLimit] = useState(() => (urlLimit ? parseInt(urlLimit, 10) : 10));
   const [searchQuery, setSearchQuery] = useState(() => urlSearch || '');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('list');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const [showFilters, setShowFilters] = useState(() =>
+    Boolean(urlCity || urlCategory || urlHasWebsite || urlHasPhone || urlHasEmail || urlStatus || urlAssignedTo || (urlIsAutoLead && urlIsAutoLead !== 'all') || urlVisibility)
+  );
+  const [filterCity, setFilterCity] = useState(() => urlCity || '');
+  const [filterCategory, setFilterCategory] = useState(() => urlCategory || '');
+  const [filterHasWebsite, setFilterHasWebsite] = useState(() => urlHasWebsite);
+  const [filterHasPhone, setFilterHasPhone] = useState(() => urlHasPhone);
+  const [filterHasEmail, setFilterHasEmail] = useState(() => urlHasEmail);
+  const [filterStatus, setFilterStatus] = useState(() => urlStatus);
+  const [filterAssignedTo, setFilterAssignedTo] = useState(() => urlAssignedTo);
+  const [filterIsAutoLead, setFilterIsAutoLead] = useState<'all' | 'auto' | 'manual'>(() =>
+    urlIsAutoLead === 'true' ? 'auto' : urlIsAutoLead === 'false' ? 'manual' : 'all'
+  );
+  const [filterVisibility, setFilterVisibility] = useState(() => urlVisibility);
+  const [sortBy, setSortBy] = useState(() => urlSortBy);
+  const [sortOrder, setSortOrder] = useState(() => urlSortOrder);
 
   // Keep searchQuery state synchronized when URL search params change (e.g. from header search bar)
   useEffect(() => {
@@ -233,7 +253,7 @@ function LeadsPageContent() {
     queryFn: async () => {
       try {
         const res = await api.get('/leads/assignable-users');
-        return res.data?.data || [];
+        return Array.isArray(res.data?.data) ? res.data.data : [];
       } catch {
         return [];
       }
@@ -259,8 +279,9 @@ function LeadsPageContent() {
   }, [isUserDropdownOpen]);
 
   const allUsersList = useMemo(() => {
-    const list = [...assignableUsersData];
-    if (!list.some(u => u.email?.toLowerCase() === 'kutchtourguide@gmail.com')) {
+    const raw = Array.isArray(assignableUsersData) ? assignableUsersData : [];
+    const list = [...raw];
+    if (!list.some(u => u && u.email && String(u.email).toLowerCase() === 'kutchtourguide@gmail.com')) {
       list.push({
         id: 'kutch_default',
         email: 'kutchtourguide@gmail.com',
@@ -273,21 +294,33 @@ function LeadsPageContent() {
   }, [assignableUsersData]);
 
   const filteredUsersList = useMemo(() => {
-    if (!userSearchTerm.trim()) return allUsersList;
-    const term = userSearchTerm.toLowerCase();
-    return allUsersList.filter(
-      u => u.full_name?.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term) || (u as any).company_name?.toLowerCase().includes(term)
-    );
+    if (!Array.isArray(allUsersList)) return [];
+    if (!userSearchTerm || !userSearchTerm.trim()) return allUsersList;
+    const term = userSearchTerm.trim().toLowerCase();
+    return allUsersList.filter(u => {
+      if (!u) return false;
+      const fn = String(u.full_name || '').toLowerCase();
+      const em = String(u.email || '').toLowerCase();
+      const cn = String((u as any)?.company_name || '').toLowerCase();
+      return fn.includes(term) || em.includes(term) || cn.includes(term);
+    });
   }, [allUsersList, userSearchTerm]);
 
   const selectedUserObj = useMemo(() => {
     if (!filterAssignedTo) return null;
-    return allUsersList.find(
-      u => u.email?.toLowerCase() === filterAssignedTo.toLowerCase() || u.id === filterAssignedTo
-    );
+    const target = String(filterAssignedTo).trim().toLowerCase();
+    if (!Array.isArray(allUsersList)) return null;
+    return allUsersList.find(u => {
+      if (!u) return false;
+      const uEmail = String(u.email || '').toLowerCase();
+      const uId = String(u.id || '');
+      return uEmail === target || uId === filterAssignedTo;
+    });
   }, [allUsersList, filterAssignedTo]);
 
-  const selectedUserDisplayName = selectedUserObj?.full_name || selectedUserObj?.email || filterAssignedTo;
+  const selectedUserDisplayName = String(
+    selectedUserObj?.full_name || selectedUserObj?.email || filterAssignedTo || ''
+  );
 
   // Admin Assignment modal state
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -423,27 +456,7 @@ function LeadsPageContent() {
     }
   }, [urlJobId, campaignOptionsData]);
 
-  // Filters (initialized from URL params if present)
-  const urlAssignedTo = searchParams.get('assigned_to') || '';
-  const urlIsAutoLead = searchParams.get('is_auto_lead') || 'all';
-  const urlVisibility = searchParams.get('visibility') || '';
 
-  const [showFilters, setShowFilters] = useState(() =>
-    Boolean(urlCity || urlCategory || urlHasWebsite || urlHasPhone || urlHasEmail || urlStatus || urlAssignedTo || (urlIsAutoLead && urlIsAutoLead !== 'all') || urlVisibility)
-  );
-  const [filterCity, setFilterCity] = useState(() => urlCity || '');
-  const [filterCategory, setFilterCategory] = useState(() => urlCategory || '');
-  const [filterHasWebsite, setFilterHasWebsite] = useState(() => urlHasWebsite);
-  const [filterHasPhone, setFilterHasPhone] = useState(() => urlHasPhone);
-  const [filterHasEmail, setFilterHasEmail] = useState(() => urlHasEmail);
-  const [filterStatus, setFilterStatus] = useState(() => urlStatus);
-  const [filterAssignedTo, setFilterAssignedTo] = useState(() => urlAssignedTo);
-  const [filterIsAutoLead, setFilterIsAutoLead] = useState<'all' | 'auto' | 'manual'>(() =>
-    urlIsAutoLead === 'true' ? 'auto' : urlIsAutoLead === 'false' ? 'manual' : 'all'
-  );
-  const [filterVisibility, setFilterVisibility] = useState(() => urlVisibility);
-  const [sortBy, setSortBy] = useState(() => urlSortBy);
-  const [sortOrder, setSortOrder] = useState(() => urlSortOrder);
 
   // Construct current leads URL preserving search, filters, pagination, and campaign context
   const buildCurrentLeadsUrl = useCallback(() => {
@@ -1289,16 +1302,17 @@ function LeadsPageContent() {
                         {!filterAssignedTo && <Check className="w-3.5 h-3.5 text-indigo-600" />}
                       </button>
 
-                      {filteredUsersList.map((u) => {
+                      {(Array.isArray(filteredUsersList) ? filteredUsersList : []).map((u) => {
                         const isSelected =
-                          filterAssignedTo?.toLowerCase() === u.email?.toLowerCase() ||
-                          filterAssignedTo === u.id;
+                          Boolean(filterAssignedTo) &&
+                          (String(filterAssignedTo).toLowerCase() === String(u?.email || '').toLowerCase() ||
+                            filterAssignedTo === u?.id);
                         return (
                           <button
-                            key={u.id || u.email}
+                            key={u?.id || u?.email || Math.random().toString()}
                             type="button"
                             onClick={() => {
-                              setFilterAssignedTo(u.email || u.id);
+                              setFilterAssignedTo(u?.email || u?.id || '');
                               setPage(0);
                               setIsUserDropdownOpen(false);
                             }}
@@ -1307,8 +1321,8 @@ function LeadsPageContent() {
                             }`}
                           >
                             <div className="truncate pr-2">
-                              <div className="font-bold truncate text-slate-800">{u.full_name || u.email}</div>
-                              <div className="text-[10px] text-slate-400 truncate">{u.email}</div>
+                              <div className="font-bold truncate text-slate-800">{u?.full_name || u?.email}</div>
+                              <div className="text-[10px] text-slate-400 truncate">{u?.email}</div>
                             </div>
                             {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
                           </button>
@@ -1548,7 +1562,7 @@ function LeadsPageContent() {
             )}
             {isAdmin && filterAssignedTo && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50/80 text-indigo-700 border border-indigo-200/60 rounded-lg text-xs font-semibold">
-                User: {assignableUsersData.find(u => u.id === filterAssignedTo)?.full_name || filterAssignedTo}
+                User: {(Array.isArray(assignableUsersData) ? assignableUsersData : []).find(u => u && (u.id === filterAssignedTo || u.email === filterAssignedTo))?.full_name || filterAssignedTo}
                 <button onClick={() => setFilterAssignedTo('')} className="hover:text-indigo-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             )}
@@ -1674,7 +1688,7 @@ function LeadsPageContent() {
                     >
                       <option value="">All Users</option>
                       <option value="unassigned">Unassigned Leads Only</option>
-                      {assignableUsersData.map((u) => (
+                      {(Array.isArray(assignableUsersData) ? assignableUsersData : []).map((u) => (
                         <option key={u.id} value={u.id}>
                           {u.full_name ? `${u.full_name} (${u.email})` : u.email}
                         </option>
@@ -2142,9 +2156,11 @@ function LeadsPageContent() {
                 <div>
                   <div className="flex justify-between items-start gap-2 mb-3">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
-                        {lead.category || 'LEAD'}
-                      </span>
+                      {lead.category && lead.category.trim().toUpperCase() !== 'UNCATEGORIZED' && (
+                        <span className="text-[10px] font-bold uppercase px-2.5 py-1 rounded-md bg-slate-100 text-slate-600 border border-slate-200">
+                          {lead.category}
+                        </span>
+                      )}
                       {(lead.is_auto_lead || lead.source === 'auto_leadfinder' || lead.requested_provider === 'Auto LeadFinder') && (
                         <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 border border-teal-200 text-teal-700">
                           <Sparkles className="w-2.5 h-2.5" /> Auto Lead
@@ -2377,13 +2393,13 @@ function LeadsPageContent() {
                   onChange={(e) => {
                     const selId = e.target.value;
                     setAssignTargetUserId(selId);
-                    const found = assignableUsersData.find((u) => u.id === selId);
+                    const found = (Array.isArray(assignableUsersData) ? assignableUsersData : []).find((u) => u && u.id === selId);
                     setAssignTargetUserEmail(found ? found.email : '');
                   }}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 text-slate-900 text-xs font-medium focus:outline-hidden focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 cursor-pointer"
                 >
                   <option value="">Unassign (Clear User Assignment)</option>
-                  {assignableUsersData.map((u) => (
+                  {(Array.isArray(assignableUsersData) ? assignableUsersData : []).map((u) => (
                     <option key={u.id} value={u.id}>
                       {u.full_name ? `${u.full_name} (${u.email})` : u.email} [{u.role}]
                     </option>

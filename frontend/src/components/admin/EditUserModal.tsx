@@ -47,7 +47,7 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
         role: (user.role || 'USER').toUpperCase(),
         account_status: user.account_status || (user.is_active === false ? 'Suspended' : 'Active'),
         is_active: user.is_active !== false,
-        auto_leadfinder_access: isKutch ? true : Boolean(user.auto_leadfinder_access),
+        auto_leadfinder_access: Boolean(user.auto_leadfinder_access),
         auto_leadfinder_keyword: isKutch ? 'Travel Agency' : (user.auto_leadfinder_keyword || 'Travel Agency'),
         auto_leadfinder_visibility: user.auto_leadfinder_visibility || 'visible'
       });
@@ -84,7 +84,7 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
         role: formData.role,
         account_status: formData.account_status,
         is_active: formData.account_status === 'Active',
-        auto_leadfinder_access: isKutch ? true : formData.auto_leadfinder_access,
+        auto_leadfinder_access: formData.auto_leadfinder_access,
         auto_leadfinder_keyword: isKutch ? 'Travel Agency' : (formData.auto_leadfinder_keyword.trim() || 'Travel Agency'),
         auto_leadfinder_visibility: formData.auto_leadfinder_visibility
       };

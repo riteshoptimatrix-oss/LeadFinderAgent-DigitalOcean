@@ -74,11 +74,11 @@ export default function AutoLeadFinderPage() {
     userProfile?.is_superuser === true;
 
   const userEmail = (user?.email || userProfile?.email || '')?.toLowerCase();
+  const userAccess = (userProfile as any)?.auto_leadfinder_access ?? (user as any)?.auto_leadfinder_access;
   const isAuthorized =
     isAdmin ||
-    userEmail === TARGET_EMAIL ||
-    (userProfile as any)?.auto_leadfinder_access === true ||
-    (user as any)?.auto_leadfinder_access === true;
+    userAccess === true ||
+    (userEmail === TARGET_EMAIL && userAccess !== false);
 
   // Strict route authorization check
   useEffect(() => {

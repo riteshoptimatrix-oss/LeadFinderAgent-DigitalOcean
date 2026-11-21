@@ -310,6 +310,19 @@ async def update_user(
     if update_fields:
         await raw_db["users"].update_one(target_query, {"$set": update_fields})
 
+        # Keep auto_leadfinder_settings in sync if access was modified
+        if payload.auto_leadfinder_access is not None and effective_user_email:
+            new_acc = bool(payload.auto_leadfinder_access)
+            await raw_db["auto_leadfinder_settings"].update_one(
+                {"user_email": {"$regex": f"^{re.escape(effective_user_email)}$", "$options": "i"}},
+                {"$set": {
+                    "is_active": new_acc,
+                    "auto_leadfinder_access": new_acc,
+                    "updated_at": datetime.now(timezone.utc)
+                }},
+                upsert=True
+            )
+
     # Log audit
     ip_address = request.client.host if request.client else "Unknown"
     await log_audit_action(

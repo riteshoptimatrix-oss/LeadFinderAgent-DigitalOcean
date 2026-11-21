@@ -479,7 +479,7 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
         user = await get_target_user(user_email=clean_email, db=db)
         user_id = str(user["_id"]) if user else ""
         has_access = True
-        if user and not is_kutch:
+        if user:
             user_role = (user.get("role") or "").strip().upper()
             if user_role != "ADMIN":
                 has_access = bool(user.get("auto_leadfinder_access", False))

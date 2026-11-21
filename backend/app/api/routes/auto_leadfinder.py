@@ -31,7 +31,7 @@ async def require_kutch_tour_guide(current_user: UserInDB = Depends(get_current_
     is_admin = user_role == "ADMIN" or getattr(current_user, "is_superuser", False) is True
     has_access = getattr(current_user, "auto_leadfinder_access", False) is True
 
-    if is_admin or user_email == TARGET_USER_EMAIL.lower() or has_access:
+    if is_admin or has_access or (user_email == TARGET_USER_EMAIL.lower() and getattr(current_user, "auto_leadfinder_access", None) is not False):
         return current_user
 
     logger.warning(f"[AUTO_LEADFINDER_AUTH] Unauthorized access attempt by {user_email}")

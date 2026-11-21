@@ -91,11 +91,11 @@ export default function Sidebar() {
 
   const userEmail = (user?.email || userProfile?.email || '')?.toLowerCase();
   const isKutchTourGuide = userEmail === 'kutchtourguide@gmail.com';
+  const userAccess = (userProfile as any)?.auto_leadfinder_access ?? (user as any)?.auto_leadfinder_access;
   const hasAutoLeadFinderAccess =
     isAdmin ||
-    isKutchTourGuide ||
-    (userProfile as any)?.auto_leadfinder_access === true ||
-    (user as any)?.auto_leadfinder_access === true;
+    userAccess === true ||
+    (isKutchTourGuide && userAccess !== false);
 
   const navGroups: NavGroupConfig[] = [
     {

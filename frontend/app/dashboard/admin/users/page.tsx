@@ -451,19 +451,19 @@ export default function AdminUsersPage() {
                             onClick={() => handleToggleAutoLeadFinder(userId, u)}
                             disabled={togglingUserId === userId}
                             title={
-                              u.auto_leadfinder_access || u.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                              u.auto_leadfinder_access
                                 ? 'Click to disable Auto LeadFinder for this user'
                                 : 'Click to enable Auto LeadFinder for this user'
                             }
                             className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden disabled:opacity-50 ${
-                              u.auto_leadfinder_access || u.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                              u.auto_leadfinder_access
                                 ? 'bg-teal-600'
                                 : 'bg-slate-300'
                             }`}
                           >
                             <span
                               className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-xs ring-0 transition duration-200 ease-in-out ${
-                                u.auto_leadfinder_access || u.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                                u.auto_leadfinder_access
                                   ? 'translate-x-4'
                                   : 'translate-x-0'
                               }`}
@@ -472,13 +472,13 @@ export default function AdminUsersPage() {
                           <div>
                             <span
                               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold ${
-                                u.auto_leadfinder_access || u.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                                u.auto_leadfinder_access
                                   ? 'bg-teal-50 text-teal-700 border border-teal-200'
                                   : 'bg-slate-100 text-slate-500'
                               }`}
                             >
                               <Compass className="w-2.5 h-2.5" />
-                              {u.auto_leadfinder_access || u.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                              {u.auto_leadfinder_access
                                 ? (u.email?.toLowerCase() === 'kutchtourguide@gmail.com' ? 'Travel Agency [Fixed]' : (u.auto_leadfinder_keyword || 'Active'))
                                 : 'Disabled'}
                             </span>

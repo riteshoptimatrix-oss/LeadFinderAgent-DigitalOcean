@@ -501,11 +501,19 @@ async def get_kpi_stats(user_email: Optional[str] = None, db = None) -> Dict[str
 
     user_display_name = user.get("full_name") or clean_email if user else clean_email
 
+    user_access = True
+    if user:
+        user_role = (user.get("role") or "").strip().upper()
+        if user_role != "ADMIN":
+            user_access = bool(user.get("auto_leadfinder_access", False))
+
+    effective_is_active = bool(settings.get("is_active", True)) and user_access
+
     return {
         "user_email": clean_email,
         "user_name": user_display_name,
         "is_configured": is_configured,
-        "is_active": settings.get("is_active", True),
+        "is_active": effective_is_active,
         "daily_limit": settings.get("daily_limit", 500 if is_kutch_target else 100),
         "priority_region": settings.get("priority_region") or ("Kutch City & District" if is_kutch_target else ""),
         "country": settings.get("country", "India" if is_kutch_target else ""),
@@ -572,8 +580,14 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
     user = await get_target_user(user_email=clean_email, db=db)
     user_id = str(user["_id"]) if user else None
 
+    user_access = True
+    if user:
+        user_role = (user.get("role") or "").strip().upper()
+        if user_role != "ADMIN":
+            user_access = bool(user.get("auto_leadfinder_access", False))
+
     settings = await get_or_create_settings(user_email=clean_email, db=db)
-    is_active = settings.get("is_active", True)
+    is_active = bool(settings.get("is_active", True)) and user_access
     daily_limit = settings.get("daily_limit", 100)
     start_locality_idx = settings.get("current_locality_index", 0)
 
@@ -1129,11 +1143,14 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED", target_u
         users = await cursor.to_list(length=200)
 
         emails_to_run = set()
-        emails_to_run.add(TARGET_USER_EMAIL.lower())
         for u in users:
             em = (u.get("email") or "").strip().lower()
             if em:
-                emails_to_run.add(em)
+                # Target user or user with access must not be explicitly disabled
+                if em == TARGET_USER_EMAIL.lower() and u.get("auto_leadfinder_access") is False:
+                    continue
+                if u.get("auto_leadfinder_access") is True or em == TARGET_USER_EMAIL.lower():
+                    emails_to_run.add(em)
 
         logger.info(f"[AUTO_LEADFINDER] Executing scheduled multi-user pipeline for {len(emails_to_run)} accounts: {list(emails_to_run)}")
         results = {}

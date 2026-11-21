@@ -201,12 +201,22 @@ export default function UserDetailsModal({ userId, isOpen, onClose, onImpersonat
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-teal-50/60 border border-teal-200/60 flex items-center gap-3">
-                    <Compass className="w-4 h-4 text-teal-600 shrink-0" />
+                  <div className={`p-3 rounded-xl border flex items-center gap-3 transition-colors ${
+                    user.auto_leadfinder_access
+                      ? 'bg-teal-50/60 border-teal-200/60'
+                      : 'bg-slate-100/80 border-slate-200'
+                  }`}>
+                    <Compass className={`w-4 h-4 shrink-0 ${
+                      user.auto_leadfinder_access ? 'text-teal-600' : 'text-slate-400'
+                    }`} />
                     <div>
-                      <span className="text-[10px] text-teal-700 block font-bold uppercase tracking-wider">Auto LeadFinder Access</span>
-                      <span className="text-slate-900 font-bold">
-                        {user.auto_leadfinder_access || user.email?.toLowerCase() === 'kutchtourguide@gmail.com'
+                      <span className={`text-[10px] block font-bold uppercase tracking-wider ${
+                        user.auto_leadfinder_access ? 'text-teal-700' : 'text-slate-500'
+                      }`}>Auto LeadFinder Access</span>
+                      <span className={`font-bold ${
+                        user.auto_leadfinder_access ? 'text-slate-900' : 'text-slate-600'
+                      }`}>
+                        {user.auto_leadfinder_access
                           ? `Enabled (${user.email?.toLowerCase() === 'kutchtourguide@gmail.com' ? 'Travel Agency [Fixed]' : (user.auto_leadfinder_keyword || 'Travel Agency')})`
                           : 'Disabled'}
                       </span>

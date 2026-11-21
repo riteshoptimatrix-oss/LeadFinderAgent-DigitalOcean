@@ -709,8 +709,8 @@ export default function AutoLeadFinderPage() {
                 value={scheduleTime}
                 onChange={(t) => setScheduleTime(t)}
                 label="Daily Execution Time"
-                clockSize={190}
-                showPresets={true}
+                clockSize={175}
+                showPresets={false}
               />
             </div>
 

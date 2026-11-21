@@ -704,13 +704,12 @@ export default function AutoLeadFinderPage() {
                 </span>
               </div>
 
-              {/* Round Analog Clock Picker (matching Image 2) */}
+              {/* Sleek Digital Time Picker */}
               <TimePicker
                 value={scheduleTime}
                 onChange={(t) => setScheduleTime(t)}
                 label="Daily Execution Time"
-                clockSize={175}
-                showPresets={false}
+                showPresets={true}
               />
             </div>
 

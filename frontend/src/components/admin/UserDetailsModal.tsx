@@ -202,8 +202,8 @@ export default function UserDetailsModal({ userId, isOpen, onClose, onImpersonat
                   </div>
 
                   <div className={`p-3 rounded-xl border flex items-center gap-3 transition-colors ${user.auto_leadfinder_access
-                      ? 'bg-teal-50/60 border-teal-200/60'
-                      : 'bg-slate-100/80 border-slate-200'
+                    ? 'bg-teal-50/60 border-teal-200/60'
+                    : 'bg-slate-100/80 border-slate-200'
                     }`}>
                     <Compass className={`w-4 h-4 shrink-0 ${user.auto_leadfinder_access ? 'text-teal-600' : 'text-slate-400'
                       }`} />

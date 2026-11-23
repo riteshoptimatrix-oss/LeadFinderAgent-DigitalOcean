@@ -32,6 +32,32 @@ interface ScheduledTasksMonitorProps {
   onScheduleDeleted?: () => void;
 }
 
+/**
+ * Normalizes and deduplicates location components into a clean, human-readable address.
+ * Eliminates duplicate components (e.g., area == city, or city == district)
+ * while preserving distinct locality, city, district, state, country.
+ * E.g. "Ahmedabad, Ahmedabad, Ahmedabad, Gujarat, India" -> "Ahmedabad, Gujarat, India"
+ * E.g. "Ashram Road, Ahmedabad, Ahmedabad, Gujarat, India" -> "Ashram Road, Ahmedabad, Gujarat, India"
+ */
+function formatCleanLocation(...args: (string | undefined | null)[]): string {
+  const seen = new Set<string>();
+  const parts: string[] = [];
+
+  for (const item of args) {
+    if (!item) continue;
+    const tokens = item.split(',').map((s) => s.trim()).filter(Boolean);
+    for (const token of tokens) {
+      const lower = token.toLowerCase();
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        parts.push(token);
+      }
+    }
+  }
+
+  return parts.join(', ');
+}
+
 export default function ScheduledTasksMonitor({
   userEmail,
   isKutchUser = false,
@@ -61,16 +87,31 @@ export default function ScheduledTasksMonitor({
   const schedules: any[] = tasksData?.lead_schedules || [];
   const serverTime = tasksData?.server_time_ist || 'Loading server time...';
 
-  // Calculate live counters
+  // Calculate live counters with complete status coverage (including Cancelled / Paused)
   const scheduledCount = schedules.filter((s) => s.status === 'SCHEDULED').length;
   const runningCount = schedules.filter((s) => s.status === 'RUNNING').length;
   const completedCount = schedules.filter((s) => s.status === 'COMPLETED').length;
   const failedCount = schedules.filter((s) => s.status === 'FAILED').length;
+  const cancelledCount = schedules.filter(
+    (s) => s.status === 'CANCELLED' || s.status === 'DISABLED' || s.status === 'PAUSED'
+  ).length;
 
   const filteredSchedules = schedules.filter((item) => {
     if (filterStatus === 'ALL') return true;
+    if (filterStatus === 'CANCELLED') {
+      return item.status === 'CANCELLED' || item.status === 'DISABLED' || item.status === 'PAUSED';
+    }
     return item.status === filterStatus;
   });
+
+  const tabList = [
+    { id: 'ALL', label: 'All Schedules', count: schedules.length },
+    { id: 'SCHEDULED', label: 'Scheduled', count: scheduledCount },
+    { id: 'RUNNING', label: 'Running', count: runningCount },
+    { id: 'COMPLETED', label: 'Completed', count: completedCount },
+    { id: 'FAILED', label: 'Failed', count: failedCount },
+    ...(cancelledCount > 0 ? [{ id: 'CANCELLED', label: 'Cancelled', count: cancelledCount }] : [])
+  ];
 
   // Handler for Delete All Schedules (strictly scoped to this user)
   const handleDeleteAllSchedules = async () => {
@@ -200,8 +241,8 @@ export default function ScheduledTasksMonitor({
           </div>
         </div>
 
-        {/* 4 Quick KPI Summary Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {/* Quick KPI Summary Cards */}
+        <div className={`grid grid-cols-2 ${cancelledCount > 0 ? 'sm:grid-cols-3 lg:grid-cols-5' : 'sm:grid-cols-4'} gap-3`}>
           <button
             type="button"
             onClick={() => setFilterStatus(filterStatus === 'SCHEDULED' ? 'ALL' : 'SCHEDULED')}
@@ -273,6 +314,26 @@ export default function ScheduledTasksMonitor({
               <XCircle className="w-5 h-5 text-rose-500/80" />
             </div>
           </button>
+
+          {cancelledCount > 0 && (
+            <button
+              type="button"
+              onClick={() => setFilterStatus(filterStatus === 'CANCELLED' ? 'ALL' : 'CANCELLED')}
+              className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+                filterStatus === 'CANCELLED'
+                  ? 'bg-slate-200/90 border-slate-400 ring-2 ring-slate-400/20 shadow-xs'
+                  : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100/80'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-[11px] font-semibold text-slate-700 block">⚪ Cancelled</span>
+                  <span className="text-xl font-bold text-slate-800 mt-0.5 block">{cancelledCount}</span>
+                </div>
+                <XCircle className="w-5 h-5 text-slate-400" />
+              </div>
+            </button>
+          )}
         </div>
       </div>
 
@@ -294,18 +355,19 @@ export default function ScheduledTasksMonitor({
       {/* Filter Tabs Bar */}
       <div className="flex items-center justify-between gap-3 border-b border-slate-200 pb-3 flex-wrap">
         <div className="flex items-center gap-1.5 flex-wrap">
-          {['ALL', 'SCHEDULED', 'RUNNING', 'COMPLETED', 'FAILED'].map((st) => (
+          {tabList.map((tab) => (
             <button
-              key={st}
-              onClick={() => setFilterStatus(st)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${filterStatus === st
-                ? 'bg-slate-900 text-white shadow-xs'
-                : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
+              key={tab.id}
+              onClick={() => setFilterStatus(tab.id)}
+              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                filterStatus === tab.id
+                  ? 'bg-slate-900 text-white shadow-xs'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
             >
-              {st === 'ALL' ? 'All Schedules' : st.charAt(0) + st.slice(1).toLowerCase()}
+              {tab.label}
               <span className="ml-1.5 text-[10px] opacity-75">
-                ({st === 'ALL' ? schedules.length : schedules.filter((s) => s.status === st).length})
+                ({tab.count})
               </span>
             </button>
           ))}
@@ -335,8 +397,24 @@ export default function ScheduledTasksMonitor({
           filteredSchedules.map((item) => {
             const isCompleted = item.status === 'COMPLETED';
             const isRunning = item.status === 'RUNNING';
-            const targetQuota = item.target || 500;
-            const progress = item.progress_percentage || 0;
+
+            // Safe numeric leads received and target quota
+            const receivedLeads = typeof item.leads_received === 'number' && !isNaN(item.leads_received) && item.leads_received > 0
+              ? item.leads_received
+              : 0;
+            const targetQuota = typeof item.target === 'number' && !isNaN(item.target) && item.target > 0
+              ? item.target
+              : 100;
+
+            // Exact calculated percentage (uncapped for label e.g., 104%, visually clamped to [0, 100]% for progress bar)
+            const calculatedPercentage = typeof item.progress_percentage === 'number' && !isNaN(item.progress_percentage)
+              ? item.progress_percentage
+              : targetQuota > 0
+                ? Math.round((receivedLeads / targetQuota) * 100)
+                : 0;
+
+            const visualBarWidth = Math.min(100, Math.max(0, calculatedPercentage));
+            const cleanTargetArea = formatCleanLocation(item.area, item.city);
 
             return (
               <div
@@ -369,7 +447,8 @@ export default function ScheduledTasksMonitor({
                   </div>
 
                   <span className="text-xs text-slate-400 font-medium">
-                    Scheduled At: <strong className="text-slate-700">{item.scheduled_date_time || item.created_at}</strong>
+                    {isRunning ? 'Started At: ' : item.is_upcoming ? 'Planned Run: ' : 'Executed At: '}
+                    <strong className="text-slate-700">{item.scheduled_date_time || item.created_at}</strong>
                   </span>
                 </div>
 
@@ -379,7 +458,7 @@ export default function ScheduledTasksMonitor({
                   <div className="md:col-span-3 space-y-1 border-b md:border-b-0 md:border-r border-slate-100 pb-4 md:pb-0 md:pr-4">
                     <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
                       <Clock className="w-3.5 h-3.5 text-teal-600" />
-                      Next Execution
+                      {isRunning ? 'Execution Status' : item.is_upcoming ? 'Next Execution' : 'Execution Time'}
                     </span>
                     <p className="font-bold text-slate-900 text-xs flex items-center gap-1.5">
                       {isRunning && !item.day_label && (
@@ -406,8 +485,8 @@ export default function ScheduledTasksMonitor({
                         </span>
                       )}
                     </p>
-                    <p className="text-[10px] text-slate-400 truncate font-mono" title={item.area}>
-                      {item.area}
+                    <p className="text-[10px] text-slate-400 truncate font-mono" title={cleanTargetArea}>
+                      {cleanTargetArea}
                     </p>
                   </div>
 
@@ -422,7 +501,7 @@ export default function ScheduledTasksMonitor({
                     </div>
                   </div>
 
-                  {/* Detail 4: Leads Received vs Target: 500 (3 cols) */}
+                  {/* Detail 4: Leads Received vs Target (3 cols) */}
                   <div className="md:col-span-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
@@ -436,28 +515,27 @@ export default function ScheduledTasksMonitor({
 
                     <div className="flex items-baseline justify-between">
                       <div className="flex items-baseline gap-1">
-                        <span className={`text-2xl font-black ${isCompleted ? 'text-emerald-600' : isRunning ? 'text-blue-600' : 'text-slate-900'
-                          }`}>
-                          {item.leads_received || 0}
+                        <span className={`text-2xl font-black ${isCompleted ? 'text-emerald-600' : isRunning ? 'text-blue-600' : 'text-slate-900'}`}>
+                          {receivedLeads}
                         </span>
                         <span className="text-xs font-bold text-slate-400">/ {targetQuota} leads</span>
                       </div>
-                      <span className={`text-xs font-extrabold ${progress >= 100 ? 'text-emerald-600' : 'text-slate-500'
-                        }`}>
-                        {progress}%
+                      <span className={`text-xs font-extrabold ${calculatedPercentage >= 100 ? 'text-emerald-600' : 'text-slate-500'}`}>
+                        {calculatedPercentage}%
                       </span>
                     </div>
 
-                    {/* Progress Bar */}
+                    {/* Progress Bar (capped visually at 100%) */}
                     <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
                       <div
-                        className={`h-2 rounded-full transition-all duration-700 ${progress >= 100
-                          ? 'bg-emerald-500'
-                          : isRunning
-                            ? 'bg-blue-600'
-                            : 'bg-amber-400'
-                          }`}
-                        style={{ width: `${progress}%` }}
+                        className={`h-2 rounded-full transition-all duration-700 ${
+                          calculatedPercentage >= 100
+                            ? 'bg-emerald-500'
+                            : isRunning
+                              ? 'bg-blue-600'
+                              : 'bg-amber-400'
+                        }`}
+                        style={{ width: `${visualBarWidth}%` }}
                       />
                     </div>
                   </div>

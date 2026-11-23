@@ -11,6 +11,35 @@ logger = logging.getLogger(__name__)
 
 POSTAL_API_BASE = "https://api.postalpincode.in"
 
+
+def format_clean_location(*args, **kwargs) -> str:
+    """
+    Normalizes and deduplicates location components into a clean, human-readable address.
+    Eliminates case-insensitive duplicate components (e.g., area == city, or city == district)
+    while preserving distinct locality, city, district, state, country.
+    E.g. ('Ahmedabad', 'Ahmedabad', 'Ahmedabad', 'Gujarat', 'India') -> 'Ahmedabad, Gujarat, India'
+    E.g. ('Ashram Road', 'Ahmedabad', 'Ahmedabad', 'Gujarat', 'India') -> 'Ashram Road, Ahmedabad, Gujarat, India'
+    """
+    parts = []
+    seen = set()
+
+    raw_candidates = list(args)
+    for k in ["area_name", "locality", "city", "district", "state", "country"]:
+        if k in kwargs and kwargs[k]:
+            raw_candidates.append(kwargs[k])
+
+    for item in raw_candidates:
+        if not item:
+            continue
+        sub_items = [s.strip() for s in str(item).split(",") if s.strip()]
+        for sub in sub_items:
+            norm = sub.lower()
+            if norm not in seen:
+                seen.add(norm)
+                parts.append(sub)
+
+    return ", ".join(parts)
+
 # Supplementary curated dictionary for Indian cities & districts to guarantee 100% PIN code coverage
 # even if public postal search experiences network latency or partial string matches.
 KNOWN_CITY_PINCODES: Dict[str, Dict[str, Any]] = {
@@ -345,11 +374,8 @@ class PostalDiscoveryService:
                 continue
 
             # Format search query: {Area Name}, {City}, {District}, {State}, {Country}
-            # Avoid repeating city if Area Name already contains City (e.g. "Bhuj Darbargadh Chowk")
-            if clean_city.lower() in area_name.lower():
-                maps_query = f"{area_name}, {clean_district}, {clean_state}, {clean_country}"
-            else:
-                maps_query = f"{area_name}, {clean_city}, {clean_district}, {clean_state}, {clean_country}"
+            # Cleanly deduplicate tokens (e.g. area == city, or city == district)
+            maps_query = format_clean_location(area_name, clean_city, clean_district, clean_state, clean_country)
 
             travel_agency_query = f"Travel Agency in {maps_query}"
 

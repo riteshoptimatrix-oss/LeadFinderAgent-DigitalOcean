@@ -15,6 +15,34 @@ logger = logging.getLogger(__name__)
 TARGET_USER_EMAIL = "kutchtourguide@gmail.com"
 KOLKATA_TZ = zoneinfo.ZoneInfo("Asia/Kolkata")
 
+
+def format_clean_location(*args, **kwargs) -> str:
+    """
+    Normalizes and deduplicates location components into a clean, human-readable address.
+    Eliminates case-insensitive duplicate components (e.g., area == city, or city == district)
+    while preserving distinct locality, city, district, state, country.
+    E.g. ('Ahmedabad', 'Ahmedabad', 'Ahmedabad', 'Gujarat', 'India') -> 'Ahmedabad, Gujarat, India'
+    """
+    parts = []
+    seen = set()
+
+    raw_candidates = list(args)
+    for k in ["area_name", "locality", "city", "district", "state", "country"]:
+        if k in kwargs and kwargs[k]:
+            raw_candidates.append(kwargs[k])
+
+    for item in raw_candidates:
+        if not item:
+            continue
+        sub_items = [s.strip() for s in str(item).split(",") if s.strip()]
+        for sub in sub_items:
+            norm = sub.lower()
+            if norm not in seen:
+                seen.add(norm)
+                parts.append(sub)
+
+    return ", ".join(parts)
+
 # Global async lock to ensure only one auto-scraping job runs at any time
 _scraping_lock = asyncio.Lock()
 
@@ -819,7 +847,7 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                 area_name = area_item["name"]
                 area_pin = area_item.get("pincode", "")
                 area_district = area_item.get("district") or target_district
-                maps_query = area_item.get("maps_query") or f"{area_name}, {target_city}, {area_district}, {target_state}, {target_country}"
+                maps_query = format_clean_location(area_item.get("maps_query")) if area_item.get("maps_query") else format_clean_location(area_name, target_city, area_district, target_state, target_country)
 
                 area_saved = 0
                 area_dups = 0

@@ -14,6 +14,35 @@ logger = logging.getLogger(__name__)
 
 KOLKATA_TZ = zoneinfo.ZoneInfo("Asia/Kolkata")
 
+
+def format_clean_location(*args, **kwargs) -> str:
+    """
+    Normalizes and deduplicates location components into a clean, human-readable address.
+    Eliminates case-insensitive duplicate components (e.g., area == city, or city == district)
+    while preserving distinct locality, city, district, state, country.
+    E.g. ('Ahmedabad', 'Ahmedabad', 'Ahmedabad', 'Gujarat', 'India') -> 'Ahmedabad, Gujarat, India'
+    E.g. ('Ashram Road', 'Ahmedabad', 'Ahmedabad', 'Gujarat', 'India') -> 'Ashram Road, Ahmedabad, Gujarat, India'
+    """
+    parts = []
+    seen = set()
+
+    raw_candidates = list(args)
+    for k in ["area_name", "locality", "city", "district", "state", "country"]:
+        if k in kwargs and kwargs[k]:
+            raw_candidates.append(kwargs[k])
+
+    for item in raw_candidates:
+        if not item:
+            continue
+        sub_items = [s.strip() for s in str(item).split(",") if s.strip()]
+        for sub in sub_items:
+            norm = sub.lower()
+            if norm not in seen:
+                seen.add(norm)
+                parts.append(sub)
+
+    return ", ".join(parts)
+
 # Human-readable metadata and descriptions for all registered scheduled tasks
 TASK_METADATA: Dict[str, Dict[str, Any]] = {
     "auto_leadfinder_daily": {
@@ -470,7 +499,7 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                 {
                     "name": loc["locality"],
                     "pincode": loc.get("pincode", "370001"),
-                    "maps_query": f"{loc['locality']}, {target_city}, {target_district}, {target_state}, {target_country}"
+                    "maps_query": format_clean_location(loc['locality'], target_city, target_district, target_state, target_country)
                 }
                 for loc in KUTCH_LOCALITIES_CATALOG
             ]
@@ -549,14 +578,14 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                 "scheduled_date_time": schedule_created_str,
                 "next_execution_time": "Automation Paused / Disabled",
                 "next_execution_relative": "Stopped",
-                "area": f"{target_city}, {target_district}, {target_state}",
+                "area": format_clean_location(target_city, target_district, target_state),
                 "area_name": target_city or "Target Location",
                 "city": target_city,
                 "district": target_district,
                 "pincode": "",
                 "status": "DISABLED",
                 "status_label": "⚪ Disabled / Paused",
-                "leads_received": today_leads_count,
+                "leads_received": 0,
                 "target": lead_target,
                 "progress_percentage": 0,
                 "is_upcoming": True,
@@ -577,17 +606,21 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                     area_obj = discovered_areas[day_area_idx]
                     day_area_name = area_obj.get("name", target_city)
                     day_pincode = area_obj.get("pincode", "")
-                    day_full_area = area_obj.get("maps_query") or f"{day_area_name}, {target_city}, {target_district}, {target_state}, {target_country}"
+                    raw_maps = area_obj.get("maps_query")
+                    if raw_maps:
+                        day_full_area = format_clean_location(raw_maps)
+                    else:
+                        day_full_area = format_clean_location(day_area_name, target_city, target_district, target_state, target_country)
                 else:
                     day_area_name = target_city
                     day_pincode = ""
-                    day_full_area = f"{target_city}, {target_district}, {target_state}, {target_country}"
+                    day_full_area = format_clean_location(target_city, target_district, target_state, target_country)
 
                 # Day label & status mapping
                 if day_offset == 0:
                     day_label = "Day 1 (Tonight)"
                     day_status = "SCHEDULED" if is_active else "CANCELLED"
-                    day_leads = today_leads_count
+                    day_leads = 0  # Upcoming schedule has not run yet
                 elif day_offset == 1:
                     day_label = "Day 2 (Tomorrow Night)"
                     day_status = "SCHEDULED" if is_active else "CANCELLED"
@@ -609,7 +642,7 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                     "day_number": day_offset + 1,
                     "day_label": day_label,
                     "title": schedule_title,
-                    "scheduled_date_time": schedule_created_str,
+                    "scheduled_date_time": scheduled_dt_str,
                     "next_execution_time": scheduled_dt_str,
                     "next_execution_relative": scheduled_rel_str,
                     "area": day_full_area,
@@ -620,7 +653,7 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                     "status": day_status,
                     "leads_received": day_leads,
                     "target": lead_target,
-                    "progress_percentage": min(100, round((day_leads / lead_target) * 100)),
+                    "progress_percentage": round((day_leads / lead_target) * 100) if lead_target and lead_target > 0 else 0,
                     "is_upcoming": True,
                     "created_at": schedule_created_str
                 })
@@ -647,10 +680,15 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                 run_area_name = raw_loc.get("locality") or raw_loc.get("name") or raw_loc.get("area") or run_city
             else:
                 run_area_name = str(raw_loc)
-            run_full_area = f"{run_area_name}, {run_city}, {target_district}, {target_state}, {target_country}"
+            run_full_area = format_clean_location(run_area_name, run_city, target_district, target_state, target_country)
 
             run_leads = run.get("total_collected", 0)
-            run_status = run.get("status", "COMPLETED")
+            raw_status = (run.get("status") or "COMPLETED").strip().upper()
+            if raw_status in ("SCHEDULED", "RUNNING", "COMPLETED", "FAILED", "CANCELLED", "DISABLED", "PAUSED"):
+                run_status = raw_status
+            else:
+                run_status = "FAILED" if run.get("error_message") else "COMPLETED"
+
             is_active_running = False
 
             if run_status == "RUNNING":
@@ -689,6 +727,7 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                             {"$set": {"total_collected": run_leads, "last_heartbeat": now_utc}}
                         )
 
+            calc_progress = round((run_leads / lead_target) * 100) if lead_target and lead_target > 0 else 0
             run_item = {
                 "id": str(run["_id"]),
                 "title": f"{target_keyword} Scraping Run ({run_city})",
@@ -703,7 +742,7 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                 "status": run_status,
                 "leads_received": run_leads,
                 "target": lead_target,
-                "progress_percentage": min(100, round((run_leads / lead_target) * 100)),
+                "progress_percentage": calc_progress,
                 "is_upcoming": False,
                 "created_at": run_started_str
             }
@@ -721,7 +760,7 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                 "scheduled_date_time": baseline_time,
                 "next_execution_time": "-",
                 "next_execution_relative": "Earlier today",
-                "area": f"Old City & Darbargadh, {target_city}, {target_district}, {target_state}, {target_country}",
+                "area": format_clean_location("Old City & Darbargadh", target_city, target_district, target_state, target_country),
                 "area_name": "Old City & Darbargadh",
                 "city": target_city,
                 "district": target_district,
@@ -736,10 +775,21 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
     except Exception as e:
         logger.error(f"[SCHEDULED_TASKS] Error generating lead_schedules: {e}", exc_info=True)
 
+    # Deduplicate schedules by ID to avoid any double-counting
+    seen_sched_ids = set()
+    deduped_schedules = []
+    for item in lead_schedules:
+        item_id = str(item.get("id"))
+        if item_id not in seen_sched_ids:
+            seen_sched_ids.add(item_id)
+            deduped_schedules.append(item)
+    lead_schedules = deduped_schedules
+
     lead_sched_count = len([s for s in lead_schedules if s.get("status") == "SCHEDULED"])
     lead_run_count = len([s for s in lead_schedules if s.get("status") == "RUNNING"])
     lead_comp_count = len([s for s in lead_schedules if s.get("status") == "COMPLETED"])
     lead_fail_count = len([s for s in lead_schedules if s.get("status") == "FAILED"])
+    lead_cancel_count = len([s for s in lead_schedules if s.get("status") in ("CANCELLED", "DISABLED", "PAUSED")])
 
     return {
         "success": True,
@@ -752,6 +802,7 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
             "scheduled": lead_sched_count,
             "completed_runs": lead_comp_count,
             "failed_runs": lead_fail_count,
+            "cancelled_runs": lead_cancel_count,
         },
         "tasks": tasks_output,
         "recent_history": history_items

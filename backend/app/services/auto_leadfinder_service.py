@@ -829,7 +829,7 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                     if needed <= 0:
                         break
 
-                    batch_limit = min(needed, 20)
+                    batch_limit = min(needed, 100)
                     search_query_keyword = f"{keyword}"
                     search_area = f"{area_name}"
 
@@ -928,19 +928,37 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                     "duplicates": area_dups
                 })
 
-                area_idx = (area_idx + 1) % total_areas_len
+                next_area_idx = (area_idx + 1) % total_areas_len
                 iteration_steps += 1
 
-            # Update settings with next area index for future runs
-            end_utc = datetime.now(timezone.utc)
-            await db["auto_leadfinder_settings"].update_one(
-                {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
-                {"$set": {
-                    "current_area_index": area_idx,
-                    "last_run_at": end_utc,
-                    "updated_at": end_utc
-                }}
-            )
+                # If current area yielded fewer leads than target_for_this_run, automatically advance to next area
+                if total_collected < target_for_this_run:
+                    next_area_name = discovered_areas[next_area_idx]["name"]
+                    logger.info(
+                        f"[AUTO_LEADFINDER] [{clean_email}] Area '{area_name}' yielded {area_saved} leads (total: {total_collected}/{target_for_this_run} target). "
+                        f"Automatically advancing to next area: '{next_area_name}' (Index {next_area_idx+1}/{total_areas_len}) to continue searching for remaining {target_for_this_run - total_collected} leads."
+                    )
+
+                area_idx = next_area_idx
+
+                # Live sync of localities_processed, next area and heartbeat in DB
+                await db["auto_leadfinder_runs"].update_one(
+                    {"_id": run_id},
+                    {"$set": {
+                        "localities_processed": localities_processed,
+                        "current_area": discovered_areas[area_idx]["name"] if total_collected < target_for_this_run else area_name,
+                        "total_collected": total_collected,
+                        "duplicates_filtered": total_duplicates,
+                        "last_heartbeat": datetime.now(timezone.utc)
+                    }}
+                )
+                await db["auto_leadfinder_settings"].update_one(
+                    {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+                    {"$set": {
+                        "current_area_index": area_idx,
+                        "updated_at": datetime.now(timezone.utc)
+                    }}
+                )
 
         elif is_custom_city:
             # Mode B: Custom City Centers fallback
@@ -966,7 +984,7 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                     if needed <= 0:
                         break
 
-                    batch_limit = min(needed, 20)
+                    batch_limit = min(needed, 100)
                     search_query_keyword = f"{keyword}"
 
                     job_id = await progress_service.create_job(
@@ -1058,6 +1076,22 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                     "duplicates": area_dups
                 })
 
+                if total_collected < target_for_this_run:
+                    logger.info(
+                        f"[AUTO_LEADFINDER] [{clean_email}] Custom hub '{area}' yielded {area_saved} leads (total: {total_collected}/{target_for_this_run} target). "
+                        f"Automatically advancing to next custom hub to continue searching for remaining {target_for_this_run - total_collected} leads."
+                    )
+
+                await db["auto_leadfinder_runs"].update_one(
+                    {"_id": run_id},
+                    {"$set": {
+                        "localities_processed": localities_processed,
+                        "total_collected": total_collected,
+                        "duplicates_filtered": total_duplicates,
+                        "last_heartbeat": datetime.now(timezone.utc)
+                    }}
+                )
+
         else:
             # Mode C: Kutch Localities Catalog (for Kutch Tour Guide)
             iteration_steps = 0
@@ -1079,7 +1113,7 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                     if needed <= 0:
                         break
 
-                    batch_limit = min(needed, 20)
+                    batch_limit = min(needed, 100)
                     search_query_keyword = f"{keyword}"
                     search_area = f"{locality}"
 
@@ -1170,19 +1204,35 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                     "duplicates": locality_dups
                 })
 
-                curr_idx = (curr_idx + 1) % total_catalog_len
+                next_curr_idx = (curr_idx + 1) % total_catalog_len
                 iteration_steps += 1
 
-            # Update settings with next locality index
-            end_utc = datetime.now(timezone.utc)
-            await db["auto_leadfinder_settings"].update_one(
-                {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
-                {"$set": {
-                    "current_locality_index": curr_idx,
-                    "last_run_at": end_utc,
-                    "updated_at": end_utc
-                }}
-            )
+                if total_collected < target_for_this_run:
+                    next_loc = KUTCH_LOCALITIES_CATALOG[next_curr_idx]["locality"]
+                    logger.info(
+                        f"[AUTO_LEADFINDER] [{clean_email}] Locality '{locality}' yielded {locality_saved} leads (total: {total_collected}/{target_for_this_run} target). "
+                        f"Automatically advancing to next locality: '{next_loc}' to continue searching for remaining {target_for_this_run - total_collected} leads."
+                    )
+
+                curr_idx = next_curr_idx
+
+                await db["auto_leadfinder_runs"].update_one(
+                    {"_id": run_id},
+                    {"$set": {
+                        "localities_processed": localities_processed,
+                        "total_collected": total_collected,
+                        "duplicates_filtered": total_duplicates,
+                        "current_area": KUTCH_LOCALITIES_CATALOG[curr_idx]["locality"] if total_collected < target_for_this_run else locality,
+                        "last_heartbeat": datetime.now(timezone.utc)
+                    }}
+                )
+                await db["auto_leadfinder_settings"].update_one(
+                    {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+                    {"$set": {
+                        "current_locality_index": curr_idx,
+                        "updated_at": datetime.now(timezone.utc)
+                    }}
+                )
 
         # Mark run as COMPLETED
         end_utc = datetime.now(timezone.utc)

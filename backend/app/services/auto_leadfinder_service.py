@@ -483,12 +483,20 @@ async def get_kpi_stats(user_email: Optional[str] = None, db = None) -> Dict[str
         if run_start.tzinfo is None:
             run_start = run_start.replace(tzinfo=timezone.utc)
         
-        # Stale run cleanup: if older than 35 mins or scraping lock is not locked
-        if (now_utc - run_start) > timedelta(minutes=35) or not _scraping_lock.locked():
+        last_hb = active_run.get("last_heartbeat") or run_start
+        if last_hb.tzinfo is None:
+            last_hb = last_hb.replace(tzinfo=timezone.utc)
+
+        # Stale run cleanup: ONLY if running for more than 45 mins or no heartbeat for 15 mins
+        if (now_utc - run_start) > timedelta(minutes=45) or (now_utc - last_hb) > timedelta(minutes=15):
             final_status = "COMPLETED" if active_run.get("total_collected", 0) > 0 else "CANCELLED"
             await db["auto_leadfinder_runs"].update_one(
                 {"_id": active_run["_id"]},
                 {"$set": {"status": final_status, "completed_at": now_utc}}
+            )
+            await db["auto_leadfinder_settings"].update_one(
+                {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+                {"$set": {"is_running": False, "active_run_id": None}}
             )
             is_running = False
         else:
@@ -591,12 +599,26 @@ async def get_run_history(user_email: Optional[str] = None, limit: int = 20, ski
     return runs
 
 
-async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHEDULED", db = None) -> Dict[str, Any]:
+async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHEDULED", db = None, existing_run_id: Optional[ObjectId] = None) -> Dict[str, Any]:
     """Execute scraping pipeline specifically for a single user."""
     if db is None:
         db = get_raw_database()
     if db is None:
         logger.error(f"[AUTO_LEADFINDER] Database connection unavailable for {clean_email}")
+        if existing_run_id:
+            try:
+                raw_db = get_raw_database()
+                if raw_db:
+                    await raw_db["auto_leadfinder_runs"].update_one(
+                        {"_id": existing_run_id},
+                        {"$set": {"status": "FAILED", "completed_at": datetime.now(timezone.utc), "error_message": "Database unavailable"}}
+                    )
+                    await raw_db["auto_leadfinder_settings"].update_one(
+                        {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+                        {"$set": {"is_running": False, "active_run_id": None}}
+                    )
+            except Exception:
+                pass
         return {"status": "error", "message": "Database unavailable"}
 
     user = await get_target_user(user_email=clean_email, db=db)
@@ -628,6 +650,15 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
 
         if not is_configured or not target_city or not target_kw:
             logger.info(f"[AUTO_LEADFINDER] Skipping run for {clean_email}: Search preferences unconfigured (City: '{target_city}', Keyword: '{target_kw}', Configured: {is_configured})")
+            if existing_run_id:
+                await db["auto_leadfinder_runs"].update_one(
+                    {"_id": existing_run_id},
+                    {"$set": {"status": "FAILED", "completed_at": datetime.now(timezone.utc), "error_message": "Search preferences unconfigured"}}
+                )
+                await db["auto_leadfinder_settings"].update_one(
+                    {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+                    {"$set": {"is_running": False, "active_run_id": None}}
+                )
             return {
                 "status": "unconfigured",
                 "message": f"Auto LeadFinder for {clean_email} is unconfigured. Target city and search keywords are required before searching."
@@ -643,6 +674,15 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
 
     if not is_active and trigger_type == "SCHEDULED":
         logger.info(f"[AUTO_LEADFINDER] Automation is toggled OFF for {clean_email}. Skipping scheduled run.")
+        if existing_run_id:
+            await db["auto_leadfinder_runs"].update_one(
+                {"_id": existing_run_id},
+                {"$set": {"status": "CANCELLED", "completed_at": datetime.now(timezone.utc), "error_message": "Automation inactive"}}
+            )
+            await db["auto_leadfinder_settings"].update_one(
+                {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+                {"$set": {"is_running": False, "active_run_id": None}}
+            )
         return {"status": "skipped", "message": "Automation is currently inactive."}
 
     # Check today's quota already collected for this user
@@ -674,7 +714,6 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
         target_for_this_run = daily_limit if quota_remaining <= 0 else quota_remaining
         target_for_this_run = max(target_for_this_run, 100)
 
-    run_id = ObjectId()
     now_utc = datetime.now(timezone.utc)
     now_ist = datetime.now(KOLKATA_TZ)
 
@@ -684,27 +723,49 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
     target_city = settings.get("city") or ("Kutch district" if is_kutch_target else "")
     is_custom_city = location_mode == "custom_city" and target_city and "kutch" not in target_city.lower()
 
-    run_doc = {
-        "_id": run_id,
-        "user_id": user_id,
-        "user_email": clean_email,
-        "run_date": now_ist.strftime("%Y-%m-%d"),
-        "trigger_type": trigger_type,
-        "status": "RUNNING",
-        "started_at": now_utc,
-        "completed_at": None,
-        "daily_limit_target": daily_limit,
-        "target_for_this_run": target_for_this_run,
-        "location_mode": "custom_city" if is_custom_city else "kutch_systematic",
-        "target_country": target_country,
-        "target_state": target_state,
-        "target_city": target_city,
-        "total_collected": 0,
-        "duplicates_filtered": 0,
-        "localities_processed": [],
-        "error_message": None,
-    }
-    await db["auto_leadfinder_runs"].insert_one(run_doc)
+    if existing_run_id:
+        run_id = existing_run_id
+        await db["auto_leadfinder_runs"].update_one(
+            {"_id": run_id},
+            {"$set": {
+                "status": "RUNNING",
+                "last_heartbeat": now_utc,
+                "target_for_this_run": target_for_this_run,
+                "daily_limit_target": daily_limit,
+                "target_city": target_city,
+                "target_state": target_state,
+                "target_country": target_country
+            }}
+        )
+    else:
+        run_id = ObjectId()
+        run_doc = {
+            "_id": run_id,
+            "user_id": user_id,
+            "user_email": clean_email,
+            "run_date": now_ist.strftime("%Y-%m-%d"),
+            "trigger_type": trigger_type,
+            "status": "RUNNING",
+            "started_at": now_utc,
+            "last_heartbeat": now_utc,
+            "completed_at": None,
+            "daily_limit_target": daily_limit,
+            "target_for_this_run": target_for_this_run,
+            "location_mode": "custom_city" if is_custom_city else "kutch_systematic",
+            "target_country": target_country,
+            "target_state": target_state,
+            "target_city": target_city,
+            "total_collected": 0,
+            "duplicates_filtered": 0,
+            "localities_processed": [],
+            "error_message": None,
+        }
+        await db["auto_leadfinder_runs"].insert_one(run_doc)
+
+    await db["auto_leadfinder_settings"].update_one(
+        {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+        {"$set": {"is_running": True, "active_run_id": str(run_id)}}
+    )
     logger.info(f"[AUTO_LEADFINDER] Started run {run_id} (Target: {target_for_this_run} unique leads for {clean_email}, City: {target_city}, Keywords: {active_keywords})")
 
     total_collected = 0
@@ -1135,6 +1196,10 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                 "localities_processed": localities_processed,
             }}
         )
+        await db["auto_leadfinder_settings"].update_one(
+            {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+            {"$set": {"is_running": False, "active_run_id": None}}
+        )
 
         # Rule 1.2: If user enabled automatic dispatch to EasyAdServer upon run completion
         if settings.get("auto_send_eas") and user_id:
@@ -1173,10 +1238,18 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                 "localities_processed": localities_processed
             }}
         )
+        await db["auto_leadfinder_settings"].update_one(
+            {"user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+            {"$set": {"is_running": False, "active_run_id": None}}
+        )
         return {"status": "error", "message": str(e)}
 
 
-async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED", target_user_email: Optional[str] = None) -> Dict[str, Any]:
+async def run_auto_leadfinder_pipeline(
+    trigger_type: str = "SCHEDULED",
+    target_user_email: Optional[str] = None,
+    run_id: Optional[ObjectId] = None
+) -> Dict[str, Any]:
     """
     Main lead discovery pipeline.
     If target_user_email is specified, runs specifically for that user.
@@ -1187,16 +1260,13 @@ async def run_auto_leadfinder_pipeline(trigger_type: str = "SCHEDULED", target_u
         logger.error("[AUTO_LEADFINDER] Database connection unavailable. Aborting.")
         return {"status": "error", "message": "Database unavailable"}
 
-    if _scraping_lock.locked():
-        logger.warning("[AUTO_LEADFINDER] A scraping process is already running. Skipping duplicate trigger.")
-        return {"status": "skipped", "message": "Scraping process is already in progress."}
-
     async with _scraping_lock:
         if target_user_email:
             return await _run_single_user_pipeline(
                 clean_email=target_user_email.strip().lower(),
                 trigger_type=trigger_type,
-                db=db
+                db=db,
+                existing_run_id=run_id
             )
 
         # Multi-user scheduled execution at midnight IST:

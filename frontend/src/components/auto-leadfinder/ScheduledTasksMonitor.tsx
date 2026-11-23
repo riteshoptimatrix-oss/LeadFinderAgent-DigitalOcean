@@ -202,37 +202,77 @@ export default function ScheduledTasksMonitor({
 
         {/* 4 Quick KPI Summary Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="p-3.5 rounded-2xl bg-amber-50/60 border border-amber-200/70 flex items-center justify-between">
-            <div>
-              <span className="text-[11px] font-semibold text-amber-700 block">🟡 Scheduled</span>
-              <span className="text-xl font-bold text-amber-900 mt-0.5 block">{scheduledCount}</span>
+          <button
+            type="button"
+            onClick={() => setFilterStatus(filterStatus === 'SCHEDULED' ? 'ALL' : 'SCHEDULED')}
+            className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+              filterStatus === 'SCHEDULED'
+                ? 'bg-amber-100/90 border-amber-400 ring-2 ring-amber-400/20 shadow-xs'
+                : 'bg-amber-50/60 border-amber-200/70 hover:bg-amber-50'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-semibold text-amber-700 block">🟡 Scheduled</span>
+                <span className="text-xl font-bold text-amber-900 mt-0.5 block">{scheduledCount}</span>
+              </div>
+              <Clock className="w-5 h-5 text-amber-500/80" />
             </div>
-            <Clock className="w-5 h-5 text-amber-500/80" />
-          </div>
+          </button>
 
-          <div className="p-3.5 rounded-2xl bg-blue-50/60 border border-blue-200/70 flex items-center justify-between">
-            <div>
-              <span className="text-[11px] font-semibold text-blue-700 block">🔵 Running Now</span>
-              <span className="text-xl font-bold text-blue-900 mt-0.5 block">{runningCount}</span>
+          <button
+            type="button"
+            onClick={() => setFilterStatus(filterStatus === 'RUNNING' ? 'ALL' : 'RUNNING')}
+            className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+              filterStatus === 'RUNNING'
+                ? 'bg-blue-100/90 border-blue-400 ring-2 ring-blue-400/20 shadow-xs'
+                : 'bg-blue-50/60 border-blue-200/70 hover:bg-blue-50'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-semibold text-blue-700 block">🔵 Running Now</span>
+                <span className="text-xl font-bold text-blue-900 mt-0.5 block">{runningCount}</span>
+              </div>
+              <Loader2 className={`w-5 h-5 text-blue-500/80 ${runningCount > 0 ? 'animate-spin' : ''}`} />
             </div>
-            <Loader2 className={`w-5 h-5 text-blue-500/80 ${runningCount > 0 ? 'animate-spin' : ''}`} />
-          </div>
+          </button>
 
-          <div className="p-3.5 rounded-2xl bg-emerald-50/60 border border-emerald-200/70 flex items-center justify-between">
-            <div>
-              <span className="text-[11px] font-semibold text-emerald-700 block">🟢 Completed</span>
-              <span className="text-xl font-bold text-emerald-900 mt-0.5 block">{completedCount}</span>
+          <button
+            type="button"
+            onClick={() => setFilterStatus(filterStatus === 'COMPLETED' ? 'ALL' : 'COMPLETED')}
+            className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+              filterStatus === 'COMPLETED'
+                ? 'bg-emerald-100/90 border-emerald-400 ring-2 ring-emerald-400/20 shadow-xs'
+                : 'bg-emerald-50/60 border-emerald-200/70 hover:bg-emerald-50'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-semibold text-emerald-700 block">🟢 Completed</span>
+                <span className="text-xl font-bold text-emerald-900 mt-0.5 block">{completedCount}</span>
+              </div>
+              <CheckCircle2 className="w-5 h-5 text-emerald-500/80" />
             </div>
-            <CheckCircle2 className="w-5 h-5 text-emerald-500/80" />
-          </div>
+          </button>
 
-          <div className="p-3.5 rounded-2xl bg-rose-50/60 border border-rose-200/70 flex items-center justify-between">
-            <div>
-              <span className="text-[11px] font-semibold text-rose-700 block">🔴 Failed / Errored</span>
-              <span className="text-xl font-bold text-rose-900 mt-0.5 block">{failedCount}</span>
+          <button
+            type="button"
+            onClick={() => setFilterStatus(filterStatus === 'FAILED' ? 'ALL' : 'FAILED')}
+            className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
+              filterStatus === 'FAILED'
+                ? 'bg-rose-100/90 border-rose-400 ring-2 ring-rose-400/20 shadow-xs'
+                : 'bg-rose-50/60 border-rose-200/70 hover:bg-rose-50'
+            }`}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <span className="text-[11px] font-semibold text-rose-700 block">🔴 Failed / Errored</span>
+                <span className="text-xl font-bold text-rose-900 mt-0.5 block">{failedCount}</span>
+              </div>
+              <XCircle className="w-5 h-5 text-rose-500/80" />
             </div>
-            <XCircle className="w-5 h-5 text-rose-500/80" />
-          </div>
+          </button>
         </div>
       </div>
 

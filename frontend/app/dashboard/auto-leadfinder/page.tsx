@@ -336,13 +336,21 @@ export default function AutoLeadFinderPage() {
     }
     setIsTriggeringRun(true);
     try {
-      await api.post('/auto-leadfinder/run-now', null, {
+      const res = await api.post('/auto-leadfinder/run-now', null, {
         params: { user_email: effectiveEmail }
       });
-      toast.success(`Lead scraping started for ${city || 'Target City'}!`);
-      await queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-settings', effectiveEmail] });
-      await queryClient.invalidateQueries({ queryKey: ['scheduled-tasks-live-monitor', effectiveEmail] });
-      await queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-history', effectiveEmail] });
+      const data = res?.data;
+      if (data?.already_running) {
+        toast.info(data.message || 'Scraping is already running.');
+      } else {
+        toast.success(`Lead scraping started for ${city || 'Target City'}!`);
+      }
+      setActiveTab('tasks');
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-settings', effectiveEmail] }),
+        queryClient.invalidateQueries({ queryKey: ['scheduled-tasks-live-monitor', effectiveEmail] }),
+        queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-history', effectiveEmail] })
+      ]);
       refetchSettings();
       refetchHistory();
     } catch (err: unknown) {

@@ -446,8 +446,7 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
             get_or_create_settings,
             get_next_scheduled_run_ist,
             get_target_user,
-            get_today_midnight_utc,
-            _scraping_lock
+            get_today_midnight_utc
         )
 
         clean_email = (user_email or TARGET_USER_EMAIL).strip().lower()
@@ -655,7 +654,10 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
             is_active_running = False
 
             if run_status == "RUNNING":
-                is_stale = (now_utc - run_started_utc) > timedelta(minutes=35) or not _scraping_lock.locked()
+                run_last_hb = run.get("last_heartbeat") or run_started_utc
+                if run_last_hb.tzinfo is None:
+                    run_last_hb = run_last_hb.replace(tzinfo=timezone.utc)
+                is_stale = (now_utc - run_started_utc) > timedelta(minutes=45) or (now_utc - run_last_hb) > timedelta(minutes=15)
                 if is_stale:
                     run_status = "COMPLETED" if run_leads > 0 else "CANCELLED"
                     await db["auto_leadfinder_runs"].update_one(
@@ -684,10 +686,10 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                     if run_leads > run.get("total_collected", 0):
                         await db["auto_leadfinder_runs"].update_one(
                             {"_id": run["_id"]},
-                            {"$set": {"total_collected": run_leads}}
+                            {"$set": {"total_collected": run_leads, "last_heartbeat": now_utc}}
                         )
 
-            lead_schedules.append({
+            run_item = {
                 "id": str(run["_id"]),
                 "title": f"{target_keyword} Scraping Run ({run_city})",
                 "scheduled_date_time": run_started_str,
@@ -704,7 +706,11 @@ async def get_live_scheduled_tasks(user_email: Optional[str] = None, db = None) 
                 "progress_percentage": min(100, round((run_leads / lead_target) * 100)),
                 "is_upcoming": False,
                 "created_at": run_started_str
-            })
+            }
+            if is_active_running:
+                lead_schedules.insert(0, run_item)
+            else:
+                lead_schedules.append(run_item)
 
         # Baseline completed schedule ONLY for Kutch Tour Guide if no runs exist yet
         if not has_past_runs and is_kutch:

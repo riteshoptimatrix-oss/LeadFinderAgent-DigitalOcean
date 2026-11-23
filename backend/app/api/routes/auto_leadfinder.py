@@ -1,13 +1,17 @@
 import logging
 import re
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
+from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks, Query, status
 from pydantic import BaseModel, Field
 
 from app.api.dependencies import get_current_user
 from app.models.user import UserInDB
+from app.db.database import get_db, db_instance
 from app.services.auto_leadfinder_service import (
     TARGET_USER_EMAIL,
+    KOLKATA_TZ,
     get_or_create_settings,
     update_settings,
     get_kpi_stats,
@@ -402,14 +406,97 @@ async def trigger_manual_run(
 ) -> Any:
     """
     Manually trigger an immediate scraping run in the background for the target user.
+    Synchronously creates the RUNNING record in MongoDB so UI metrics and trackers update with 0 latency.
     """
     try:
-        target_email = resolve_target_user_email(current_user, user_email)
-        background_tasks.add_task(run_auto_leadfinder_pipeline, trigger_type="MANUAL", target_user_email=target_email)
+        db = db_instance.db if db_instance.db is not None else get_db()
+        target_email = resolve_target_user_email(current_user, user_email).strip().lower()
+
+        # Check if scraping is already actively running for this user
+        active_run = await db["auto_leadfinder_runs"].find_one({
+            "status": "RUNNING",
+            "user_email": {"$regex": f"^{re.escape(target_email)}$", "$options": "i"}
+        })
+        now_utc = datetime.now(timezone.utc)
+        if active_run:
+            run_start = active_run.get("started_at") or now_utc
+            if run_start.tzinfo is None:
+                run_start = run_start.replace(tzinfo=timezone.utc)
+            last_hb = active_run.get("last_heartbeat") or run_start
+            if last_hb.tzinfo is None:
+                last_hb = last_hb.replace(tzinfo=timezone.utc)
+
+            if (now_utc - run_start) < timedelta(minutes=40) and (now_utc - last_hb) < timedelta(minutes=15):
+                return {
+                    "success": True,
+                    "already_running": True,
+                    "run_id": str(active_run["_id"]),
+                    "message": f"Scraping is already active for {target_email}."
+                }
+
+        # Check user settings
+        settings = await get_or_create_settings(user_email=target_email, db=db)
+        is_kutch_target = target_email == TARGET_USER_EMAIL.lower()
+        target_city = (settings.get("city") or "").strip()
+        target_kw = (settings.get("keyword") or "").strip()
+
+        if not is_kutch_target and (not target_city or not target_kw):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Target city and search keyword must be configured before starting Auto LeadFinder."
+            )
+
+        # Synchronously pre-create RUNNING document in DB
+        run_id = ObjectId()
+        now_ist = datetime.now(KOLKATA_TZ)
+        daily_limit = settings.get("daily_limit", 100)
+        target_country = settings.get("country") or ("India" if is_kutch_target else "")
+        target_state = settings.get("state") or ("Gujarat" if is_kutch_target else "")
+        location_mode = settings.get("location_mode", "custom_city" if not is_kutch_target else "kutch_systematic")
+        is_custom_city = location_mode == "custom_city" and target_city and "kutch" not in target_city.lower()
+
+        user_id_val = str(getattr(current_user, "id", None) or getattr(current_user, "_id", ""))
+
+        run_doc = {
+            "_id": run_id,
+            "user_id": user_id_val if user_id_val else None,
+            "user_email": target_email,
+            "run_date": now_ist.strftime("%Y-%m-%d"),
+            "trigger_type": "MANUAL",
+            "status": "RUNNING",
+            "started_at": now_utc,
+            "last_heartbeat": now_utc,
+            "completed_at": None,
+            "daily_limit_target": daily_limit,
+            "target_for_this_run": max(daily_limit, 100),
+            "location_mode": "custom_city" if is_custom_city else "kutch_systematic",
+            "target_country": target_country,
+            "target_state": target_state,
+            "target_city": target_city or ("Kutch district" if is_kutch_target else ""),
+            "total_collected": 0,
+            "duplicates_filtered": 0,
+            "localities_processed": [],
+            "error_message": None,
+        }
+        await db["auto_leadfinder_runs"].insert_one(run_doc)
+        await db["auto_leadfinder_settings"].update_one(
+            {"user_email": {"$regex": f"^{re.escape(target_email)}$", "$options": "i"}},
+            {"$set": {"is_running": True, "active_run_id": str(run_id)}}
+        )
+
+        background_tasks.add_task(
+            run_auto_leadfinder_pipeline,
+            trigger_type="MANUAL",
+            target_user_email=target_email,
+            run_id=run_id
+        )
         return {
             "success": True,
-            "message": f"Automated scraping process initiated in background for {target_email}. You can track progress in real-time."
+            "run_id": str(run_id),
+            "message": f"Lead scraping started for {target_city or target_email}!"
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[AUTO_LEADFINDER_API] Failed to trigger manual run: {e}", exc_info=True)
         raise HTTPException(

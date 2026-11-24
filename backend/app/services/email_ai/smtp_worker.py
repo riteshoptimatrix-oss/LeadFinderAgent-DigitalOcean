@@ -340,14 +340,14 @@ class EmailAIQueueWorker:
 
             # 4. Connect & Send
             await self._update_job_status(job_id, "Connecting")
-            await self._broadcast_status(campaign_id, lead_id, "Connecting SMTP")
+            await self._broadcast_status(campaign_id, lead_id, "Connecting SMTP", email=target_email)
 
             # Run blocking SMTP code in executor
             loop = asyncio.get_running_loop()
             await loop.run_in_executor(None, self._send_email_sync, smtp_profile, target_email, subject, body_html, body_text)
 
             # 5. Success
-            await self._finalize_job(job_id, campaign_id, lead_id, start_time, "Delivered", None)
+            await self._finalize_job(job_id, campaign_id, lead_id, start_time, "Delivered", None, email=target_email)
             logger.info(f"[EmailAI-SmtpWorker] Email delivered to {target_email} (job {job_id})")
 
             # Apply Throttle Delay for the next jobs in this campaign
@@ -635,7 +635,7 @@ class EmailAIQueueWorker:
             }
         )
 
-    async def _finalize_job(self, job_id: ObjectId, campaign_id: str, lead_id: str, start_time: Optional[datetime], status: str, error: str = None):
+    async def _finalize_job(self, job_id: ObjectId, campaign_id: str, lead_id: str, start_time: Optional[datetime], status: str, error: str = None, email: str = None):
         """Mark a job terminal, update campaign stats/logs, broadcast, and check completion."""
         duration = 0.0
         if start_time:
@@ -649,7 +649,7 @@ class EmailAIQueueWorker:
                 {"_id": ObjectId(campaign_id)},
                 {
                     "$inc": {"stats.sent": 1},
-                    "$push": {"logs": {"status": "sent", "lead_id": lead_id, "processed_at": now.isoformat(), "duration": duration}}
+                    "$push": {"logs": {"status": "sent", "lead_id": lead_id, "email": email, "processed_at": now.isoformat(), "duration": duration}}
                 }
             )
         elif status == "Failed":
@@ -657,7 +657,7 @@ class EmailAIQueueWorker:
                 {"_id": ObjectId(campaign_id)},
                 {
                     "$inc": {"stats.failed": 1},
-                    "$push": {"logs": {"status": "failed", "lead_id": lead_id, "processed_at": now.isoformat(), "duration": duration, "error": error}}
+                    "$push": {"logs": {"status": "failed", "lead_id": lead_id, "email": email, "processed_at": now.isoformat(), "duration": duration, "error": error}}
                 }
             )
         else:  # Skipped / Cancelled
@@ -665,11 +665,11 @@ class EmailAIQueueWorker:
                 {"_id": ObjectId(campaign_id)},
                 {
                     "$inc": {"stats.skipped": 1},
-                    "$push": {"logs": {"status": "skipped", "lead_id": lead_id, "processed_at": now.isoformat(), "duration": duration, "error": error}}
+                    "$push": {"logs": {"status": "skipped", "lead_id": lead_id, "email": email, "processed_at": now.isoformat(), "duration": duration, "error": error}}
                 }
             )
 
-        await self._broadcast_status(campaign_id, lead_id, status, error)
+        await self._broadcast_status(campaign_id, lead_id, status, error, email=email)
         await self._check_campaign_completion(campaign_id)
 
     async def _apply_campaign_throttle(self, campaign_id: str, delay_seconds: float):
@@ -714,7 +714,7 @@ class EmailAIQueueWorker:
         logger.info(f"[EmailAI] Campaign {campaign_id} COMPLETED: sent={sent}, failed={failed}, skipped={skipped}")
         await self._broadcast_campaign_event(campaign_id, "COMPLETED", {"sent": sent, "failed": failed, "skipped": skipped})
 
-    async def _broadcast_status(self, campaign_id: str, lead_id: str, status: str, error: str = None):
+    async def _broadcast_status(self, campaign_id: str, lead_id: str, status: str, error: str = None, email: str = None):
         """Broadcast a per-lead status event over the campaign's WebSocket room.
 
         The event payload mirrors what the Live Dashboard expects: a lowercase
@@ -735,6 +735,7 @@ class EmailAIQueueWorker:
             "type": event_type,
             "campaign_id": campaign_id,
             "lead_id": lead_id,
+            "email": email,
             "status": display_status,
             "error": error,
             "timestamp": datetime.now(timezone.utc).isoformat()
@@ -748,6 +749,7 @@ class EmailAIQueueWorker:
                 "event_type": event_type,
                 "campaign_id": campaign_id,
                 "lead_id": lead_id,
+                "email": email,
                 "status": display_status,
                 "error": error,
                 "timestamp": datetime.now(timezone.utc).isoformat()

@@ -88,6 +88,12 @@ export default function EmailLiveDashboard() {
         Delivered: 0, Failed: 0, Skipped: 0, ...res.data.stats
       };
       setStats(newStats);
+
+      // If campaign is finished or no jobs are actively in connecting/sending, clear stale live execution state
+      const isActivelyProcessing = (newStats.Preparing + newStats.Connecting + newStats.Sending) > 0;
+      if (res.data.status === 'COMPLETED' || (!isActivelyProcessing && (newStats.Delivered + newStats.Failed + newStats.Skipped > 0))) {
+        setCurrentEmail(null);
+      }
       
       if (res.data.logs) {
         setLogs(res.data.logs);
@@ -180,6 +186,18 @@ export default function EmailLiveDashboard() {
                 status: newStatus,
                 timestamp: new Date().toLocaleTimeString()
               });
+            } else if (['Delivered', 'Failed', 'Skipped'].includes(newStatus)) {
+              setCurrentEmail((prev: any) => ({
+                lead_id: data.lead_id || prev?.lead_id,
+                email: data.email || prev?.email || 'Recipient',
+                status: newStatus,
+                timestamp: new Date().toLocaleTimeString()
+              }));
+            }
+
+            if (data.type === 'email_campaign_completed' || data.status === 'COMPLETED') {
+              setCampaignData((prev: any) => (prev ? { ...prev, status: 'COMPLETED' } : null));
+              setCurrentEmail(null);
             }
 
             // Real-time invalidation so top telemetry cards update immediately!
@@ -409,7 +427,7 @@ export default function EmailLiveDashboard() {
                 <Activity className="w-5 h-5 text-blue-600" />
                 <h3 className="font-bold text-lg text-slate-900">Live Execution</h3>
               </div>
-              {currentEmail ? (
+              {currentEmail && (stats.Preparing + stats.Connecting + stats.Sending > 0) ? (
                 <div className="space-y-3">
                   <div>
                     <div className="text-slate-500 text-xs font-semibold mb-0.5">Target</div>
@@ -421,6 +439,42 @@ export default function EmailLiveDashboard() {
                       <Loader2 className="w-3.5 h-3.5 animate-spin" /> {currentEmail.status}
                     </div>
                   </div>
+                </div>
+              ) : currentEmail && currentEmail.status === 'Delivered' ? (
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-slate-500 text-xs font-semibold mb-0.5">Target</div>
+                    <div className="font-bold text-slate-800 truncate">{currentEmail.email}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500 text-xs font-semibold mb-0.5">Current Status</div>
+                    <div className="flex items-center gap-2 font-bold text-emerald-600">
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Delivered
+                    </div>
+                  </div>
+                </div>
+              ) : currentEmail && currentEmail.status === 'Failed' ? (
+                <div className="space-y-3">
+                  <div>
+                    <div className="text-slate-500 text-xs font-semibold mb-0.5">Target</div>
+                    <div className="font-bold text-slate-800 truncate">{currentEmail.email}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500 text-xs font-semibold mb-0.5">Current Status</div>
+                    <div className="flex items-center gap-2 font-bold text-rose-600">
+                      <AlertCircle className="w-4 h-4 text-rose-600" /> Failed
+                    </div>
+                  </div>
+                </div>
+              ) : campaignData?.status === 'COMPLETED' || (stats.Delivered + stats.Failed + stats.Skipped > 0 && stats.Pending === 0 && (stats.Preparing + stats.Connecting + stats.Sending === 0)) ? (
+                <div className="space-y-2 mt-3">
+                  <div className="text-slate-500 text-xs font-semibold mb-0.5">Campaign Status</div>
+                  <div className="flex items-center gap-2 font-bold text-emerald-600">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" /> Execution Completed
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    All jobs finished ({stats.Delivered} delivered successfully).
+                  </p>
                 </div>
               ) : (
                 <div className="text-slate-400 text-sm italic mt-4">Waiting for next job...</div>

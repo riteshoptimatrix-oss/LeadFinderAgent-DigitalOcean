@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, UserCheck, Loader2, AlertCircle, Eye, EyeOff, Compass, Lock, Tag, Send, Key } from 'lucide-react';
+import { X, UserCheck, Loader2, AlertCircle, Eye, EyeOff, Compass, Lock, Tag, Send, Key, Mail, MessageSquare } from 'lucide-react';
 import api from '@/src/lib/axios';
 import { toast } from 'sonner';
 
@@ -28,7 +28,9 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
     auto_leadfinder_keyword: 'Travel Agency',
     auto_leadfinder_visibility: 'visible',
     easyadserver_access: false,
-    easyadserver_token: ''
+    easyadserver_token: '',
+    email_automation_access: false,
+    whatsapp_automation_access: false
   });
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -53,7 +55,9 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
         auto_leadfinder_keyword: isKutch ? 'Travel Agency' : (user.auto_leadfinder_keyword || 'Travel Agency'),
         auto_leadfinder_visibility: user.auto_leadfinder_visibility || 'visible',
         easyadserver_access: Boolean(user.easyadserver_access),
-        easyadserver_token: user.easyadserver_token || ''
+        easyadserver_token: user.easyadserver_token || '',
+        email_automation_access: Boolean(user.email_automation_access),
+        whatsapp_automation_access: Boolean(user.whatsapp_automation_access)
       });
       setError(null);
     }
@@ -92,7 +96,9 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
         auto_leadfinder_keyword: isKutch ? 'Travel Agency' : (formData.auto_leadfinder_keyword.trim() || 'Travel Agency'),
         auto_leadfinder_visibility: formData.auto_leadfinder_visibility,
         easyadserver_access: formData.easyadserver_access,
-        easyadserver_token: formData.easyadserver_token ? formData.easyadserver_token.trim() : null
+        easyadserver_token: formData.easyadserver_token ? formData.easyadserver_token.trim() : null,
+        email_automation_access: formData.email_automation_access,
+        whatsapp_automation_access: formData.whatsapp_automation_access
       };
 
       if (formData.password.trim()) {
@@ -468,6 +474,88 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
                   </p>
                 </div>
               )}
+            </div>
+
+            {/* Email Automation Feature Access Section */}
+            <div className="sm:col-span-2 pt-3 border-t border-slate-100 space-y-3">
+              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-orange-50/70 border border-orange-200/80">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-orange-100/90 border border-orange-200 flex items-center justify-center text-orange-700">
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900">Email Automation Access</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        formData.email_automation_access
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        {formData.email_automation_access ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      When enabled, this user sees Email Automation in sidebar navigation and can configure SMTP in Settings.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, email_automation_access: !formData.email_automation_access })}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                    formData.email_automation_access ? 'bg-orange-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                      formData.email_automation_access ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            {/* WhatsApp Automation Feature Access Section */}
+            <div className="sm:col-span-2 pt-3 border-t border-slate-100 space-y-3">
+              <div className="flex items-center justify-between p-3.5 rounded-2xl bg-emerald-50/70 border border-emerald-200/80">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-100/90 border border-emerald-200 flex items-center justify-center text-emerald-700">
+                    <MessageSquare className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900">WhatsApp Automation Access</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        formData.whatsapp_automation_access
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-slate-200 text-slate-600'
+                      }`}>
+                        {formData.whatsapp_automation_access ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      When enabled, this user sees WhatsApp Automation in sidebar navigation and can configure WhatsApp WABA API in Settings.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Toggle Button */}
+                <button
+                  type="button"
+                  onClick={() => setFormData({ ...formData, whatsapp_automation_access: !formData.whatsapp_automation_access })}
+                  className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                    formData.whatsapp_automation_access ? 'bg-emerald-600' : 'bg-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg ring-0 transition duration-200 ease-in-out ${
+                      formData.whatsapp_automation_access ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
 

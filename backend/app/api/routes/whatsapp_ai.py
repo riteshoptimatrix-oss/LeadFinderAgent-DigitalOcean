@@ -14,7 +14,7 @@ from app.models.whatsapp_ai import (
     WAAICampaignCreate, WAAICampaignInDB,
     WhatsAppConfigUpdate, WhatsAppConfigResponse, PreviewRequest
 )
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_current_user, require_whatsapp_automation_access
 from app.services.whatsapp.whatsapp_cloud_service import WhatsAppCloudService
 from app.services.whatsapp_ai.cloud_worker import WAAICloudWorker
 
@@ -29,7 +29,7 @@ def serialize_doc(doc: dict) -> dict:
 
 
 @router.get("/config", response_model=WhatsAppConfigResponse)
-async def get_whatsapp_config(current_user=Depends(get_current_user), db=Depends(get_db)):
+async def get_whatsapp_config(current_user=Depends(require_whatsapp_automation_access), db=Depends(get_db)):
     creds = await WhatsAppCloudService.get_credentials(db, current_user.id)
     verified_phone = None
     display_name = None
@@ -57,7 +57,7 @@ async def get_whatsapp_config(current_user=Depends(get_current_user), db=Depends
 @router.post("/config", response_model=WhatsAppConfigResponse)
 async def update_whatsapp_config(
     config: WhatsAppConfigUpdate,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_whatsapp_automation_access),
     db=Depends(get_db)
 ):
     update_fields = {}
@@ -84,7 +84,7 @@ async def update_whatsapp_config(
 @router.post("/config/verify")
 async def verify_whatsapp_config(
     payload: Optional[Dict[str, Any]] = None,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_whatsapp_automation_access),
     db=Depends(get_db)
 ):
     payload = payload or {}
@@ -185,7 +185,7 @@ async def handle_webhook(request: Request, db=Depends(get_db)):
     return {"status": "success"}
 
 @router.post("/preview")
-async def preview_message(payload: PreviewRequest, current_user=Depends(get_current_user), db=Depends(get_db)):
+async def preview_message(payload: PreviewRequest, current_user=Depends(require_whatsapp_automation_access), db=Depends(get_db)):
     content = payload.template_content
     if not content and payload.template_id:
         try:
@@ -228,7 +228,7 @@ async def preview_message(payload: PreviewRequest, current_user=Depends(get_curr
     }
 
 @router.post("/templates/sync-meta")
-async def sync_meta_templates(current_user=Depends(get_current_user), db=Depends(get_db)):
+async def sync_meta_templates(current_user=Depends(require_whatsapp_automation_access), db=Depends(get_db)):
     creds = await WhatsAppCloudService.get_credentials(db, current_user.id)
     if not creds.get("token") or not creds.get("waba_id"):
         raise HTTPException(status_code=400, detail="Meta Access Token and WABA ID must be configured in settings to sync Meta templates.")
@@ -320,7 +320,7 @@ async def delete_template(template_id: str, db=Depends(get_db)):
 @router.post("/campaigns", response_model=Dict[Any, Any])
 async def create_campaign(
     campaign: WAAICampaignCreate,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_whatsapp_automation_access),
     db=Depends(get_db)
 ):
     new_campaign = campaign.model_dump()
@@ -655,7 +655,7 @@ async def get_leads_for_whatsapp_ai(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
     search: Optional[str] = None,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_whatsapp_automation_access),
     db=Depends(get_db)
 ):
     skip = (page - 1) * limit
@@ -751,7 +751,7 @@ async def get_leads_for_whatsapp_ai(
 @router.get("/leads/select-all")
 async def get_all_leads_for_whatsapp_ai(
     search: Optional[str] = None,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_whatsapp_automation_access),
     db=Depends(get_db)
 ):
     scope = {} if current_user.role == "ADMIN" else {"user_id": current_user.id}

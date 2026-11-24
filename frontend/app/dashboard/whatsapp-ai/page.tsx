@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { PageHeader } from '@/src/components/common/PageHeader';
-import { Sparkles, MessageSquare, ListTodo, History, CheckCircle2, BarChart3, Settings2, AlertCircle } from 'lucide-react';
+import { Sparkles, MessageSquare, ListTodo, History, CheckCircle2, BarChart3, Settings2, AlertCircle, ShieldAlert } from 'lucide-react';
 import LeadsSelection from '@/src/components/whatsapp-ai/LeadsSelection';
 import TemplateManager from '@/src/components/whatsapp-ai/TemplateManager';
 import CampaignWizard from '@/src/components/whatsapp-ai/CampaignWizard';
@@ -17,9 +17,30 @@ import { cn } from '@/src/lib/utils';
 type Tab = 'dashboard' | 'leads' | 'templates' | 'campaigns' | 'history';
 
 export default function WhatsAppAIPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
   const [showConfigModal, setShowConfigModal] = useState(false);
+
+  // Verify user-wise access permission
+  const { data: userProfile, isLoading: isProfileLoading } = useQuery({
+    queryKey: ['userProfile'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/users/me');
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+    refetchOnWindowFocus: false,
+  });
+
+  const isAdmin =
+    userProfile?.role?.toLowerCase() === 'admin' ||
+    userProfile?.is_superuser === true;
+
+  const hasAccess = isAdmin || userProfile?.whatsapp_automation_access === true;
 
   // Fetch WhatsApp Cloud API connection status
   const { data: config } = useQuery({
@@ -27,7 +48,8 @@ export default function WhatsAppAIPage() {
     queryFn: async () => {
       const res = await api.get('/whatsapp-ai/config');
       return res.data;
-    }
+    },
+    enabled: hasAccess
   });
 
   useEffect(() => {
@@ -44,6 +66,26 @@ export default function WhatsAppAIPage() {
     { id: 'campaigns', label: 'Campaign Wizard', icon: MessageSquare, desc: 'Launch new campaigns' },
     { id: 'history', label: 'History', icon: History, desc: 'View past runs' }
   ] as const;
+
+  if (!isProfileLoading && userProfile && !hasAccess) {
+    return (
+      <div className="w-full flex flex-col items-center justify-center py-24 px-4 text-center animate-in fade-in">
+        <div className="w-16 h-16 rounded-3xl bg-emerald-50 border border-emerald-200/80 flex items-center justify-center text-emerald-600 mb-4 shadow-sm">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900 mb-2">Access Restricted</h2>
+        <p className="text-sm text-slate-500 max-w-md mb-6 leading-relaxed">
+          WhatsApp Automation has been disabled for your account by your administrator. Please contact your system administrator to enable access.
+        </p>
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+        >
+          Return to Dashboard
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full flex flex-col pb-12 animate-in fade-in">

@@ -18,7 +18,7 @@ import re
 
 from app.db.database import get_db
 from app.core.logger import logger
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_current_user, require_whatsapp_automation_access
 from app.models.user import UserInDB
 from app.models.whatsapp import (
     WATemplateCreate, WATemplateUpdate, WATemplateResponse,
@@ -152,7 +152,7 @@ async def _log_campaign_history(
 
 @router.get("/templates", response_model=List[WATemplateResponse])
 async def list_templates(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     cursor = db["wa_templates"].find({"user_id": current_user.id}).sort("created_at", -1)
@@ -166,7 +166,7 @@ async def list_templates(
 @router.post("/templates", response_model=WATemplateResponse)
 async def create_template(
     data: WATemplateCreate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     now = datetime.utcnow()
@@ -194,7 +194,7 @@ async def create_template(
 @router.get("/templates/{template_id}", response_model=WATemplateResponse)
 async def get_template(
     template_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     if not ObjectId.is_valid(template_id):
@@ -211,7 +211,7 @@ async def get_template(
 async def update_template(
     template_id: str,
     data: WATemplateUpdate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     if not ObjectId.is_valid(template_id):
@@ -247,7 +247,7 @@ async def update_template(
 @router.delete("/templates/{template_id}")
 async def delete_template(
     template_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     if not ObjectId.is_valid(template_id):
@@ -263,7 +263,7 @@ async def delete_template(
 @router.post("/templates/{template_id}/duplicate", response_model=WATemplateResponse)
 async def duplicate_template(
     template_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     if not ObjectId.is_valid(template_id):
@@ -293,7 +293,7 @@ async def duplicate_template(
 @router.patch("/templates/{template_id}/default")
 async def toggle_default_template(
     template_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     if not ObjectId.is_valid(template_id):
@@ -332,7 +332,7 @@ async def get_wa_leads(
     limit: int = 100,
     sort_by: str = "created_at",
     sort_order: int = -1,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
@@ -456,7 +456,7 @@ async def get_wa_leads(
 async def list_campaigns(
     skip: int = 0,
     limit: int = 50,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     cursor = (
@@ -475,7 +475,7 @@ async def list_campaigns(
 @router.post("/campaigns", response_model=WACampaignResponse)
 async def create_campaign(
     data: WACampaignCreate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     # Validate template exists
@@ -585,7 +585,7 @@ async def create_campaign(
 async def get_campaign_history(
     skip: int = 0,
     limit: int = 50,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     cursor = (
@@ -604,7 +604,7 @@ async def get_campaign_history(
 @router.get("/campaigns/{campaign_id}", response_model=WACampaignResponse)
 async def get_campaign(
     campaign_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     if not ObjectId.is_valid(campaign_id):
@@ -623,7 +623,7 @@ async def get_campaign_logs(
     campaign_id: str,
     skip: int = 0,
     limit: int = 100,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     if not ObjectId.is_valid(campaign_id):
@@ -645,7 +645,7 @@ async def get_campaign_logs(
 async def campaign_action(
     campaign_id: str,
     action: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     if not ObjectId.is_valid(campaign_id):
@@ -692,7 +692,7 @@ async def campaign_action(
 @router.post("/campaigns/{campaign_id}/reset-queue")
 async def reset_campaign_queue(
     campaign_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
@@ -755,7 +755,7 @@ async def reset_campaign_queue(
 @router.post("/campaigns/{campaign_id}/retry-failed")
 async def retry_failed_messages(
     campaign_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
@@ -817,7 +817,7 @@ async def retry_failed_messages(
 @router.get("/campaigns/{campaign_id}/stats")
 async def get_campaign_stats(
     campaign_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     """
@@ -904,7 +904,7 @@ async def get_campaign_stats(
 @router.post("/preview", response_model=WAPreviewResponse)
 async def preview_template(
     data: WAPreviewRequest,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db),
 ):
     variables = _extract_variables(data.template_content)
@@ -952,7 +952,7 @@ async def preview_template(
 @router.post("/validate-template", response_model=WAValidateTemplateResponse)
 async def validate_template(
     data: WAValidateTemplateRequest,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_whatsapp_automation_access),
 ):
     errors: list = []
     warnings: list = []

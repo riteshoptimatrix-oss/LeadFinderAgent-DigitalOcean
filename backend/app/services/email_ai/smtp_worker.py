@@ -296,23 +296,27 @@ class EmailAIQueueWorker:
             body_text = self._replace_variables(template.get("body_text", ""), lead)
             logger.info(f"[EmailAI-SmtpWorker] Template rendered for lead {lead_id}")
 
-            # 3. Get SMTP Profile (With user-scoped failover support)
+            # 3. Get SMTP Profile (Strictly user-scoped isolation)
             smtp_profile = None
+            uid_str = str(job.get("user_id") or campaign.get("user_id") or "").strip()
+
             if job.get("smtp_id") and ObjectId.is_valid(str(job["smtp_id"])):
-                smtp_profile = await self.db["email_ai_smtp"].find_one({"_id": ObjectId(job["smtp_id"]), "is_active": True})
+                # Must belong to this user
+                query = {"_id": ObjectId(job["smtp_id"]), "is_active": True}
+                if uid_str:
+                    query["user_id"] = uid_str
+                smtp_profile = await self.db["email_ai_smtp"].find_one(query)
             
-            if not smtp_profile and job.get("user_id"):
-                # Try finding active profile for this specific user
-                smtp_profile = await self.db["email_ai_smtp"].find_one({"user_id": str(job["user_id"]), "is_active": True})
+            if not smtp_profile and uid_str:
+                # Find active profile strictly for this user
+                smtp_profile = await self.db["email_ai_smtp"].find_one({"user_id": uid_str, "is_active": True})
                 
-            if not smtp_profile:
-                # Rotation / Failover: Find any active SMTP
-                smtp_profile = await self.db["email_ai_smtp"].find_one({"is_active": True})
-                if not smtp_profile:
-                    await self._finalize_job(job_id, campaign_id, lead_id, start_time, "Failed", "No active SMTP profiles available")
-                    return
-                # Update job to use new SMTP
-                await self.db["email_ai_queue"].update_one({"_id": job_id}, {"$set": {"smtp_id": str(smtp_profile["_id"])}})
+            if not smtp_profile or not smtp_profile.get("password"):
+                await self._finalize_job(
+                    job_id, campaign_id, lead_id, start_time, "Failed",
+                    "No active SMTP configuration or password found for this user. Please enter your SMTP App Password in Settings > Email Automation."
+                )
+                return
 
             # 4. Connect & Send
             await self._update_job_status(job_id, "Connecting")

@@ -312,7 +312,23 @@ async def get_user_smtp_config(db, user_id: str, decrypt_pwd: bool = False) -> D
     If decrypt_pwd is True, returns plaintext password for in-memory dispatch;
     otherwise, masks password and adds has_password boolean for frontend.
     """
-    uid_str = str(user_id)
+    uid_str = str(user_id or "").strip()
+    if not uid_str:
+        return {
+            "user_id": "",
+            "smtp_host": "smtp.gmail.com",
+            "smtp_port": 587,
+            "smtp_user": "",
+            "smtp_pass": "",
+            "smtp_encryption": "TLS",
+            "smtp_from_email": "",
+            "smtp_sender_name": "",
+            "smtp_status": "NOT_CONFIGURED",
+            "daily_limit": 500,
+            "signature": "Best regards,\nThe Growth Team\nwww.example.com",
+            "track_opens": True,
+            "has_password": False
+        }
     settings_doc = await db["settings"].find_one({"user_id": uid_str})
     
     # Fallback to email_ai_smtp if settings collection is empty

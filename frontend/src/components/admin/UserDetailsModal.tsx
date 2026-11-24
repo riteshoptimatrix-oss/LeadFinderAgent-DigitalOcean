@@ -3,7 +3,7 @@
 import React from 'react';
 import {
   X, User, Mail, Phone, Building2, MapPin, Calendar, Clock,
-  ShieldCheck, LogIn, Target, Search, Zap, Send, Compass
+  ShieldCheck, LogIn, Target, Search, Zap, Send, Compass, MessageSquare
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
@@ -233,6 +233,38 @@ export default function UserDetailsModal({ userId, isOpen, onClose, onImpersonat
                         {user.easyadserver_access
                           ? `Enabled ${user.easyadserver_token ? '(Token Configured)' : '(No Token Set)'}`
                           : 'Disabled'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border flex items-center gap-3 transition-colors ${user.email_automation_access
+                    ? 'bg-orange-50/60 border-orange-200/60'
+                    : 'bg-slate-100/80 border-slate-200'
+                    }`}>
+                    <Mail className={`w-4 h-4 shrink-0 ${user.email_automation_access ? 'text-orange-600' : 'text-slate-400'
+                      }`} />
+                    <div>
+                      <span className={`text-[10px] block font-bold uppercase tracking-wider ${user.email_automation_access ? 'text-orange-700' : 'text-slate-500'
+                        }`}>Email Automation Access</span>
+                      <span className={`font-bold ${user.email_automation_access ? 'text-slate-900' : 'text-slate-600'
+                        }`}>
+                        {user.email_automation_access ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className={`p-3 rounded-xl border flex items-center gap-3 transition-colors ${user.whatsapp_automation_access
+                    ? 'bg-emerald-50/60 border-emerald-200/60'
+                    : 'bg-slate-100/80 border-slate-200'
+                    }`}>
+                    <MessageSquare className={`w-4 h-4 shrink-0 ${user.whatsapp_automation_access ? 'text-emerald-600' : 'text-slate-400'
+                      }`} />
+                    <div>
+                      <span className={`text-[10px] block font-bold uppercase tracking-wider ${user.whatsapp_automation_access ? 'text-emerald-700' : 'text-slate-500'
+                        }`}>WhatsApp Automation Access</span>
+                      <span className={`font-bold ${user.whatsapp_automation_access ? 'text-slate-900' : 'text-slate-600'
+                        }`}>
+                        {user.whatsapp_automation_access ? 'Enabled' : 'Disabled'}
                       </span>
                     </div>
                   </div>

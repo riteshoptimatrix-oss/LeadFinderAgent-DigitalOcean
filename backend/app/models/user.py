@@ -66,6 +66,10 @@ class UserBase(BaseModel):
     # EasyAdServer Permissions & Configuration
     easyadserver_access: bool = False
 
+    # Module Access Permissions (Admin-Controlled User-Wise Access)
+    email_automation_access: bool = False
+    whatsapp_automation_access: bool = False
+
 class UserCreate(UserBase):
     password: str = Field(..., min_length=8, max_length=128)
     
@@ -158,6 +162,8 @@ class AdminCreateUserRequest(BaseModel):
     auto_leadfinder_visibility: Optional[str] = "visible"
     easyadserver_access: Optional[bool] = False
     easyadserver_token: Optional[str] = None
+    email_automation_access: Optional[bool] = False
+    whatsapp_automation_access: Optional[bool] = False
 
     @field_validator("role", mode="before")
     @classmethod
@@ -185,6 +191,8 @@ class AdminUpdateUserRequest(BaseModel):
     auto_leadfinder_visibility: Optional[str] = None
     easyadserver_access: Optional[bool] = None
     easyadserver_token: Optional[str] = None
+    email_automation_access: Optional[bool] = None
+    whatsapp_automation_access: Optional[bool] = None
 
     @field_validator("role", mode="before")
     @classmethod

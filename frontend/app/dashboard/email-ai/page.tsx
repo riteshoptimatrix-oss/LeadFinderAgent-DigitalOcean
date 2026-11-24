@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { PageHeader } from '@/src/components/common/PageHeader';
@@ -61,9 +61,30 @@ const VALID_TABS: Tab[] = [
 ];
 
 export default function EmailAIPage() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+
+  // Verify user-wise access permission
+  const { data: userProfile, isLoading: isProfileLoading } = useQuery({
+    queryKey: ['userProfile'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/users/me');
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+    refetchOnWindowFocus: false,
+  });
+
+  const isAdmin =
+    userProfile?.role?.toLowerCase() === 'admin' ||
+    userProfile?.is_superuser === true;
+
+  const hasAccess = isAdmin || userProfile?.email_automation_access === true;
 
   // Fetch summary analytics for the executive header telemetry
   const { data: analytics, isLoading: isAnalyticsLoading } = useQuery({
@@ -209,6 +230,26 @@ export default function EmailAIPage() {
       badge: null
     }
   ] as const;
+
+  if (!isProfileLoading && userProfile && !hasAccess) {
+    return (
+      <div className="w-full flex flex-col items-center justify-center py-24 px-4 text-center animate-in fade-in">
+        <div className="w-16 h-16 rounded-3xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-600 mb-4 shadow-sm">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900 mb-2">Access Restricted</h2>
+        <p className="text-sm text-slate-500 max-w-md mb-6 leading-relaxed">
+          Email Automation has been disabled for your account by your administrator. Please contact your system administrator to enable access.
+        </p>
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+        >
+          Return to Dashboard
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full flex flex-col pb-12">
@@ -358,7 +399,27 @@ export default function EmailAIPage() {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
 
-            return (
+            if (!isProfileLoading && userProfile && !hasAccess) {
+    return (
+      <div className="w-full flex flex-col items-center justify-center py-24 px-4 text-center animate-in fade-in">
+        <div className="w-16 h-16 rounded-3xl bg-amber-50 border border-amber-200/80 flex items-center justify-center text-amber-600 mb-4 shadow-sm">
+          <ShieldAlert className="w-8 h-8" />
+        </div>
+        <h2 className="text-xl font-bold text-slate-900 mb-2">Access Restricted</h2>
+        <p className="text-sm text-slate-500 max-w-md mb-6 leading-relaxed">
+          Email Automation has been disabled for your account by your administrator. Please contact your system administrator to enable access.
+        </p>
+        <button
+          onClick={() => router.push('/dashboard')}
+          className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
+        >
+          Return to Dashboard
+        </button>
+      </div>
+    );
+  }
+
+  return (
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as Tab)}

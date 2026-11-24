@@ -202,6 +202,8 @@ async def create_user(
         "auto_leadfinder_visibility": (payload.auto_leadfinder_visibility or "visible").strip().lower(),
         "easyadserver_access": bool(payload.easyadserver_access) if payload.easyadserver_access is not None else False,
         "easyadserver_token": payload.easyadserver_token.strip() if payload.easyadserver_token else None,
+        "email_automation_access": bool(payload.email_automation_access) if payload.email_automation_access is not None else False,
+        "whatsapp_automation_access": bool(payload.whatsapp_automation_access) if payload.whatsapp_automation_access is not None else False,
         "created_at": now,
         "updated_at": now,
         "last_login": None,
@@ -299,6 +301,12 @@ async def update_user(
 
     if payload.easyadserver_token is not None:
         update_fields["easyadserver_token"] = payload.easyadserver_token.strip() if payload.easyadserver_token else None
+
+    if payload.email_automation_access is not None:
+        update_fields["email_automation_access"] = bool(payload.email_automation_access)
+
+    if payload.whatsapp_automation_access is not None:
+        update_fields["whatsapp_automation_access"] = bool(payload.whatsapp_automation_access)
 
     effective_user_email = (new_email if payload.email is not None else existing_user.get("email", "")).strip().lower()
     is_kutch_target = effective_user_email == "kutchtourguide@gmail.com"

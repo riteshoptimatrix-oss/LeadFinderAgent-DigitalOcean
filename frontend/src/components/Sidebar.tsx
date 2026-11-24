@@ -97,6 +97,14 @@ export default function Sidebar() {
     userAccess === true ||
     (isKutchTourGuide && userAccess !== false);
 
+  const hasEmailAccess =
+    isAdmin ||
+    Boolean((userProfile as any)?.email_automation_access ?? (user as any)?.email_automation_access);
+
+  const hasWhatsAppAccess =
+    isAdmin ||
+    Boolean((userProfile as any)?.whatsapp_automation_access ?? (user as any)?.whatsapp_automation_access);
+
   const navGroups: NavGroupConfig[] = [
     {
       title: 'OVERVIEW',
@@ -172,7 +180,7 @@ export default function Sidebar() {
             border: 'border-emerald-100/60'
           }
         },
-        {
+        ...(hasWhatsAppAccess ? [{
           name: 'WhatsApp Automation',
           href: '/dashboard/whatsapp-ai',
           icon: WhatsAppIcon,
@@ -181,7 +189,7 @@ export default function Sidebar() {
             text: 'text-emerald-600',
             border: 'border-emerald-100/60'
           }
-        },
+        }] : []),
         {
           name: 'Calling AI Agent',
           status: 'In Progress',
@@ -193,7 +201,7 @@ export default function Sidebar() {
             border: 'border-purple-100/60'
           }
         },
-        {
+        ...(hasEmailAccess ? [{
           name: 'Email Automation',
           href: '/dashboard/email-ai',
           icon: Mail,
@@ -202,7 +210,7 @@ export default function Sidebar() {
             text: 'text-orange-600',
             border: 'border-orange-100/60'
           }
-        },
+        }] : []),
       ]
     },
     {

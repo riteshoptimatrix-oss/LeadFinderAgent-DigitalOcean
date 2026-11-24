@@ -35,6 +35,9 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/src/lib/utils';
+import { useQuery } from '@tanstack/react-query';
+import api from '@/src/lib/axios';
+import { useAuthStore } from '@/src/features/auth/store';
 
 const ProfileSettings = React.lazy(() => import('@/components/settings/ProfileSettings'));
 const AccountSettings = React.lazy(() => import('@/components/settings/AccountSettings'));
@@ -69,18 +72,60 @@ const GROUPS = ['Personal', 'Workspace', 'Integrations'] as const;
 export default function SettingsDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const authUser = useAuthStore((state) => state.user);
+
+  // Fetch full user profile to get real-time dynamic permissions
+  const { data: userProfile } = useQuery({
+    queryKey: ['userProfile'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/users/me');
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+    refetchOnWindowFocus: false,
+  });
+
+  const isAdmin =
+    authUser?.role?.toLowerCase() === 'admin' ||
+    userProfile?.role?.toLowerCase() === 'admin' ||
+    userProfile?.is_superuser === true;
+
+  const hasEmailAccess =
+    isAdmin ||
+    Boolean(userProfile?.email_automation_access ?? (authUser as any)?.email_automation_access);
+
+  const hasWhatsAppAccess =
+    isAdmin ||
+    Boolean(userProfile?.whatsapp_automation_access ?? (authUser as any)?.whatsapp_automation_access);
+
+  // Dynamically filter tabs based on user permissions
+  const visibleTabs = useMemo(() => {
+    return TABS.filter((tab) => {
+      if (tab.id === 'email' && !hasEmailAccess) return false;
+      if (tab.id === 'whatsapp' && !hasWhatsAppAccess) return false;
+      return true;
+    });
+  }, [hasEmailAccess, hasWhatsAppAccess]);
+
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'profile');
   const [searchQuery, setSearchQuery] = useState('');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Sync tab state with URL
+  // Sync tab state with URL and enforce permission guard
   useEffect(() => {
     const tab = searchParams.get('tab');
-    if (tab && TABS.some((t) => t.id === tab)) {
+    if (tab && visibleTabs.some((t) => t.id === tab)) {
       setActiveTab(tab);
+    } else if (tab && (tab === 'email' || tab === 'whatsapp') && !visibleTabs.some((t) => t.id === tab)) {
+      // User tried to directly access a disabled tab via query param - redirect to profile
+      setActiveTab('profile');
+      router.replace('/dashboard/settings?tab=profile');
     }
-  }, [searchParams]);
+  }, [searchParams, visibleTabs, router]);
 
   const handleTabChange = (id: string) => {
     if (hasUnsavedChanges) {
@@ -95,13 +140,13 @@ export default function SettingsDashboard() {
   useEffect(() => {
     if (!searchQuery.trim()) return;
     const q = searchQuery.toLowerCase();
-    const matchedTab = TABS.find(
+    const matchedTab = visibleTabs.find(
       (t) => t.label.toLowerCase().includes(q) || t.id.toLowerCase().includes(q) || t.desc.toLowerCase().includes(q)
     );
     if (matchedTab && matchedTab.id !== activeTab) {
       handleTabChange(matchedTab.id);
     }
-  }, [searchQuery]);
+  }, [searchQuery, visibleTabs]);
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -117,8 +162,8 @@ export default function SettingsDashboard() {
   };
 
   const activeTabMeta = useMemo(() => {
-    return TABS.find((t) => t.id === activeTab) || TABS[0];
-  }, [activeTab]);
+    return visibleTabs.find((t) => t.id === activeTab) || visibleTabs[0] || TABS[0];
+  }, [activeTab, visibleTabs]);
 
   return (
     <div className="w-full flex flex-col pb-16">
@@ -237,7 +282,7 @@ export default function SettingsDashboard() {
 
         {/* Modern Segmented Navigation Tabs */}
         <div className="mt-4 flex items-center gap-1.5 p-1.5 bg-slate-100/70 backdrop-blur-md rounded-2xl border border-slate-200/70 overflow-x-auto w-full max-w-full">
-          {TABS.map((tab) => {
+          {visibleTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (

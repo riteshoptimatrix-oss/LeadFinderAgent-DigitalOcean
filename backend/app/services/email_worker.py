@@ -202,12 +202,14 @@ class EmailWorker:
             
             settings = await db["settings"].find_one({"user_id": str(campaign["user_id"])})
             if not settings or not settings.get("smtp_host"):
-                raise Exception("SMTP configuration missing or incomplete")
+                raise Exception("SMTP configuration missing for this user. Please configure your SMTP credentials in Settings > Email Automation.")
 
             smtp_host = settings.get("smtp_host")
             smtp_port = settings.get("smtp_port", 587)
             smtp_user = settings.get("smtp_user")
             smtp_pass = decrypt_string(settings.get("smtp_pass", ""))
+            if not smtp_user or not smtp_pass:
+                raise Exception("SMTP Username and App Password are required for this user. Please enter your App Password in Settings > Email Automation.")
             smtp_enc = settings.get("smtp_encryption", "TLS")
             smtp_sender = settings.get("smtp_sender_name", "")
             smtp_reply_to = settings.get("smtp_reply_to", "")

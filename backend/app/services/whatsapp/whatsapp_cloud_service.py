@@ -44,49 +44,39 @@ class WhatsAppCloudService:
     @classmethod
     async def get_credentials(cls, db, user_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Resolve WhatsApp Cloud API credentials in hierarchical order:
-        1. User-specific settings document in `settings` collection
-        2. Any global admin settings in `settings` collection
-        3. Environment variables (WHATSAPP_TOKEN, WHATSAPP_PHONE_NUMBER_ID, etc.)
+        Resolve WhatsApp Cloud API credentials strictly for the specified authenticated user.
+        Strict multi-tenant isolation: No cross-user fallback and no global env credentials.
         """
         token: Optional[str] = None
         phone_number_id: Optional[str] = None
         waba_id: Optional[str] = None
         verify_token: Optional[str] = None
 
-        if db is not None:
-            # 1. Try finding user settings
-            query = {"user_id": user_id} if user_id else {}
-            settings_doc = await db["settings"].find_one(query)
-            
-            # If not found or missing fields, try finding any settings doc with credentials
-            if not settings_doc or not settings_doc.get("wa_official_token"):
-                settings_doc = await db["settings"].find_one({"wa_official_token": {"$nin": [None, ""]}})
+        if db is not None and user_id:
+            uid_str = str(user_id).strip()
+            if uid_str:
+                # 1. Check user settings document in `settings` collection
+                settings_doc = await db["settings"].find_one({"user_id": uid_str})
+                if settings_doc:
+                    token = settings_doc.get("wa_official_token") or settings_doc.get("wa_api_key")
+                    phone_number_id = settings_doc.get("wa_phone_id")
+                    waba_id = settings_doc.get("wa_waba_id")
+                    verify_token = settings_doc.get("wa_webhook_verify_token")
 
-            if settings_doc:
-                token = settings_doc.get("wa_official_token") or settings_doc.get("wa_api_key")
-                phone_number_id = settings_doc.get("wa_phone_id")
-                waba_id = settings_doc.get("wa_waba_id")
-                verify_token = settings_doc.get("wa_webhook_verify_token")
-
-            # Also check user doc if not found
-            if not token and user_id:
-                try:
-                    from bson import ObjectId
-                    user_doc = await db["users"].find_one({"_id": ObjectId(user_id)})
-                    if user_doc and "whatsapp_settings" in user_doc:
-                        wa_set = user_doc["whatsapp_settings"]
-                        token = token or wa_set.get("api_key")
-                        phone_number_id = phone_number_id or wa_set.get("phone_id")
-                        waba_id = waba_id or wa_set.get("waba_id")
-                except Exception:
-                    pass
-
-        # 3. Environment variables fallback
-        token = token or os.environ.get("WHATSAPP_TOKEN") or os.environ.get("WA_OFFICIAL_TOKEN")
-        phone_number_id = phone_number_id or os.environ.get("WHATSAPP_PHONE_NUMBER_ID") or os.environ.get("WA_PHONE_ID")
-        waba_id = waba_id or os.environ.get("WHATSAPP_WABA_ID") or os.environ.get("WA_WABA_ID")
-        verify_token = verify_token or os.environ.get("WHATSAPP_VERIFY_TOKEN") or os.environ.get("WA_VERIFY_TOKEN") or "leadfinder_verify_token"
+                # 2. Check user document if not fully populated in settings collection
+                if not (token and phone_number_id):
+                    try:
+                        from bson import ObjectId
+                        target_q = {"_id": ObjectId(uid_str)} if ObjectId.is_valid(uid_str) else {"_id": uid_str}
+                        user_doc = await db["users"].find_one(target_q)
+                        if user_doc and "whatsapp_settings" in user_doc:
+                            wa_set = user_doc["whatsapp_settings"]
+                            token = token or wa_set.get("api_key") or wa_set.get("access_token")
+                            phone_number_id = phone_number_id or wa_set.get("phone_id") or wa_set.get("phone_number_id")
+                            waba_id = waba_id or wa_set.get("waba_id")
+                            verify_token = verify_token or wa_set.get("verify_token")
+                    except Exception:
+                        pass
 
         is_configured = bool(token and phone_number_id)
 
@@ -94,7 +84,7 @@ class WhatsAppCloudService:
             "token": token,
             "phone_number_id": phone_number_id,
             "waba_id": waba_id,
-            "verify_token": verify_token,
+            "verify_token": verify_token or "leadfinder_verify_token",
             "is_configured": is_configured,
             "masked_token": (token[:6] + "..." + token[-4:]) if (token and len(token) > 10) else (token or "")
         }

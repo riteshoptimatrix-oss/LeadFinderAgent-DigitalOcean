@@ -17,7 +17,7 @@ from datetime import datetime
 import re
 
 from app.db.database import get_db
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_current_user, require_email_automation_access
 from app.models.user import UserInDB
 from app.models.email_campaign import (
     EmailTemplateCreate, EmailTemplateUpdate, EmailTemplateResponse,
@@ -145,7 +145,7 @@ async def _log_campaign_history(
 
 @router.get("/templates", response_model=List[EmailTemplateResponse])
 async def get_templates(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     cursor = db["email_templates"].find({"user_id": current_user.id}).sort("created_at", -1)
@@ -156,7 +156,7 @@ async def get_templates(
 @router.post("/templates", response_model=EmailTemplateResponse)
 async def create_template(
     data: EmailTemplateCreate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     if data.is_default:
@@ -180,7 +180,7 @@ async def create_template(
 async def update_template(
     template_id: str,
     data: EmailTemplateUpdate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     if not ObjectId.is_valid(template_id):
@@ -219,7 +219,7 @@ async def update_template(
 @router.delete("/templates/{template_id}")
 async def delete_template(
     template_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     if not ObjectId.is_valid(template_id):
@@ -246,7 +246,7 @@ async def get_email_leads(
     limit: int = 50,
     search: Optional[str] = None,
     category: Optional[str] = None,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     # Only return leads that have a valid email format, either in the top-level
@@ -314,7 +314,7 @@ class EmailAnalyticsDashboard(_BaseModel):
 
 @router.get("/analytics/dashboard", response_model=EmailAnalyticsDashboard)
 async def get_email_analytics_dashboard(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     """Aggregate email message log counts for the analytics summary cards."""
@@ -349,7 +349,7 @@ async def get_email_analytics_dashboard(
 @router.get("/campaigns", response_model=List[EmailCampaignResponse])
 async def get_campaigns(
     status: Optional[str] = None,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     query = {"user_id": current_user.id}
@@ -364,7 +364,7 @@ async def get_campaigns(
 @router.post("/campaigns", response_model=EmailCampaignResponse)
 async def create_campaign(
     data: EmailCampaignCreate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     if not data.lead_ids:
@@ -431,7 +431,7 @@ async def create_campaign(
 @router.get("/campaigns/{campaign_id}", response_model=EmailCampaignResponse)
 async def get_campaign(
     campaign_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     if not ObjectId.is_valid(campaign_id):
@@ -452,7 +452,7 @@ async def get_campaign(
 async def campaign_action(
     campaign_id: str,
     action: str, # start, pause, resume, cancel
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     if not ObjectId.is_valid(campaign_id):
@@ -526,7 +526,7 @@ async def get_campaign_logs(
     campaign_id: str,
     page: int = 1,
     limit: int = 50,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     if not ObjectId.is_valid(campaign_id):
@@ -552,7 +552,7 @@ async def get_campaign_logs(
 @router.post("/preview", response_model=EmailPreviewResponse)
 async def preview_template(
     data: EmailPreviewRequest,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     lead = {}

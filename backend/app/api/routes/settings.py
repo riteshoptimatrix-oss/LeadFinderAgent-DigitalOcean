@@ -5,7 +5,7 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from bson import ObjectId
 
 from app.db.database import get_db
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_current_user, require_email_automation_access
 from app.models.user import UserInDB
 from app.models.settings import (
     UserSettingsResponse, UserSettingsUpdate,
@@ -30,7 +30,7 @@ router = APIRouter()
 
 @router.get("/smtp", response_model=SMTPSettingsResponse)
 async def get_smtp_settings(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     """Retrieve the current authenticated user's SMTP configuration with masked password."""
@@ -56,7 +56,7 @@ async def get_smtp_settings(
 @router.put("/smtp", response_model=SMTPSettingsResponse)
 async def update_smtp_settings(
     payload: SMTPSettingsUpdate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     """
@@ -95,7 +95,7 @@ async def update_smtp_settings(
 @router.post("/smtp/test", response_model=SMTPTestResponse)
 async def test_smtp_connection(
     request: SMTPTestRequest,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
     """

@@ -12,7 +12,7 @@ import smtplib
 import ssl
 import socket
 from app.db.database import get_db
-from app.api.dependencies import get_current_user
+from app.api.dependencies import get_current_user, require_email_automation_access
 from app.models.user import UserInDB
 from app.core.websocket import manager
 from app.core.logger import logger
@@ -49,7 +49,7 @@ def get_user_match_filter(current_user: UserInDB) -> List[Dict[str, Any]]:
 # ==========================================
 @router.get("/smtp", response_model=List[Dict[Any, Any]])
 async def get_smtp_profiles(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     user_match = get_user_match_filter(current_user)
@@ -76,7 +76,7 @@ async def get_smtp_profiles(
 @router.post("/smtp", response_model=Dict[Any, Any])
 async def create_smtp_profile(
     profile: EmailAISmtpCreate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     new_profile = profile.model_dump()
@@ -103,7 +103,7 @@ async def create_smtp_profile(
 @router.delete("/smtp/{id}")
 async def delete_smtp_profile(
     id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     try:
@@ -300,7 +300,7 @@ async def test_smtp_profile(
     id: str,
     send_test: bool = Query(False, description="Also send a real test email"),
     recipient: Optional[str] = Query(None, description="Target recipient email (e.g. nikunj.optimatrix@gmail.com)"),
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     try:
@@ -344,7 +344,7 @@ class EmailAISmtpDirectTestRequest(BaseModel):
 @router.post("/smtp/test-direct")
 async def test_smtp_direct(
     request: EmailAISmtpDirectTestRequest,
-    current_user: UserInDB = Depends(get_current_user)
+    current_user: UserInDB = Depends(require_email_automation_access)
 ):
     loop = asyncio.get_running_loop()
     res = await loop.run_in_executor(
@@ -370,7 +370,7 @@ async def test_smtp_direct(
 # ==========================================
 @router.get("/templates", response_model=List[Dict[Any, Any]])
 async def get_templates(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     user_match = get_user_match_filter(current_user)
@@ -384,7 +384,7 @@ async def get_templates(
 @router.post("/templates", response_model=Dict[Any, Any])
 async def create_template(
     template: EmailAITemplateCreate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     new_template = template.model_dump()
@@ -399,7 +399,7 @@ async def create_template(
 @router.delete("/templates/{id}")
 async def delete_template(
     id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     try:
@@ -424,7 +424,7 @@ async def delete_template(
 async def update_template(
     id: str,
     template: EmailAITemplateUpdate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     try:
@@ -460,7 +460,7 @@ async def update_template(
 async def favorite_template(
     id: str,
     is_favorite: bool = Query(...),
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     try:
@@ -484,7 +484,7 @@ async def favorite_template(
 @router.post("/templates/{id}/duplicate", response_model=Dict[Any, Any])
 async def duplicate_template(
     id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     try:
@@ -516,7 +516,7 @@ async def get_campaigns(
     status: Optional[str] = None,
     search: Optional[str] = None,
     all_users: bool = Query(False),
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     user_match = get_user_match_filter(current_user)
@@ -544,7 +544,7 @@ async def get_campaigns(
 @router.post("/campaigns", response_model=Dict[Any, Any])
 async def create_campaign(
     campaign: EmailAICampaignCreate,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     start = datetime.now(timezone.utc)
@@ -615,7 +615,7 @@ async def create_campaign(
 async def control_campaign(
     campaign_id: str,
     action: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     if action not in ["pause", "resume", "cancel"]:
@@ -661,7 +661,7 @@ async def control_campaign(
 @router.get("/campaigns/{campaign_id}/live-status")
 async def get_campaign_live_status(
     campaign_id: str,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     try:
@@ -754,7 +754,7 @@ async def websocket_endpoint(websocket: WebSocket, campaign_id: str):
 @router.get("/analytics")
 async def get_analytics(
     all_users: bool = Query(False),
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     user_match = get_user_match_filter(current_user)
@@ -836,7 +836,7 @@ async def get_analytics(
 
 @router.get("/analytics/smtp")
 async def get_smtp_analytics(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     user_match = get_user_match_filter(current_user)
@@ -864,7 +864,7 @@ async def get_smtp_analytics(
 
 @router.get("/analytics/templates")
 async def get_template_analytics(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     user_match = get_user_match_filter(current_user)
@@ -892,7 +892,7 @@ async def get_template_analytics(
 
 @router.get("/analytics/errors")
 async def get_errors_center(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     user_match = get_user_match_filter(current_user)
@@ -916,7 +916,7 @@ async def get_errors_center(
 
 @router.get("/logs")
 async def get_global_logs(
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     user_match = get_user_match_filter(current_user)
@@ -942,7 +942,7 @@ async def get_campaign_emails(
     campaign_id: str,
     status: Optional[str] = None,
     search: Optional[str] = None,
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     """Fetch complete list of sent/failed/processed emails and lead details for a campaign."""
@@ -1112,7 +1112,7 @@ async def get_campaign_emails(
 async def export_campaign(
     campaign_id: str,
     format: str = Query("csv"),
-    current_user: UserInDB = Depends(get_current_user),
+    current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     try:
@@ -1165,7 +1165,7 @@ async def get_all_leads_for_email_ai(
     has_email: Optional[bool] = None,
     min_rating: Optional[float] = None,
     status: Optional[str] = None,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
     scope = {} if current_user.role == "ADMIN" else {"user_id": current_user.id}

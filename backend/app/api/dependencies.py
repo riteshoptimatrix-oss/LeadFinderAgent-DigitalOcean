@@ -106,3 +106,36 @@ async def get_current_superuser(
             detail="Superuser privileges required",
         )
     return current_user
+
+
+async def require_email_automation_access(
+    current_user: UserInDB = Depends(get_current_user),
+) -> UserInDB:
+    """Dependency ensuring the user has access to Email Automation."""
+    user_role = current_user.role.value.upper() if hasattr(current_user.role, 'value') else str(current_user.role).upper()
+    if current_user.is_superuser or user_role == "ADMIN":
+        return current_user
+
+    if not getattr(current_user, "email_automation_access", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to Email Automation has been disabled by your administrator.",
+        )
+    return current_user
+
+
+async def require_whatsapp_automation_access(
+    current_user: UserInDB = Depends(get_current_user),
+) -> UserInDB:
+    """Dependency ensuring the user has access to WhatsApp Automation."""
+    user_role = current_user.role.value.upper() if hasattr(current_user.role, 'value') else str(current_user.role).upper()
+    if current_user.is_superuser or user_role == "ADMIN":
+        return current_user
+
+    if not getattr(current_user, "whatsapp_automation_access", False):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access to WhatsApp Automation has been disabled by your administrator.",
+        )
+    return current_user
+

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
+import { useAuthStore } from '@/src/features/auth/store';
 import {
   Loader2,
   Save,
@@ -19,7 +20,8 @@ import {
   Eye,
   EyeOff,
   User,
-  Radio
+  Radio,
+  Lock
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -27,6 +29,24 @@ type ConnectionStatus = 'NOT_CONFIGURED' | 'TESTING' | 'CONNECTED' | 'AUTH_FAILE
 
 export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedChanges: (val: boolean) => void }) {
   const queryClient = useQueryClient();
+  const authUser = useAuthStore((state) => state.user);
+
+  // Fetch full user profile to guarantee accurate user email identity
+  const { data: userProfile } = useQuery({
+    queryKey: ['userProfile'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/users/me');
+        return res.data;
+      } catch {
+        return null;
+      }
+    },
+    refetchOnWindowFocus: false,
+  });
+
+  const accountEmail = str(userProfile?.email || authUser?.email || '').trim().toLowerCase();
+
   const [showPassword, setShowPassword] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('NOT_CONFIGURED');
@@ -57,7 +77,6 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
         const res = await api.get('/settings/smtp');
         return res.data;
       } catch {
-        // Fallback to /users/me if /settings/smtp fails
         const res = await api.get('/users/me');
         return res.data?.email_settings || null;
       }
@@ -66,13 +85,14 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
 
   useEffect(() => {
     if (smtpData) {
+      const effEmail = accountEmail || smtpData.smtp_user || '';
       const loaded = {
         smtp_host: smtpData.smtp_host || 'smtp.gmail.com',
         smtp_port: smtpData.smtp_port || 587,
-        smtp_user: smtpData.smtp_user || '',
-        smtp_pass: smtpData.smtp_pass || (smtpData.has_password ? '••••••••••••••••' : ''),
+        smtp_user: effEmail,
+        smtp_pass: '', // Never preload masked dots into input to avoid accidental overwrites
         smtp_encryption: smtpData.smtp_encryption || 'TLS',
-        smtp_from_email: smtpData.smtp_from_email || smtpData.from_email || '',
+        smtp_from_email: smtpData.smtp_from_email || smtpData.from_email || effEmail,
         smtp_sender_name: smtpData.smtp_sender_name || '',
         daily_limit: smtpData.daily_limit || 500,
         signature: smtpData.signature || 'Best regards,\nThe Growth Team\nwww.example.com',
@@ -83,16 +103,22 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
       setSettings(loaded);
       setOriginalSettings(loaded);
       setStatus(loaded.smtp_status as ConnectionStatus);
-      if (loaded.smtp_user) {
-        setSampleRecipient(loaded.smtp_user);
+      if (effEmail) {
+        setSampleRecipient(effEmail);
       }
+    } else if (accountEmail) {
+      setSettings((prev) => ({
+        ...prev,
+        smtp_user: accountEmail,
+        smtp_from_email: prev.smtp_from_email || accountEmail
+      }));
+      setSampleRecipient(accountEmail);
     }
-  }, [smtpData]);
+  }, [smtpData, accountEmail]);
 
   const handleChange = (key: string, value: any) => {
     setSettings((prev) => {
       const updated = { ...prev, [key]: value };
-      // Convenience auto-switch for port and encryption
       if (key === 'smtp_port') {
         const p = parseInt(value, 10);
         if (p === 465 && prev.smtp_encryption !== 'SSL') {
@@ -107,7 +133,17 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
 
   useEffect(() => {
     if (originalSettings) {
-      const isDirty = JSON.stringify(settings) !== JSON.stringify(originalSettings);
+      const isDirty =
+        settings.smtp_pass.trim() !== '' ||
+        settings.smtp_host !== originalSettings.smtp_host ||
+        settings.smtp_port !== originalSettings.smtp_port ||
+        settings.smtp_encryption !== originalSettings.smtp_encryption ||
+        settings.smtp_from_email !== originalSettings.smtp_from_email ||
+        settings.smtp_sender_name !== originalSettings.smtp_sender_name ||
+        settings.daily_limit !== originalSettings.daily_limit ||
+        settings.signature !== originalSettings.signature ||
+        settings.track_opens !== originalSettings.track_opens;
+
       setHasUnsavedChanges(isDirty);
     }
   }, [settings, originalSettings, setHasUnsavedChanges]);
@@ -118,16 +154,17 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
       setTestError(null);
       setStatus('TESTING');
 
+      const effUser = accountEmail || settings.smtp_user;
       const payload = {
         smtp_host: settings.smtp_host,
         smtp_port: settings.smtp_port,
-        smtp_user: settings.smtp_user,
-        smtp_pass: settings.smtp_pass,
+        smtp_user: effUser,
+        smtp_pass: settings.smtp_pass.trim() || undefined,
         smtp_encryption: settings.smtp_encryption,
-        smtp_from_email: settings.smtp_from_email || settings.smtp_user,
+        smtp_from_email: settings.smtp_from_email || effUser,
         smtp_sender_name: settings.smtp_sender_name,
         send_test: sendTest,
-        recipient: sendTest ? (recipient || settings.smtp_user) : undefined
+        recipient: sendTest ? (recipient || effUser) : undefined
       };
 
       const res = await api.post('/settings/smtp/test', payload);
@@ -142,7 +179,6 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
         });
         queryClient.invalidateQueries({ queryKey: ['smtpSettings'] });
         queryClient.invalidateQueries({ queryKey: ['email-ai-smtp'] });
-        // Real-time synchronization event for open Email AI tabs
         window.dispatchEvent(new CustomEvent('email-ai-live-event'));
         try {
           const bc = new BroadcastChannel('leadfinder_smtp_sync');
@@ -169,16 +205,19 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
 
   // Save Configuration Mutation
   const saveMutation = useMutation({
-    mutationFn: async (payload: typeof settings) => {
+    mutationFn: async (payload: any) => {
       const res = await api.put('/settings/smtp', payload);
       return res.data;
     },
     onSuccess: (data) => {
-      toast.success('SMTP Configuration saved and active across Email AI Studio!');
+      toast.success('SMTP Configuration & App Password saved successfully!');
+      const effEmail = accountEmail || settings.smtp_user;
       const updated = {
         ...settings,
+        smtp_user: effEmail,
+        smtp_pass: '',
         has_password: true,
-        smtp_pass: '••••••••••••••••'
+        smtp_status: data?.smtp_status || 'CONNECTED'
       };
       setSettings(updated);
       setOriginalSettings(updated);
@@ -186,7 +225,6 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
       queryClient.invalidateQueries({ queryKey: ['smtpSettings'] });
       queryClient.invalidateQueries({ queryKey: ['userProfile'] });
       queryClient.invalidateQueries({ queryKey: ['email-ai-smtp'] });
-      // Notify other open tabs without manual refresh
       window.dispatchEvent(new CustomEvent('email-ai-live-event'));
       try {
         const bc = new BroadcastChannel('leadfinder_smtp_sync');
@@ -200,17 +238,60 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
     }
   });
 
+  const executeSave = () => {
+    const effUser = accountEmail || settings.smtp_user;
+    if (!settings.smtp_host) {
+      toast.error('SMTP Host is required (e.g. smtp.gmail.com)');
+      return;
+    }
+    if (!effUser) {
+      toast.error('User account email not loaded. Please refresh the page.');
+      return;
+    }
+    if (!settings.smtp_pass.trim() && !settings.has_password) {
+      toast.error('Please enter your 16-character SMTP App Password');
+      return;
+    }
+
+    const payload = {
+      smtp_host: settings.smtp_host,
+      smtp_port: settings.smtp_port,
+      smtp_user: effUser,
+      smtp_pass: settings.smtp_pass.trim() || undefined,
+      smtp_encryption: settings.smtp_encryption,
+      smtp_from_email: settings.smtp_from_email.trim() || effUser,
+      smtp_sender_name: settings.smtp_sender_name.trim(),
+      daily_limit: settings.daily_limit,
+      signature: settings.signature,
+      track_opens: settings.track_opens
+    };
+
+    saveMutation.mutate(payload);
+  };
+
+  // Listen for global save button click from Settings page toolbar
+  useEffect(() => {
+    const handleGlobalSave = (e: any) => {
+      if (e.detail?.tab === 'email') {
+        executeSave();
+      }
+    };
+    window.addEventListener('save-active-settings-tab', handleGlobalSave);
+    return () => window.removeEventListener('save-active-settings-tab', handleGlobalSave);
+  }, [settings, originalSettings, accountEmail]);
+
   const handleTestClick = (e: React.MouseEvent) => {
     e.preventDefault();
     if (!settings.smtp_host) {
       toast.error('Please enter an SMTP Host (e.g. smtp.gmail.com)');
       return;
     }
-    if (!settings.smtp_user) {
-      toast.error('Please enter your Username (Email)');
+    const effUser = accountEmail || settings.smtp_user;
+    if (!effUser) {
+      toast.error('User email not loaded');
       return;
     }
-    if (!settings.smtp_pass && !settings.has_password) {
+    if (!settings.smtp_pass.trim() && !settings.has_password) {
       toast.error('Please enter your SMTP App Password');
       return;
     }
@@ -219,11 +300,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
 
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!settings.smtp_host || !settings.smtp_user) {
-      toast.error('SMTP Host and Username are required');
-      return;
-    }
-    saveMutation.mutate(settings);
+    executeSave();
   };
 
   const renderStatusBadge = () => {
@@ -296,12 +373,14 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
     );
   }
 
+  const effDisplayUser = accountEmail || settings.smtp_user;
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div>
         <h2 className="text-xl font-bold text-gray-900">Email Automation</h2>
         <p className="text-sm text-gray-500 mt-1">
-          Configure SMTP servers, outreach limits, and global email templates. Configured SMTP is automatically utilized across Email AI campaigns.
+          Configure personal SMTP credentials, outreach limits, and global email templates. Your configured SMTP is automatically utilized across Email AI campaigns.
         </p>
       </div>
 
@@ -345,28 +424,45 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
               </div>
             </div>
 
-            {/* Username & App Password */}
+            {/* Username (Locked) & App Password */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Username (Email)</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-sm font-medium text-gray-700">
+                    Username (Email)
+                  </label>
+                  <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded-md">
+                    <Lock className="w-3 h-3 text-slate-500" /> Fixed to Account
+                  </span>
+                </div>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                   <input
                     type="email"
-                    value={settings.smtp_user}
-                    onChange={(e) => handleChange('smtp_user', e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 outline-none transition-all focus:border-gray-300 focus:ring-4 focus:ring-gray-100"
-                    placeholder="sales@example.com"
+                    value={effDisplayUser}
+                    readOnly
+                    disabled
+                    className="w-full rounded-xl border border-gray-200 bg-gray-50/80 py-2.5 pl-10 pr-4 text-sm font-medium text-gray-700 cursor-not-allowed select-none outline-none"
+                    placeholder="your-account@gmail.com"
                   />
                 </div>
+                <p className="mt-1 text-[11px] text-gray-500">
+                  Fixed to your authenticated account email. All outbound campaigns authenticate as this identity.
+                </p>
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-sm font-medium text-gray-700">App Password</label>
-                  {settings.has_password && (
-                    <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded-md">
-                      Encrypted at rest
+                  <label className="block text-sm font-medium text-gray-700">
+                    App Password <span className="text-rose-500">*</span>
+                  </label>
+                  {settings.has_password ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-600" /> Configured &amp; Encrypted
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">
+                      <AlertTriangle className="w-3 h-3 text-amber-600" /> Password Not Set
                     </span>
                   )}
                 </div>
@@ -376,19 +472,20 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                     type={showPassword ? 'text' : 'password'}
                     value={settings.smtp_pass}
                     onChange={(e) => handleChange('smtp_pass', e.target.value)}
-                    className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-900 outline-none transition-all focus:border-gray-300 focus:ring-4 focus:ring-gray-100 font-mono"
-                    placeholder="••••••••••••••••"
+                    className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-10 text-sm text-gray-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-100 font-mono"
+                    placeholder={settings.has_password ? '•••••••••••••••• (Leave blank to keep saved password)' : 'Enter 16-character App Password'}
                   />
                   <button
                     type="button"
                     onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+                    title={showPassword ? 'Hide password' : 'Show password'}
                   >
                     {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                   </button>
                 </div>
                 <p className="mt-1 text-[11px] text-gray-500">
-                  For Gmail, use a 16-character App Password (Google Security &gt; 2-Step Verification &gt; App passwords).
+                  For Gmail, use a 16-character App Password (Google Account &gt; Security &gt; 2-Step Verification &gt; App Passwords). Spaces and dashes are auto-cleaned.
                 </p>
               </div>
             </div>
@@ -419,7 +516,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                     type="email"
                     value={settings.smtp_from_email}
                     onChange={(e) => handleChange('smtp_from_email', e.target.value)}
-                    placeholder={settings.smtp_user || 'outreach@yourdomain.com'}
+                    placeholder={effDisplayUser || 'outreach@yourdomain.com'}
                     className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 outline-none transition-all focus:border-gray-300 focus:ring-4 focus:ring-gray-100"
                   />
                 </div>
@@ -440,7 +537,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
               </div>
             </div>
 
-            {/* Test Error Banner (Actionable diagnostic) */}
+            {/* Test Error Banner */}
             {testError && (
               <div className="p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-start gap-3">
                 <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
@@ -451,51 +548,45 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
               </div>
             )}
 
-            {/* Test Connection Button & Actions */}
-            <div className="pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={handleTestClick}
-                  disabled={testMutation.isPending}
-                  className="inline-flex items-center gap-2 text-sm font-bold text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-colors"
-                >
-                  {testMutation.isPending ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                      Testing Connection...
-                    </>
-                  ) : (
-                    'Test Connection'
-                  )}
-                </button>
-                <span className="text-gray-300">·</span>
-                <button
-                  type="button"
-                  onClick={() => setShowSampleModal(true)}
-                  className="text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
-                >
-                  Send Sample Test Email
-                </button>
-              </div>
+            {/* Verification & Test Delivery Actions */}
+            <div className="pt-2 flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={handleTestClick}
+                disabled={testMutation.isPending}
+                className="px-4 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-xs font-bold text-gray-700 shadow-xs flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+              >
+                {testMutation.isPending && !showSampleModal ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Radio className="w-3.5 h-3.5 text-blue-600" />
+                )}
+                Verify Connection
+              </button>
 
-              <div className="text-xs text-gray-400">
-                {status === 'CONNECTED' && '✓ Ready for Email AI Outbound Campaigns'}
-              </div>
+              <button
+                type="button"
+                onClick={() => setShowSampleModal(true)}
+                disabled={testMutation.isPending || (!settings.has_password && !settings.smtp_pass)}
+                className="px-4 py-2.5 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-xs font-bold text-gray-700 shadow-xs flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+              >
+                <Send className="w-3.5 h-3.5 text-emerald-600" />
+                Send Test Email
+              </button>
             </div>
           </div>
         </section>
 
-        {/* Content & Limits */}
+        {/* Global Outreach Limits & Rules */}
         <section className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="border-b border-gray-100 px-6 py-5 bg-gray-50/50">
-            <h3 className="text-sm font-bold text-gray-900">Content &amp; Limits</h3>
+            <h3 className="text-sm font-bold text-gray-900">Email Preferences &amp; Safeguards</h3>
           </div>
 
-          <div className="p-4 sm:p-6 space-y-2 border-b border-gray-100">
+          <div className="divide-y divide-gray-100">
             <ToggleRow
               label="Track Email Opens"
-              description="Inject a tracking pixel into outbound emails to measure engagement."
+              description="Insert a transparent 1x1 tracking pixel to monitor recipient open rates."
               checked={settings.track_opens}
               onChange={(v: boolean) => handleChange('track_opens', v)}
               icon={Send}
@@ -561,7 +652,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
           <div className="border-t border-gray-100 bg-gray-50/50 px-6 py-4 flex justify-end">
             <button
               type="submit"
-              disabled={saveMutation.isPending || (originalSettings && JSON.stringify(settings) === JSON.stringify(originalSettings))}
+              disabled={saveMutation.isPending}
               className="w-full sm:w-auto rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-bold text-white transition-all hover:bg-blue-700 disabled:opacity-50 shadow-sm active:scale-95 flex items-center gap-2 justify-center"
             >
               {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
@@ -621,4 +712,8 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
       )}
     </div>
   );
+}
+
+function str(val: any): string {
+  return typeof val === 'string' ? val : '';
 }

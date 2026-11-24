@@ -157,14 +157,25 @@ export default function WhatsAppSettings({ setHasUnsavedChanges }: { setHasUnsav
     }
   });
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     if (!formData.phone_number_id.trim()) {
       toast.error('WhatsApp Phone Number ID is required.');
       return;
     }
     saveMutation.mutate();
   };
+
+  // Listen for top toolbar save button
+  useEffect(() => {
+    const handleGlobalSave = (e: any) => {
+      if (e.detail?.tab === 'whatsapp') {
+        handleSave();
+      }
+    };
+    window.addEventListener('save-active-settings-tab', handleGlobalSave);
+    return () => window.removeEventListener('save-active-settings-tab', handleGlobalSave);
+  }, [formData]);
 
   const handleCopyWebhook = () => {
     const origin = typeof window !== 'undefined' ? window.location.origin : '';

@@ -310,7 +310,27 @@ class EmailAIQueueWorker:
             if not smtp_profile and uid_str:
                 # Find active profile strictly for this user
                 smtp_profile = await self.db["email_ai_smtp"].find_one({"user_id": uid_str, "is_active": True})
-                
+            
+            # Fallback to Settings / Users if email_ai_smtp doesn't have an active password
+            if (not smtp_profile or not smtp_profile.get("password")) and uid_str:
+                from app.services.smtp_service import get_user_smtp_config
+                cfg = await get_user_smtp_config(self.db, uid_str, decrypt_pwd=False)
+                if cfg and cfg.get("has_password"):
+                    # cfg has the encrypted password in settings_doc
+                    raw_p = await self.db["settings"].find_one({"user_id": uid_str})
+                    enc_pwd = raw_p.get("smtp_pass") if raw_p else ""
+                    if enc_pwd:
+                        smtp_profile = {
+                            "host": cfg.get("smtp_host", "smtp.gmail.com"),
+                            "port": cfg.get("smtp_port", 587),
+                            "username": cfg.get("smtp_user"),
+                            "password": enc_pwd,
+                            "encryption": cfg.get("smtp_encryption", "TLS"),
+                            "from_email": cfg.get("smtp_from_email") or cfg.get("smtp_user"),
+                            "from_name": cfg.get("smtp_sender_name", ""),
+                            "timeout": 15
+                        }
+
             if not smtp_profile or not smtp_profile.get("password"):
                 await self._finalize_job(
                     job_id, campaign_id, lead_id, start_time, "Failed",
@@ -424,8 +444,9 @@ class EmailAIQueueWorker:
         host = (smtp_profile.get("host") or "").strip()
         port = int(smtp_profile.get("port", 587) or 587)
         username = (smtp_profile.get("username") or "").strip()
+        from app.services.smtp_service import clean_app_password
         raw_password = decrypt_string(str(smtp_profile.get("password") or "").strip())
-        clean_password = raw_password.replace(" ", "") if ("gmail" in host.lower() and len(raw_password.replace(" ", "")) == 16) else raw_password
+        clean_password = clean_app_password(raw_password, host)
         encryption = (smtp_profile.get("encryption") or "TLS").upper().strip()
         timeout = int(smtp_profile.get("timeout", 20) or 20)
         from_email = (smtp_profile.get("from_email") or smtp_profile.get("email") or username).strip()

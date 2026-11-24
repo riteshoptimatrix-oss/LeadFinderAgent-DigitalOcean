@@ -17,14 +17,18 @@ MASKED_PASSWORD = "••••••••••••••••"
 
 
 def clean_app_password(password: Optional[str], host: Optional[str] = None) -> str:
-    """Normalize password, auto-removing whitespace from 16-character Google App Passwords."""
+    """Normalize password, auto-removing whitespace/dashes from 16-character Google App Passwords."""
     raw = str(password or "").strip()
     if not raw:
         return ""
-    host_str = str(host or "").lower()
-    # Google App Passwords are 16 lowercase characters often formatted as 'xxxx xxxx xxxx xxxx'
-    no_spaces = raw.replace(" ", "")
-    if "gmail" in host_str and len(no_spaces) == 16:
+    # Strip any accidental leading/trailing bullet or asterisks
+    raw = re.sub(r'^[•*]+|[•*]+$', '', raw).strip()
+    if not raw:
+        return ""
+    # Normalize spaces / non-breaking spaces / dashes
+    no_spaces = re.sub(r'[\s\-]+', '', raw)
+    # Google App Passwords are 16 lowercase/alphanumeric characters often formatted as 'xxxx xxxx xxxx xxxx'
+    if len(no_spaces) == 16:
         return no_spaces
     return raw
 
@@ -425,16 +429,36 @@ async def save_user_smtp_config(db, user_id: str, data: Dict[str, Any], verified
     existing_settings = await db["settings"].find_one({"user_id": uid_str})
     existing_pass = existing_settings.get("smtp_pass") if existing_settings else ""
 
+    # Comprehensive fallback to recover existing encrypted password across collections
+    if not existing_pass or is_masked_or_empty(existing_pass):
+        ai_smtp = await db["email_ai_smtp"].find_one({
+            "user_id": uid_str,
+            "password": {"$exists": True, "$ne": ""}
+        })
+        if ai_smtp and ai_smtp.get("password") and not is_masked_or_empty(ai_smtp.get("password")):
+            existing_pass = ai_smtp.get("password")
+        elif ObjectId.is_valid(uid_str):
+            try:
+                user_doc = await db["users"].find_one({"_id": ObjectId(uid_str)})
+                if user_doc and user_doc.get("email_settings", {}).get("smtp_pass"):
+                    user_pass = user_doc["email_settings"]["smtp_pass"]
+                    if not is_masked_or_empty(user_pass):
+                        existing_pass = user_pass
+            except Exception:
+                pass
+
     incoming_pass = data.get("smtp_pass")
     
     # Check if incoming password is new or needs preservation
     if is_masked_or_empty(incoming_pass):
         # Keep existing encrypted password
         encrypted_pass = existing_pass or ""
+        logger.info(f"[SMTP-Save] Preserving existing password for user {uid_str}. Present: {bool(encrypted_pass)}")
     else:
         # Normalize and encrypt new password
         cleaned = clean_app_password(incoming_pass, data.get("smtp_host"))
         encrypted_pass = encrypt_string(cleaned)
+        logger.info(f"[SMTP-Save] New App Password encrypted and saved successfully for user {uid_str}")
 
     host = (data.get("smtp_host") or "smtp.gmail.com").strip()
     port = int(data.get("smtp_port") or 587)

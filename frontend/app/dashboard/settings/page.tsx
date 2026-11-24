@@ -150,10 +150,11 @@ export default function SettingsDashboard() {
 
   const handleSave = async () => {
     setIsSaving(true);
-    await new Promise((r) => setTimeout(r, 600));
-    setIsSaving(false);
-    setHasUnsavedChanges(false);
-    toast.success('Settings saved successfully');
+    // Dispatch save event to the active tab's dedicated save mutation
+    window.dispatchEvent(new CustomEvent('save-active-settings-tab', { detail: { tab: activeTab } }));
+    setTimeout(() => {
+      setIsSaving(false);
+    }, 800);
   };
 
   const handleReset = () => {

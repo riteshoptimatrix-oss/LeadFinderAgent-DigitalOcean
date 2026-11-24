@@ -35,13 +35,14 @@ async def get_smtp_settings(
 ):
     """Retrieve the current authenticated user's SMTP configuration with masked password."""
     config = await get_user_smtp_config(db, str(current_user.id), decrypt_pwd=False)
+    account_email = str(current_user.email or "").strip().lower()
     return SMTPSettingsResponse(
         smtp_host=config.get("smtp_host", "smtp.gmail.com"),
         smtp_port=config.get("smtp_port", 587),
-        smtp_user=config.get("smtp_user", ""),
+        smtp_user=account_email or config.get("smtp_user", ""),
         smtp_pass=config.get("smtp_pass", ""),
         smtp_encryption=config.get("smtp_encryption", "TLS"),
-        smtp_from_email=config.get("smtp_from_email", ""),
+        smtp_from_email=config.get("smtp_from_email") or account_email or config.get("smtp_user", ""),
         smtp_sender_name=config.get("smtp_sender_name", ""),
         smtp_status=config.get("smtp_status", "NOT_CONFIGURED"),
         last_tested_at=config.get("last_tested_at"),
@@ -61,6 +62,7 @@ async def update_smtp_settings(
 ):
     """
     Save SMTP settings.
+    - Locks SMTP username to current authenticated user's account email.
     - Encrypts password at rest.
     - Preserves existing password if new value is blank or mask placeholder.
     - Automatically syncs to Email AI module and broadcasts real-time update.
@@ -70,17 +72,21 @@ async def update_smtp_settings(
         raise HTTPException(status_code=400, detail="SMTP Host is required.")
     if not data.get("smtp_port"):
         raise HTTPException(status_code=400, detail="SMTP Port is required.")
-    if not data.get("smtp_user"):
-        raise HTTPException(status_code=400, detail="SMTP Username is required.")
+
+    # Strictly lock SMTP username to the logged-in user's email
+    account_email = str(current_user.email or "").strip().lower()
+    data["smtp_user"] = account_email
+    if not data.get("smtp_from_email"):
+        data["smtp_from_email"] = account_email
 
     updated_config = await save_user_smtp_config(db, str(current_user.id), data)
     return SMTPSettingsResponse(
         smtp_host=updated_config.get("smtp_host", "smtp.gmail.com"),
         smtp_port=updated_config.get("smtp_port", 587),
-        smtp_user=updated_config.get("smtp_user", ""),
+        smtp_user=account_email,
         smtp_pass=updated_config.get("smtp_pass", ""),
         smtp_encryption=updated_config.get("smtp_encryption", "TLS"),
-        smtp_from_email=updated_config.get("smtp_from_email", ""),
+        smtp_from_email=updated_config.get("smtp_from_email", account_email),
         smtp_sender_name=updated_config.get("smtp_sender_name", ""),
         smtp_status=updated_config.get("smtp_status", "NOT_CONFIGURED"),
         last_tested_at=updated_config.get("last_tested_at"),
@@ -104,28 +110,27 @@ async def test_smtp_connection(
     Updates the connection status in database and returns actionable diagnostic information.
     """
     uid_str = str(current_user.id)
+    account_email = str(current_user.email or "").strip().lower()
     host = request.smtp_host
     port = request.smtp_port or 587
-    user = request.smtp_user
+    user = account_email  # Strictly locked to current user's email
     pwd = request.smtp_pass
     encryption = request.smtp_encryption or "TLS"
-    from_email = request.smtp_from_email
+    from_email = request.smtp_from_email or account_email
     from_name = request.smtp_sender_name
 
     # If parameters missing, fall back to saved configuration
     saved_config = None
-    if not host or not user or is_masked_or_empty(pwd):
+    if not host or is_masked_or_empty(pwd):
         saved_config = await get_user_smtp_config(db, uid_str, decrypt_pwd=True)
         if not host:
             host = saved_config.get("smtp_host")
         if not port:
             port = saved_config.get("smtp_port", 587)
-        if not user:
-            user = saved_config.get("smtp_user")
         if is_masked_or_empty(pwd):
             pwd = saved_config.get("smtp_pass")
         if not from_email:
-            from_email = saved_config.get("smtp_from_email")
+            from_email = saved_config.get("smtp_from_email") or account_email
         if not from_name:
             from_name = saved_config.get("smtp_sender_name")
         if not encryption:

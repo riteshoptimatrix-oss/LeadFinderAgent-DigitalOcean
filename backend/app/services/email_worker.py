@@ -200,20 +200,21 @@ class EmailWorker:
 
             await broadcast_status(EmailMessageStatus.CONNECTING_SMTP.value, "Connecting to SMTP...")
             
-            settings = await db["settings"].find_one({"user_id": str(campaign["user_id"])})
-            if not settings or not settings.get("smtp_host"):
+            from app.services.smtp_service import get_user_smtp_config
+            smtp_config = await get_user_smtp_config(db, str(campaign["user_id"]), decrypt_pwd=True)
+            if not smtp_config or not smtp_config.get("smtp_host"):
                 raise Exception("SMTP configuration missing for this user. Please configure your SMTP credentials in Settings > Email Automation.")
 
-            smtp_host = settings.get("smtp_host")
-            smtp_port = settings.get("smtp_port", 587)
-            smtp_user = settings.get("smtp_user")
-            smtp_pass = decrypt_string(settings.get("smtp_pass", ""))
+            smtp_host = smtp_config.get("smtp_host")
+            smtp_port = int(smtp_config.get("smtp_port") or 587)
+            smtp_user = smtp_config.get("smtp_user")
+            smtp_pass = smtp_config.get("smtp_pass")
             if not smtp_user or not smtp_pass:
                 raise Exception("SMTP Username and App Password are required for this user. Please enter your App Password in Settings > Email Automation.")
-            smtp_enc = settings.get("smtp_encryption", "TLS")
-            smtp_sender = settings.get("smtp_sender_name", "")
-            smtp_reply_to = settings.get("smtp_reply_to", "")
-            smtp_from = settings.get("smtp_from_email", smtp_user)
+            smtp_enc = smtp_config.get("smtp_encryption", "TLS")
+            smtp_sender = smtp_config.get("smtp_sender_name", "")
+            smtp_reply_to = smtp_config.get("smtp_reply_to", "")
+            smtp_from = smtp_config.get("smtp_from_email") or smtp_user
 
             await broadcast_status(EmailMessageStatus.SENDING.value, "Sending email...")
 

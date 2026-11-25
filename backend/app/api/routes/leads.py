@@ -340,9 +340,12 @@ def build_lead_filters(
         area_list = [a.strip() for a in unquote_plus(str(area)).split(",") if a.strip()]
         for a in area_list:
             combined_source_or.extend([
-                {"auto_scraped_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                {"area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                {"search_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                {"auto_scraped_area": {"$regex": re.escape(a), "$options": "i"}},
+                {"area": {"$regex": re.escape(a), "$options": "i"}},
+                {"search_area": {"$regex": re.escape(a), "$options": "i"}},
+                {"city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                {"auto_scraped_city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                {"address": {"$regex": re.escape(a), "$options": "i"}},
             ])
         filter_clauses.append({"$or": combined_source_or})
     else:
@@ -363,9 +366,12 @@ def build_lead_filters(
             multi_area_conds = []
             for a in area_list:
                 multi_area_conds.extend([
-                    {"auto_scraped_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                    {"area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                    {"search_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"auto_scraped_area": {"$regex": re.escape(a), "$options": "i"}},
+                    {"area": {"$regex": re.escape(a), "$options": "i"}},
+                    {"search_area": {"$regex": re.escape(a), "$options": "i"}},
+                    {"city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"auto_scraped_city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"address": {"$regex": re.escape(a), "$options": "i"}},
                 ])
             if multi_area_conds:
                 filter_clauses.append({"$or": multi_area_conds})

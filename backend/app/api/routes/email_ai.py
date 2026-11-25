@@ -7,6 +7,8 @@ from bson import ObjectId
 import pandas as pd
 import tempfile
 import os
+import re
+from urllib.parse import unquote_plus
 import asyncio
 import smtplib
 import ssl
@@ -1192,8 +1194,7 @@ async def get_all_leads_for_email_ai(
     current_user=Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
-    scope = {} if current_user.role == "ADMIN" else {"user_id": current_user.id}
-    query = dict(scope)
+    query: Dict[str, Any] = {}
     
     has_business_name = [
         {"business_name": {"$nin": [None, ""]}},
@@ -1205,7 +1206,8 @@ async def get_all_leads_for_email_ai(
         {"email": {"$nin": [None, ""]}},
         {"emails.0": {"$exists": True}},
         {"contact_discovery.primary_email": {"$nin": [None, ""]}},
-        {"contact_discovery.all_emails.0": {"$exists": True}}
+        {"contact_discovery.all_emails.0": {"$exists": True}},
+        {"all_emails.0": {"$exists": True}}
     ]
     
     validity_cond = {
@@ -1216,6 +1218,17 @@ async def get_all_leads_for_email_ai(
     }
     
     and_conds = [validity_cond]
+
+    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        user_match_or: List[Dict[str, Any]] = [
+            {"user_id": current_user.id},
+            {"assigned_to": current_user.id},
+            {"assigned_user_email": current_user.email},
+        ]
+        if ObjectId.is_valid(str(current_user.id)):
+            user_match_or.append({"user_id": ObjectId(str(current_user.id))})
+            user_match_or.append({"assigned_to": ObjectId(str(current_user.id))})
+        and_conds.append({"$or": user_match_or})
     
     if search:
         and_conds.append({
@@ -1243,6 +1256,18 @@ async def get_all_leads_for_email_ai(
         and_conds.append({"google_rating": {"$gte": min_rating}})
     if status and status != "ALL":
         and_conds.append({"status": status})
+
+    if has_email is True:
+        and_conds.append({"$or": has_email_fields})
+    elif has_email is False:
+        and_conds.append({
+            "$and": [
+                {"email": {"$in": [None, ""]}},
+                {"emails": {"$in": [None, []]}},
+                {"contact_discovery.primary_email": {"$in": [None, ""]}},
+                {"all_emails": {"$in": [None, []]}},
+            ]
+        })
         
     if is_auto_lead is True:
         and_conds.append({
@@ -1262,65 +1287,44 @@ async def get_all_leads_for_email_ai(
 
     if job_id and area and is_auto_lead is None:
         combined_source_or = []
-        job_ids = [j.strip() for j in str(job_id).split(",") if j.strip()]
+        job_ids = [j.strip() for j in unquote_plus(str(job_id)).split(",") if j.strip()]
         for j in job_ids:
             combined_source_or.extend([
                 {"source_job_id": j},
                 {"job_id": j},
                 {"search_job_id": j},
             ])
-        area_list = [a.strip() for a in str(area).split(",") if a.strip()]
+        area_list = [a.strip() for a in unquote_plus(str(area)).split(",") if a.strip()]
         for a in area_list:
             combined_source_or.extend([
                 {"auto_scraped_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
                 {"area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
                 {"search_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                {"address": {"$regex": re.escape(a), "$options": "i"}},
             ])
         and_conds.append({"$or": combined_source_or})
     else:
         if area:
-            area_list = [a.strip() for a in str(area).split(",") if a.strip()]
-            if len(area_list) == 1:
-                target_area = area_list[0]
-                and_conds.append({
-                    "$or": [
-                        {"auto_scraped_area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
-                        {"area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
-                        {"search_area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
-                        {"address": {"$regex": re.escape(target_area), "$options": "i"}},
-                    ]
-                })
-            elif len(area_list) > 1:
-                multi_area_conds = []
-                for a in area_list:
-                    multi_area_conds.extend([
-                        {"auto_scraped_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                        {"area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                        {"search_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                        {"address": {"$regex": re.escape(a), "$options": "i"}},
-                    ])
+            area_list = [a.strip() for a in unquote_plus(str(area)).split(",") if a.strip()]
+            multi_area_conds = []
+            for a in area_list:
+                multi_area_conds.extend([
+                    {"auto_scraped_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"search_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                ])
+            if multi_area_conds:
                 and_conds.append({"$or": multi_area_conds})
 
         if job_id:
-            job_ids = [j.strip() for j in str(job_id).split(",") if j.strip()]
-            if len(job_ids) == 1:
-                target_job = job_ids[0]
-                and_conds.append({
-                    "$or": [
-                        {"source_job_id": target_job},
-                        {"job_id": target_job},
-                        {"search_job_id": target_job},
-                    ]
-                })
-            elif len(job_ids) > 1:
-                multi_job_or = []
-                for j in job_ids:
-                    multi_job_or.extend([
-                        {"source_job_id": j},
-                        {"job_id": j},
-                        {"search_job_id": j},
-                    ])
+            job_ids = [j.strip() for j in unquote_plus(str(job_id)).split(",") if j.strip()]
+            multi_job_or = []
+            for j in job_ids:
+                multi_job_or.extend([
+                    {"source_job_id": j},
+                    {"job_id": j},
+                    {"search_job_id": j},
+                ])
+            if multi_job_or:
                 and_conds.append({"$or": multi_job_or})
 
     query["$and"] = and_conds

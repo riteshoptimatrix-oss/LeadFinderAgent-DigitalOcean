@@ -1,5 +1,6 @@
 import smtplib
 import imaplib
+import poplib
 import ssl
 import socket
 import re
@@ -473,9 +474,13 @@ async def save_user_smtp_config(db, user_id: str, data: Dict[str, Any], verified
     imap_host = str(data.get("imap_host") if data.get("imap_host") is not None else (existing_settings.get("imap_host") if existing_settings else "")).strip()
     imap_port = int(data.get("imap_port") or (existing_settings.get("imap_port") if existing_settings else 993) or 993)
     imap_encryption = str(data.get("imap_encryption") or (existing_settings.get("imap_encryption") if existing_settings else "SSL") or "SSL").upper().strip()
+    pop_host = str(data.get("pop_host") if data.get("pop_host") is not None else (existing_settings.get("pop_host") if existing_settings else "")).strip()
+    pop_port = int(data.get("pop_port") or (existing_settings.get("pop_port") if existing_settings else 995) or 995)
+    pop_encryption = str(data.get("pop_encryption") or (existing_settings.get("pop_encryption") if existing_settings else "SSL") or "SSL").upper().strip()
     auth_method = str(data.get("auth_method") or (existing_settings.get("auth_method") if existing_settings else "app_password") or "app_password").strip()
     detected_provider_id = data.get("detected_provider_id") or (existing_settings.get("detected_provider_id") if existing_settings else None)
     imap_status = data.get("imap_status") or (existing_settings.get("imap_status") if existing_settings else "NOT_CONFIGURED")
+    pop_status = data.get("pop_status") or (existing_settings.get("pop_status") if existing_settings else "NOT_CONFIGURED")
 
     status = verified_status or (existing_settings.get("smtp_status") if existing_settings else None)
     if not status:
@@ -498,6 +503,10 @@ async def save_user_smtp_config(db, user_id: str, data: Dict[str, Any], verified
         "imap_port": imap_port,
         "imap_encryption": imap_encryption,
         "imap_status": imap_status,
+        "pop_host": pop_host,
+        "pop_port": pop_port,
+        "pop_encryption": pop_encryption,
+        "pop_status": pop_status,
         "auth_method": auth_method,
         "detected_provider_id": detected_provider_id,
         "daily_limit": daily_limit,
@@ -652,6 +661,67 @@ def run_imap_verification_sync(
         if conn:
             try:
                 conn.shutdown()
+            except Exception:
+                pass
+
+
+def run_pop_verification_sync(
+    host: str,
+    port: int,
+    encryption: str,
+    username: str,
+    password: str,
+    timeout: int = 12
+) -> Dict[str, Any]:
+    """Perform a real POP3 connection & login check to verify incoming mailbox access."""
+    host = str(host or "").strip()
+    username = str(username or "").strip()
+    clean_pwd = clean_app_password(password, host)
+    encryption = str(encryption or "SSL").upper().strip()
+    port = int(port or 995)
+
+    if not host:
+        return {"success": False, "status": "CONNECTION_FAILED", "message": "POP3 Host is not configured."}
+    if not username or not clean_pwd:
+        return {"success": False, "status": "AUTH_FAILED", "message": "Username and Password are required for POP3 verification."}
+
+    conn = None
+    try:
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+
+        if encryption in ("SSL", "POP3S") or (encryption == "AUTO" and port == 995):
+            conn = poplib.POP3_SSL(host, port, context=context, timeout=timeout)
+        else:
+            conn = poplib.POP3(host, port, timeout=timeout)
+            if encryption in ("TLS", "STARTTLS", "AUTO"):
+                conn.stls(context=context)
+
+        conn.user(username)
+        conn.pass_(clean_pwd)
+        conn.quit()
+        return {
+            "success": True,
+            "status": "CONNECTED",
+            "message": f"POP3 verified on {host}:{port} ({encryption})."
+        }
+    except poplib.error_proto as e:
+        return {
+            "success": False,
+            "status": "AUTH_FAILED",
+            "message": f"POP3 authentication failed: {str(e)}"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "status": "CONNECTION_FAILED",
+            "message": f"POP3 connection failed on {host}:{port}: {str(e)}"
+        }
+    finally:
+        if conn:
+            try:
+                conn.close()
             except Exception:
                 pass
 

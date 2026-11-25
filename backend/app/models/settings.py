@@ -17,6 +17,10 @@ class SMTPSettings(BaseModel):
     imap_port: Optional[int] = 993
     imap_encryption: Optional[str] = "SSL"
     imap_status: Optional[str] = "NOT_CONFIGURED"
+    pop_host: Optional[str] = ""
+    pop_port: Optional[int] = 995
+    pop_encryption: Optional[str] = "SSL"
+    pop_status: Optional[str] = "NOT_CONFIGURED"
     auth_method: Optional[str] = "app_password"
     detected_provider_id: Optional[str] = None
     last_tested_at: Optional[datetime] = None
@@ -39,6 +43,10 @@ class SMTPSettingsResponse(BaseModel):
     imap_port: int = 993
     imap_encryption: str = "SSL"
     imap_status: str = "NOT_CONFIGURED"
+    pop_host: str = ""
+    pop_port: int = 995
+    pop_encryption: str = "SSL"
+    pop_status: str = "NOT_CONFIGURED"
     auth_method: str = "app_password"
     detected_provider: Optional[Dict[str, Any]] = None
     last_tested_at: Optional[datetime] = None
@@ -59,6 +67,9 @@ class SMTPSettingsUpdate(BaseModel):
     imap_host: Optional[str] = None
     imap_port: Optional[int] = 993
     imap_encryption: Optional[str] = None
+    pop_host: Optional[str] = None
+    pop_port: Optional[int] = 995
+    pop_encryption: Optional[str] = None
     auth_method: Optional[str] = None
     detected_provider_id: Optional[str] = None
     daily_limit: Optional[int] = 500
@@ -77,6 +88,10 @@ class SMTPTestRequest(BaseModel):
     imap_port: Optional[int] = 993
     imap_encryption: Optional[str] = "SSL"
     test_imap: bool = False
+    pop_host: Optional[str] = None
+    pop_port: Optional[int] = 995
+    pop_encryption: Optional[str] = "SSL"
+    test_pop: bool = False
     send_test: bool = False
     recipient: Optional[str] = None
 
@@ -91,6 +106,10 @@ class SMTPTestResponse(BaseModel):
     imap_success: Optional[bool] = None
     imap_status: Optional[str] = None
     imap_message: Optional[str] = None
+    pop_tested: bool = False
+    pop_success: Optional[bool] = None
+    pop_status: Optional[str] = None
+    pop_message: Optional[str] = None
     test_email_sent: bool = False
     recipient: Optional[str] = None
     error: Optional[str] = None

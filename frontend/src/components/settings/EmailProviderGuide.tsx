@@ -30,6 +30,7 @@ export interface DetectedProviderPayload {
     logo_key: string;
     smtp: { supported: boolean; host: string; port: number; encryption: string };
     imap: { supported: boolean; host: string; port: number; encryption: string };
+    pop?: { supported: boolean; host: string; port: number; encryption: string };
     auth_methods: string[];
     recommended_auth: string;
     app_password_supported: boolean;
@@ -143,39 +144,56 @@ export default function EmailProviderGuide({
         )}
 
         {/* Protocol Defaults Summary */}
-        {provider && (provider.smtp?.supported || provider.imap?.supported) && (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-[11px]">
+        {provider && (provider.smtp?.supported || provider.imap?.supported || provider.pop?.supported) && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-[11px]">
             <div className="p-3 rounded-xl border border-slate-200/70 bg-white">
               <div className="flex items-center gap-1.5 font-bold text-slate-700 mb-1">
                 <Server className="w-3.5 h-3.5 text-blue-600" />
-                SMTP (Outbound)
+                SMTP
               </div>
               {provider.smtp.supported ? (
                 <div className="font-mono text-slate-600 space-y-0.5">
-                  <div className="truncate">{provider.smtp.host || 'Custom host'}</div>
+                  <div className="truncate" title={provider.smtp.host}>{provider.smtp.host || 'Custom host'}</div>
                   <div>
                     Port {provider.smtp.port} · {provider.smtp.encryption}
                   </div>
                 </div>
               ) : (
-                <div className="text-rose-600 font-semibold">Not supported directly</div>
+                <div className="text-rose-600 font-semibold">Not supported</div>
               )}
             </div>
 
             <div className="p-3 rounded-xl border border-slate-200/70 bg-white">
               <div className="flex items-center gap-1.5 font-bold text-slate-700 mb-1">
                 <Lock className="w-3.5 h-3.5 text-emerald-600" />
-                IMAP (Inbound)
+                IMAP
               </div>
               {provider.imap.supported ? (
                 <div className="font-mono text-slate-600 space-y-0.5">
-                  <div className="truncate">{provider.imap.host || 'Custom host'}</div>
+                  <div className="truncate" title={provider.imap.host}>{provider.imap.host || 'Custom host'}</div>
                   <div>
                     Port {provider.imap.port} · {provider.imap.encryption}
                   </div>
                 </div>
               ) : (
-                <div className="text-rose-600 font-semibold">Not supported directly</div>
+                <div className="text-rose-600 font-semibold">Not supported</div>
+              )}
+            </div>
+
+            <div className="p-3 rounded-xl border border-slate-200/70 bg-white">
+              <div className="flex items-center gap-1.5 font-bold text-slate-700 mb-1">
+                <Lock className="w-3.5 h-3.5 text-indigo-600" />
+                POP3
+              </div>
+              {provider.pop?.supported ? (
+                <div className="font-mono text-slate-600 space-y-0.5">
+                  <div className="truncate" title={provider.pop.host}>{provider.pop.host || 'Custom host'}</div>
+                  <div>
+                    Port {provider.pop.port} · {provider.pop.encryption}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-rose-600 font-semibold">Not supported</div>
               )}
             </div>
           </div>

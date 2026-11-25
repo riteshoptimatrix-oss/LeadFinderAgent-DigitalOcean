@@ -16,6 +16,7 @@ from app.models.settings import (
 from app.services.smtp_service import (
     run_smtp_verification_sync,
     run_imap_verification_sync,
+    run_pop_verification_sync,
     get_user_smtp_config,
     save_user_smtp_config,
     clean_app_password,
@@ -70,9 +71,13 @@ async def get_smtp_settings(
 
     default_smtp = provider_info.get("smtp", {})
     default_imap = provider_info.get("imap", {})
+    default_pop = provider_info.get("pop", {})
     default_imap_host = default_imap.get("host", "") if default_imap.get("supported") else ""
     default_imap_port = default_imap.get("port", 993)
     default_imap_enc = default_imap.get("encryption", "SSL")
+    default_pop_host = default_pop.get("host", "") if default_pop.get("supported") else ""
+    default_pop_port = default_pop.get("port", 995)
+    default_pop_enc = default_pop.get("encryption", "SSL")
 
     # If user hasn't configured credentials yet, prefer the detected provider's defaults over generic gmail fallback
     is_unconfigured = not config.get("has_password") and config.get("smtp_status", "NOT_CONFIGURED") == "NOT_CONFIGURED"
@@ -98,6 +103,10 @@ async def get_smtp_settings(
         imap_port=config.get("imap_port") or default_imap_port,
         imap_encryption=config.get("imap_encryption") or default_imap_enc,
         imap_status=config.get("imap_status", "NOT_CONFIGURED"),
+        pop_host=config.get("pop_host") if config.get("pop_host") is not None else default_pop_host,
+        pop_port=config.get("pop_port") or default_pop_port,
+        pop_encryption=config.get("pop_encryption") or default_pop_enc,
+        pop_status=config.get("pop_status", "NOT_CONFIGURED"),
         auth_method=config.get("auth_method") or provider_info.get("recommended_auth", "app_password"),
         detected_provider=detected,
         last_tested_at=config.get("last_tested_at"),
@@ -163,6 +172,10 @@ async def update_smtp_settings(
         imap_port=updated_config.get("imap_port", 993),
         imap_encryption=updated_config.get("imap_encryption", "SSL"),
         imap_status=updated_config.get("imap_status", "NOT_CONFIGURED"),
+        pop_host=updated_config.get("pop_host", ""),
+        pop_port=updated_config.get("pop_port", 995),
+        pop_encryption=updated_config.get("pop_encryption", "SSL"),
+        pop_status=updated_config.get("pop_status", "NOT_CONFIGURED"),
         auth_method=updated_config.get("auth_method", "app_password"),
         detected_provider=detected,
         last_tested_at=updated_config.get("last_tested_at"),
@@ -197,6 +210,9 @@ async def test_smtp_connection(
     imap_host = request.imap_host
     imap_port = request.imap_port or 993
     imap_encryption = request.imap_encryption or "SSL"
+    pop_host = request.pop_host
+    pop_port = request.pop_port or 995
+    pop_encryption = request.pop_encryption or "SSL"
 
     # If parameters missing, fall back to saved configuration
     if not host or not user or is_masked_or_empty(pwd):
@@ -217,6 +233,8 @@ async def test_smtp_connection(
             encryption = saved_config.get("smtp_encryption", "TLS")
         if not imap_host:
             imap_host = saved_config.get("imap_host")
+        if not pop_host:
+            pop_host = saved_config.get("pop_host")
 
     if not user:
         user = account_email
@@ -273,6 +291,21 @@ async def test_smtp_connection(
             12
         )
 
+    pop_tested = False
+    pop_result = None
+    if request.test_pop and pop_host:
+        pop_tested = True
+        pop_result = await loop.run_in_executor(
+            None,
+            run_pop_verification_sync,
+            pop_host,
+            pop_port,
+            pop_encryption,
+            user,
+            pwd,
+            12
+        )
+
     # Persist the connection status in settings & email_ai_smtp
     now = datetime.now(timezone.utc)
     new_status = test_result.get("status", "CONNECTION_FAILED")
@@ -283,6 +316,8 @@ async def test_smtp_connection(
     }
     if imap_tested and imap_result is not None:
         update_fields["imap_status"] = imap_result.get("status", "CONNECTION_FAILED")
+    if pop_tested and pop_result is not None:
+        update_fields["pop_status"] = pop_result.get("status", "CONNECTION_FAILED")
 
     await db["settings"].update_one(
         {"user_id": uid_str},
@@ -319,6 +354,10 @@ async def test_smtp_connection(
         imap_success=imap_result.get("success") if imap_result else None,
         imap_status=imap_result.get("status") if imap_result else None,
         imap_message=imap_result.get("message") if imap_result else None,
+        pop_tested=pop_tested,
+        pop_success=pop_result.get("success") if pop_result else None,
+        pop_status=pop_result.get("status") if pop_result else None,
+        pop_message=pop_result.get("message") if pop_result else None,
         test_email_sent=bool(test_result.get("test_email_sent", False)),
         recipient=test_result.get("recipient"),
         error=test_result.get("error")

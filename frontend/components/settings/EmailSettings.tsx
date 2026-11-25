@@ -61,7 +61,9 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
   const [showPassword, setShowPassword] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
   const [imapTestResult, setImapTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [popTestResult, setPopTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [testImap, setTestImap] = useState(false);
+  const [testPop, setTestPop] = useState(false);
   const [showImapConfig, setShowImapConfig] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus>('NOT_CONFIGURED');
   const [showSampleModal, setShowSampleModal] = useState(false);
@@ -81,6 +83,9 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
     imap_host: 'imap.gmail.com',
     imap_port: 993,
     imap_encryption: 'SSL',
+    pop_host: 'pop.gmail.com',
+    pop_port: 995,
+    pop_encryption: 'SSL',
     auth_method: 'app_password',
     detected_provider_id: 'gmail',
     daily_limit: 500,
@@ -126,6 +131,9 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
         imap_host: smtpData.imap_host || '',
         imap_port: smtpData.imap_port || 993,
         imap_encryption: smtpData.imap_encryption || 'SSL',
+        pop_host: smtpData.pop_host || '',
+        pop_port: smtpData.pop_port || 995,
+        pop_encryption: smtpData.pop_encryption || 'SSL',
         auth_method: smtpData.auth_method || 'app_password',
         detected_provider_id: smtpData.detected_provider?.provider_id || 'custom_domain',
         daily_limit: smtpData.daily_limit || 500,
@@ -187,6 +195,9 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
               imap_host: pInfo.imap?.supported ? pInfo.imap.host : '',
               imap_port: pInfo.imap?.port || 993,
               imap_encryption: pInfo.imap?.encryption || 'SSL',
+              pop_host: pInfo.pop?.supported ? pInfo.pop.host : '',
+              pop_port: pInfo.pop?.port || 995,
+              pop_encryption: pInfo.pop?.encryption || 'SSL',
               auth_method: pInfo.recommended_auth || prev.auth_method,
             };
           });
@@ -238,6 +249,8 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
         settings.smtp_sender_name !== originalSettings.smtp_sender_name ||
         settings.imap_host !== originalSettings.imap_host ||
         settings.imap_port !== originalSettings.imap_port ||
+        settings.pop_host !== originalSettings.pop_host ||
+        settings.pop_port !== originalSettings.pop_port ||
         settings.auth_method !== originalSettings.auth_method ||
         settings.daily_limit !== originalSettings.daily_limit ||
         settings.signature !== originalSettings.signature ||
@@ -252,6 +265,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
     mutationFn: async ({ sendTest = false, recipient = '' }: { sendTest?: boolean; recipient?: string }) => {
       setTestError(null);
       setImapTestResult(null);
+      setPopTestResult(null);
       setStatus('TESTING');
 
       const effUser = settings.smtp_user.trim().toLowerCase() || accountEmail;
@@ -267,6 +281,10 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
         imap_port: settings.imap_port || 993,
         imap_encryption: settings.imap_encryption || 'SSL',
         test_imap: testImap && !!settings.imap_host,
+        pop_host: settings.pop_host || undefined,
+        pop_port: settings.pop_port || 995,
+        pop_encryption: settings.pop_encryption || 'SSL',
+        test_pop: testPop && !!settings.pop_host,
         send_test: sendTest,
         recipient: sendTest ? (recipient || effUser) : undefined
       };
@@ -279,6 +297,12 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
         setImapTestResult({
           success: !!data.imap_success,
           message: data.imap_message || (data.imap_success ? 'IMAP Verified' : 'IMAP Failed')
+        });
+      }
+      if (data?.pop_tested) {
+        setPopTestResult({
+          success: !!data.pop_success,
+          message: data.pop_message || (data.pop_success ? 'POP3 Verified' : 'POP3 Failed')
         });
       }
       if (data?.success) {
@@ -381,6 +405,9 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
       imap_host: settings.imap_host.trim(),
       imap_port: settings.imap_port || 993,
       imap_encryption: settings.imap_encryption || 'SSL',
+      pop_host: settings.pop_host.trim(),
+      pop_port: settings.pop_port || 995,
+      pop_encryption: settings.pop_encryption || 'SSL',
       auth_method: settings.auth_method,
       detected_provider_id: detectedProvider?.provider_id || settings.detected_provider_id,
       daily_limit: settings.daily_limit,
@@ -726,7 +753,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                   </div>
                 </div>
 
-                {/* Optional IMAP Configuration Toggle */}
+                {/* Optional IMAP & POP3 Configuration Toggle */}
                 <div className="pt-1">
                   <button
                     type="button"
@@ -734,44 +761,85 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                     className="text-xs font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1.5"
                   >
                     <Server className="w-3.5 h-3.5" />
-                    {showImapConfig ? 'Hide IMAP Settings' : 'Configure / View IMAP Settings (Inbound)'}
+                    {showImapConfig ? 'Hide IMAP & POP3 Settings' : 'Configure / View IMAP & POP3 Settings (Inbound)'}
                   </button>
 
                   {showImapConfig && (
-                    <div className="mt-3 p-4 rounded-xl bg-slate-50/80 border border-slate-200/70 grid grid-cols-1 sm:grid-cols-4 gap-3">
-                      <div className="sm:col-span-2">
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">IMAP Host</label>
-                        <input
-                          type="text"
-                          value={settings.imap_host}
-                          onChange={(e) => handleChange('imap_host', e.target.value)}
-                          placeholder="imap.gmail.com"
-                          className="w-full rounded-lg border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-900 outline-none"
-                        />
+                    <div className="mt-3 p-4 rounded-xl bg-slate-50/80 border border-slate-200/70 space-y-4">
+                      {/* IMAP */}
+                      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <div className="sm:col-span-2">
+                          <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">IMAP Host</label>
+                          <input
+                            type="text"
+                            value={settings.imap_host}
+                            onChange={(e) => handleChange('imap_host', e.target.value)}
+                            placeholder="imap.gmail.com"
+                            className="w-full rounded-lg border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-900 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">IMAP Port</label>
+                          <input
+                            type="number"
+                            value={settings.imap_port}
+                            onChange={(e) => handleChange('imap_port', parseInt(e.target.value, 10) || 993)}
+                            className="w-full rounded-lg border border-slate-200 bg-white py-2 px-3 text-xs text-slate-900 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">IMAP Encryption</label>
+                          <select
+                            value={settings.imap_encryption}
+                            onChange={(e) => handleChange('imap_encryption', e.target.value)}
+                            className="w-full rounded-lg border border-slate-200 bg-white py-2 px-2.5 text-xs text-slate-900 outline-none"
+                          >
+                            <option value="SSL">SSL / TLS (Port 993)</option>
+                            <option value="IMAPS">IMAPS (Port 993)</option>
+                            <option value="STARTTLS">STARTTLS (Port 143)</option>
+                            <option value="TLS">TLS (Port 143)</option>
+                            <option value="AUTO">Auto-Negotiate</option>
+                            <option value="NONE">None / Plaintext</option>
+                          </select>
+                        </div>
                       </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">IMAP Port</label>
-                        <input
-                          type="number"
-                          value={settings.imap_port}
-                          onChange={(e) => handleChange('imap_port', parseInt(e.target.value, 10) || 993)}
-                          className="w-full rounded-lg border border-slate-200 bg-white py-2 px-3 text-xs text-slate-900 outline-none"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Encryption</label>
-                        <select
-                          value={settings.imap_encryption}
-                          onChange={(e) => handleChange('imap_encryption', e.target.value)}
-                          className="w-full rounded-lg border border-slate-200 bg-white py-2 px-2.5 text-xs text-slate-900 outline-none"
-                        >
-                          <option value="SSL">SSL / TLS (Port 993)</option>
-                          <option value="IMAPS">IMAPS (Port 993)</option>
-                          <option value="STARTTLS">STARTTLS (Port 143)</option>
-                          <option value="TLS">TLS (Port 143)</option>
-                          <option value="AUTO">Auto-Negotiate</option>
-                          <option value="NONE">None / Plaintext</option>
-                        </select>
+
+                      {/* POP3 */}
+                      <div className="pt-3 border-t border-slate-200/70 grid grid-cols-1 sm:grid-cols-4 gap-3">
+                        <div className="sm:col-span-2">
+                          <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">POP3 Host</label>
+                          <input
+                            type="text"
+                            value={settings.pop_host}
+                            onChange={(e) => handleChange('pop_host', e.target.value)}
+                            placeholder="pop.gmail.com"
+                            className="w-full rounded-lg border border-slate-200 bg-white py-2 px-3 text-xs font-mono text-slate-900 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">POP3 Port</label>
+                          <input
+                            type="number"
+                            value={settings.pop_port}
+                            onChange={(e) => handleChange('pop_port', parseInt(e.target.value, 10) || 995)}
+                            className="w-full rounded-lg border border-slate-200 bg-white py-2 px-3 text-xs text-slate-900 outline-none"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">POP3 Encryption</label>
+                          <select
+                            value={settings.pop_encryption}
+                            onChange={(e) => handleChange('pop_encryption', e.target.value)}
+                            className="w-full rounded-lg border border-slate-200 bg-white py-2 px-2.5 text-xs text-slate-900 outline-none"
+                          >
+                            <option value="SSL">SSL / TLS (Port 995)</option>
+                            <option value="POP3S">POP3S (Port 995)</option>
+                            <option value="STARTTLS">STARTTLS (Port 110)</option>
+                            <option value="TLS">TLS (Port 110)</option>
+                            <option value="AUTO">Auto-Negotiate</option>
+                            <option value="NONE">None / Plaintext</option>
+                          </select>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -840,6 +908,23 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                   </div>
                 )}
 
+                {popTestResult && (
+                  <div
+                    className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
+                      popTestResult.success
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                        : 'bg-amber-50 border-amber-200 text-amber-800'
+                    }`}
+                  >
+                    {popTestResult.success ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    )}
+                    <span>{popTestResult.message}</span>
+                  </div>
+                )}
+
                 {/* Action Toolbar: Verify, Send Test Email, Save */}
                 <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100">
                   <div className="flex flex-wrap items-center gap-2.5">
@@ -876,6 +961,18 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                           className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                         />
                         <span>Also test IMAP</span>
+                      </label>
+                    )}
+
+                    {settings.pop_host && (
+                      <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer ml-1">
+                        <input
+                          type="checkbox"
+                          checked={testPop}
+                          onChange={(e) => setTestPop(e.target.checked)}
+                          className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        <span>Also test POP3</span>
                       </label>
                     )}
                   </div>

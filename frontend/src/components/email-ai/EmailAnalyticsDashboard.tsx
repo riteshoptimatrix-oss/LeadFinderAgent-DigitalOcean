@@ -1,9 +1,8 @@
 import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { Mail, CheckCircle2, XCircle, Clock, Activity, Calendar, Rocket, ArrowRight, ShieldCheck } from 'lucide-react';
+import { Mail, CheckCircle2, XCircle, Clock, Activity, Calendar, Eye, MousePointerClick, Sparkles } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
 export default function EmailAnalyticsDashboard() {
   const queryClient = useQueryClient();
@@ -46,7 +45,6 @@ export default function EmailAnalyticsDashboard() {
   const avgSendTime = analytics?.avg_send_time != null ? Number(analytics.avg_send_time) : 0;
   const totalSent = analytics?.total_sent != null ? Number(analytics.total_sent) : 0;
   const totalFailed = analytics?.total_failed != null ? Number(analytics.total_failed) : 0;
-  const dailyTrends = Array.isArray(analytics?.daily_trends) ? analytics.daily_trends : [];
 
   return (
     <div className="space-y-6">
@@ -134,55 +132,44 @@ export default function EmailAnalyticsDashboard() {
         </div>
       </div>
 
-      {/* Charts */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
+      {/* E-Mail Tracker (Coming Soon) */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden">
         <div className="flex items-center justify-between mb-6">
-          <div>
-            <h3 className="font-bold text-slate-900 text-base">Delivery Trend (Last 14 Days)</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Sent vs failed message trajectory across campaigns</p>
+          <div className="flex items-center gap-3">
+            <div className="p-2.5 bg-indigo-50 rounded-xl border border-indigo-100">
+              <Mail className="w-5 h-5 text-indigo-600" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-900 text-base">E-Mail Tracker</h3>
+              <p className="text-xs text-slate-400 mt-0.5">Live recipient engagement, opens, and link click telemetry</p>
+            </div>
           </div>
-          <div className="flex items-center gap-3 text-xs">
-            <span className="flex items-center gap-1.5 text-indigo-600 font-semibold">
-              <span className="w-2.5 h-2.5 rounded-full bg-indigo-500" /> Sent
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
+            <Sparkles className="w-3.5 h-3.5" />
+            Coming Soon
+          </span>
+        </div>
+
+        <div className="py-10 px-6 flex flex-col items-center justify-center border border-dashed border-slate-200 rounded-2xl bg-slate-50/50 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-center mb-4">
+            <Eye className="w-7 h-7 text-indigo-600" />
+          </div>
+          <h4 className="text-lg font-bold text-slate-900">E-Mail Tracker is Coming Soon</h4>
+          <p className="text-sm text-slate-500 mt-1.5 max-w-md">
+            We are building real-time email open tracking, link click analytics, and detailed recipient activity logs right here.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2.5 mt-5">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-white text-slate-600 border border-slate-200 shadow-2xs">
+              <Eye className="w-3.5 h-3.5 text-indigo-500" /> Open Tracking
             </span>
-            <span className="flex items-center gap-1.5 text-rose-500 font-semibold">
-              <span className="w-2.5 h-2.5 rounded-full bg-rose-500" /> Failed
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-white text-slate-600 border border-slate-200 shadow-2xs">
+              <MousePointerClick className="w-3.5 h-3.5 text-blue-500" /> Click Analytics
+            </span>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-white text-slate-600 border border-slate-200 shadow-2xs">
+              <Activity className="w-3.5 h-3.5 text-emerald-500" /> Engagement Timeline
             </span>
           </div>
         </div>
-
-        {dailyTrends.length > 0 ? (
-          <div className="h-72 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dailyTrends}>
-                <defs>
-                  <linearGradient id="colorSent" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="colorFailed" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8} />
-                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <RechartsTooltip />
-                <Area type="monotone" dataKey="sent" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorSent)" />
-                <Area type="monotone" dataKey="failed" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorFailed)" />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        ) : (
-          <div className="h-56 flex flex-col items-center justify-center border border-dashed border-slate-200 rounded-2xl p-6 text-center text-slate-400">
-            <Mail className="w-10 h-10 text-slate-300 mb-2 stroke-1" />
-            <p className="font-semibold text-slate-700 text-sm">No Delivery Trend Data Yet</p>
-            <p className="text-xs text-slate-400 mt-1 max-w-sm">
-              As campaigns are executed, daily sending volume and delivery performance charts will populate here automatically.
-            </p>
-          </div>
-        )}
       </div>
     </div>
   );

@@ -1260,37 +1260,68 @@ async def get_all_leads_for_email_ai(
             ]
         })
 
-    if area:
+    if job_id and area and is_auto_lead is None:
+        combined_source_or = []
+        job_ids = [j.strip() for j in str(job_id).split(",") if j.strip()]
+        for j in job_ids:
+            combined_source_or.extend([
+                {"source_job_id": j},
+                {"job_id": j},
+                {"search_job_id": j},
+            ])
         area_list = [a.strip() for a in str(area).split(",") if a.strip()]
-        if len(area_list) == 1:
-            target_area = area_list[0]
-            and_conds.append({
-                "$or": [
-                    {"auto_scraped_area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
-                    {"area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
-                    {"search_area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
-                    {"address": {"$regex": re.escape(target_area), "$options": "i"}},
-                ]
-            })
-        elif len(area_list) > 1:
-            multi_area_conds = []
-            for a in area_list:
-                multi_area_conds.extend([
-                    {"auto_scraped_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                    {"area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                    {"search_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                    {"address": {"$regex": re.escape(a), "$options": "i"}},
-                ])
-            and_conds.append({"$or": multi_area_conds})
+        for a in area_list:
+            combined_source_or.extend([
+                {"auto_scraped_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                {"area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                {"search_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                {"address": {"$regex": re.escape(a), "$options": "i"}},
+            ])
+        and_conds.append({"$or": combined_source_or})
+    else:
+        if area:
+            area_list = [a.strip() for a in str(area).split(",") if a.strip()]
+            if len(area_list) == 1:
+                target_area = area_list[0]
+                and_conds.append({
+                    "$or": [
+                        {"auto_scraped_area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
+                        {"area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
+                        {"search_area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
+                        {"address": {"$regex": re.escape(target_area), "$options": "i"}},
+                    ]
+                })
+            elif len(area_list) > 1:
+                multi_area_conds = []
+                for a in area_list:
+                    multi_area_conds.extend([
+                        {"auto_scraped_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                        {"area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                        {"search_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                        {"address": {"$regex": re.escape(a), "$options": "i"}},
+                    ])
+                and_conds.append({"$or": multi_area_conds})
 
-    if job_id:
-        and_conds.append({
-            "$or": [
-                {"source_job_id": job_id},
-                {"job_id": job_id},
-                {"search_job_id": job_id},
-            ]
-        })
+        if job_id:
+            job_ids = [j.strip() for j in str(job_id).split(",") if j.strip()]
+            if len(job_ids) == 1:
+                target_job = job_ids[0]
+                and_conds.append({
+                    "$or": [
+                        {"source_job_id": target_job},
+                        {"job_id": target_job},
+                        {"search_job_id": target_job},
+                    ]
+                })
+            elif len(job_ids) > 1:
+                multi_job_or = []
+                for j in job_ids:
+                    multi_job_or.extend([
+                        {"source_job_id": j},
+                        {"job_id": j},
+                        {"search_job_id": j},
+                    ])
+                and_conds.append({"$or": multi_job_or})
 
     query["$and"] = and_conds
     query["blacklisted"] = {"$ne": True}

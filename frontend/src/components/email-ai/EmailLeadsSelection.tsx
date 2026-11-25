@@ -251,6 +251,532 @@ function AreaMultiSelect({
   );
 }
 
+function CampaignMultiSelect({
+  campaigns,
+  selectedJobIds,
+  onChange,
+  className
+}: {
+  campaigns: any[];
+  selectedJobIds: string[];
+  onChange: (jobIds: string[]) => void;
+  className?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const totalAllLeads = useMemo(
+    () => campaigns.reduce((sum, c) => sum + (c.total_saved ?? c.leads_count ?? 0), 0),
+    [campaigns]
+  );
+
+  const selectedCount = selectedJobIds.length;
+
+  const totalSelectedLeads = useMemo(
+    () =>
+      campaigns
+        .filter(c => selectedJobIds.includes(c.job_id || c.id))
+        .reduce((sum, c) => sum + (c.total_saved ?? c.leads_count ?? 0), 0),
+    [campaigns, selectedJobIds]
+  );
+
+  const filteredCampaigns = useMemo(() => {
+    const q = search.toLowerCase();
+    return campaigns.filter(c => {
+      const loc = [c.city, c.state].filter(Boolean).join(', ').toLowerCase();
+      const kw = (c.keyword || '').toLowerCase();
+      return kw.includes(q) || loc.includes(q);
+    });
+  }, [campaigns, search]);
+
+  const toggleCampaign = (id: string) => {
+    if (selectedJobIds.includes(id)) {
+      onChange(selectedJobIds.filter(x => x !== id));
+    } else {
+      onChange([...selectedJobIds, id]);
+    }
+  };
+
+  const selectAllFiltered = () => {
+    const allFilteredIds = filteredCampaigns.map(c => c.job_id || c.id);
+    const combined = Array.from(new Set([...selectedJobIds, ...allFilteredIds]));
+    onChange(combined);
+  };
+
+  const clearSelection = () => {
+    onChange([]);
+  };
+
+  const firstSelectedName = useMemo(() => {
+    if (selectedCount === 1) {
+      const c = campaigns.find(item => (item.job_id || item.id) === selectedJobIds[0]);
+      if (c) {
+        const loc = [c.city, c.state].filter(Boolean).join(', ');
+        return `${c.keyword || 'Search'}${loc ? ` • ${loc}` : ''}`;
+      }
+    }
+    return '';
+  }, [campaigns, selectedJobIds, selectedCount]);
+
+  return (
+    <div className={cn("relative inline-block", className)} ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "px-3.5 py-2.5 bg-blue-50 border border-blue-300 rounded-xl text-sm font-semibold text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer shadow-xs transition-all flex items-center justify-between gap-2 min-w-[200px] max-w-[340px]",
+          isOpen && "ring-2 ring-blue-500/30 border-blue-400"
+        )}
+        title="Filter by Multiple Search Campaigns"
+      >
+        <span className="truncate flex items-center gap-1.5 text-xs sm:text-sm">
+          <span>🔍</span>
+          {selectedCount === 0 && (
+            <span>All Search Campaigns ({campaigns.length})</span>
+          )}
+          {selectedCount === 1 && (
+            <span className="truncate">{firstSelectedName || '1 Campaign'} ({totalSelectedLeads.toLocaleString()} leads)</span>
+          )}
+          {selectedCount > 1 && (
+            <span>{selectedCount} Campaigns Selected ({totalSelectedLeads.toLocaleString()} leads)</span>
+          )}
+        </span>
+
+        <div className="flex items-center gap-1 shrink-0 ml-1">
+          {selectedCount > 0 && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                clearSelection();
+              }}
+              className="p-0.5 rounded-full hover:bg-blue-200/60 text-blue-700 hover:text-blue-900 transition-colors"
+              title="Clear campaign filter"
+            >
+              <X className="w-3.5 h-3.5" />
+            </span>
+          )}
+          <ChevronDown
+            className={cn(
+              "w-4 h-4 text-blue-600 transition-transform duration-200",
+              isOpen && "rotate-180"
+            )}
+          />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full mt-1.5 w-80 sm:w-96 bg-white rounded-xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          {/* Search Bar */}
+          <div className="p-2.5 border-b border-slate-100 bg-slate-50/60">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search campaigns by keyword, city..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                autoFocus
+                className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-200/60 text-[11px] font-semibold">
+              <span className="text-slate-500">
+                {selectedCount} of {campaigns.length} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={selectAllFiltered}
+                  className="text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                >
+                  Select All
+                </button>
+                <span className="text-slate-300">•</span>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  disabled={selectedCount === 0}
+                  className="text-slate-500 hover:text-slate-700 disabled:opacity-40 disabled:hover:no-underline hover:underline cursor-pointer"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* List of Campaigns */}
+          <div className="max-h-60 overflow-y-auto p-1 divide-y divide-slate-50">
+            {filteredCampaigns.length === 0 ? (
+              <div className="p-4 text-center text-xs text-slate-400">
+                No matching search campaigns found
+              </div>
+            ) : (
+              filteredCampaigns.map((c) => {
+                const cId = c.job_id || c.id;
+                const isChecked = selectedJobIds.includes(cId);
+                const count = c.total_saved ?? c.leads_count ?? 0;
+                const loc = [c.city, c.state].filter(Boolean).join(', ');
+                const label = `${c.keyword || 'Search'}${loc ? ` • ${loc}` : ''}`;
+
+                return (
+                  <div
+                    key={cId}
+                    onClick={() => toggleCampaign(cId)}
+                    className={cn(
+                      "flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs select-none",
+                      isChecked
+                        ? "bg-blue-50/70 text-blue-950 font-semibold"
+                        : "hover:bg-slate-50 text-slate-700"
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5 truncate pr-2">
+                      <div
+                        className={cn(
+                          "w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0",
+                          isChecked
+                            ? "bg-blue-600 border-blue-600 text-white"
+                            : "border-slate-300 bg-white"
+                        )}
+                      >
+                        {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                      </div>
+                      <span className="truncate">{label}</span>
+                    </div>
+                    <span
+                      className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-full shrink-0 font-medium",
+                        isChecked
+                          ? "bg-blue-100/80 text-blue-800"
+                          : "bg-slate-100 text-slate-500"
+                      )}
+                    >
+                      {count.toLocaleString()} leads
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AllSourcesMultiSelect({
+  campaigns,
+  areas,
+  selectedJobIds,
+  selectedAreas,
+  onJobIdsChange,
+  onAreasChange,
+  className
+}: {
+  campaigns: any[];
+  areas: { area: string; count: number }[];
+  selectedJobIds: string[];
+  selectedAreas: string[];
+  onJobIdsChange: (ids: string[]) => void;
+  onAreasChange: (areas: string[]) => void;
+  className?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [activeCategoryTab, setActiveCategoryTab] = useState<'all' | 'campaigns' | 'areas'>('all');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const totalCampaignLeads = useMemo(
+    () => campaigns.reduce((sum, c) => sum + (c.total_saved ?? c.leads_count ?? 0), 0),
+    [campaigns]
+  );
+  const totalAreaLeads = useMemo(
+    () => areas.reduce((sum, a) => sum + (a.count || 0), 0),
+    [areas]
+  );
+
+  const selectedCampaignLeads = useMemo(
+    () =>
+      campaigns
+        .filter(c => selectedJobIds.includes(c.job_id || c.id))
+        .reduce((sum, c) => sum + (c.total_saved ?? c.leads_count ?? 0), 0),
+    [campaigns, selectedJobIds]
+  );
+  const selectedAreaLeads = useMemo(
+    () =>
+      areas
+        .filter(a => selectedAreas.includes(a.area))
+        .reduce((sum, a) => sum + (a.count || 0), 0),
+    [areas, selectedAreas]
+  );
+
+  const totalSelectedCount = selectedJobIds.length + selectedAreas.length;
+  const totalSelectedLeads = selectedCampaignLeads + selectedAreaLeads;
+
+  const filteredCampaigns = useMemo(() => {
+    if (activeCategoryTab === 'areas') return [];
+    const q = search.toLowerCase();
+    return campaigns.filter(c => {
+      const loc = [c.city, c.state].filter(Boolean).join(', ').toLowerCase();
+      const kw = (c.keyword || '').toLowerCase();
+      return kw.includes(q) || loc.includes(q);
+    });
+  }, [campaigns, search, activeCategoryTab]);
+
+  const filteredAreas = useMemo(() => {
+    if (activeCategoryTab === 'campaigns') return [];
+    const q = search.toLowerCase();
+    return areas.filter(a => a.area.toLowerCase().includes(q));
+  }, [areas, search, activeCategoryTab]);
+
+  const toggleCampaign = (id: string) => {
+    if (selectedJobIds.includes(id)) {
+      onJobIdsChange(selectedJobIds.filter(x => x !== id));
+    } else {
+      onJobIdsChange([...selectedJobIds, id]);
+    }
+  };
+
+  const toggleArea = (area: string) => {
+    if (selectedAreas.includes(area)) {
+      onAreasChange(selectedAreas.filter(a => a !== area));
+    } else {
+      onAreasChange([...selectedAreas, area]);
+    }
+  };
+
+  const selectAllVisible = () => {
+    if (activeCategoryTab === 'all' || activeCategoryTab === 'campaigns') {
+      const cIds = filteredCampaigns.map(c => c.job_id || c.id);
+      onJobIdsChange(Array.from(new Set([...selectedJobIds, ...cIds])));
+    }
+    if (activeCategoryTab === 'all' || activeCategoryTab === 'areas') {
+      const aNames = filteredAreas.map(a => a.area);
+      onAreasChange(Array.from(new Set([...selectedAreas, ...aNames])));
+    }
+  };
+
+  const clearAll = () => {
+    onJobIdsChange([]);
+    onAreasChange([]);
+  };
+
+  return (
+    <div className={cn("relative inline-block", className)} ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-500/20 cursor-pointer shadow-xs transition-all flex items-center justify-between gap-2 min-w-[200px] max-w-[340px]",
+          isOpen && "ring-2 ring-slate-500/30 border-slate-400"
+        )}
+        title="Filter by Campaigns & Areas"
+      >
+        <span className="truncate flex items-center gap-1.5 text-xs sm:text-sm">
+          <span>🔍</span>
+          {totalSelectedCount === 0 && (
+            <span>All Campaigns & Areas ({campaigns.length + areas.length})</span>
+          )}
+          {totalSelectedCount === 1 && (
+            <span>1 Filter Selected ({totalSelectedLeads.toLocaleString()} leads)</span>
+          )}
+          {totalSelectedCount > 1 && (
+            <span>{totalSelectedCount} Sources Selected ({totalSelectedLeads.toLocaleString()} leads)</span>
+          )}
+        </span>
+
+        <div className="flex items-center gap-1 shrink-0 ml-1">
+          {totalSelectedCount > 0 && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                clearAll();
+              }}
+              className="p-0.5 rounded-full hover:bg-slate-200 text-slate-600 hover:text-slate-900 transition-colors"
+              title="Clear all selected"
+            >
+              <X className="w-3.5 h-3.5" />
+            </span>
+          )}
+          <ChevronDown
+            className={cn(
+              "w-4 h-4 text-slate-500 transition-transform duration-200",
+              isOpen && "rotate-180"
+            )}
+          />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full mt-1.5 w-80 sm:w-96 bg-white rounded-xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          {/* Header & Tabs */}
+          <div className="p-2.5 border-b border-slate-100 bg-slate-50/60 space-y-2">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search campaigns & areas..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                autoFocus
+                className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+
+            {/* Source Category Tabs */}
+            <div className="flex items-center gap-1 bg-slate-200/60 p-0.5 rounded-lg text-[11px] font-semibold">
+              <button
+                type="button"
+                onClick={() => setActiveCategoryTab('all')}
+                className={cn("flex-1 py-1 rounded-md transition-colors", activeCategoryTab === 'all' ? "bg-white text-slate-900 shadow-2xs" : "text-slate-600 hover:text-slate-900")}
+              >
+                All ({campaigns.length + areas.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveCategoryTab('campaigns')}
+                className={cn("flex-1 py-1 rounded-md transition-colors", activeCategoryTab === 'campaigns' ? "bg-white text-blue-700 shadow-2xs" : "text-slate-600 hover:text-slate-900")}
+              >
+                Campaigns ({campaigns.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveCategoryTab('areas')}
+                className={cn("flex-1 py-1 rounded-md transition-colors", activeCategoryTab === 'areas' ? "bg-white text-teal-700 shadow-2xs" : "text-slate-600 hover:text-slate-900")}
+              >
+                Areas ({areas.length})
+              </button>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center justify-between pt-1 border-t border-slate-200/60 text-[11px] font-semibold">
+              <span className="text-slate-500">
+                {totalSelectedCount} selected ({totalSelectedLeads.toLocaleString()} leads)
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={selectAllVisible}
+                  className="text-blue-600 hover:text-blue-700 hover:underline cursor-pointer"
+                >
+                  Select All
+                </button>
+                <span className="text-slate-300">•</span>
+                <button
+                  type="button"
+                  onClick={clearAll}
+                  disabled={totalSelectedCount === 0}
+                  className="text-slate-500 hover:text-slate-700 disabled:opacity-40 disabled:hover:no-underline hover:underline cursor-pointer"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* List */}
+          <div className="max-h-60 overflow-y-auto p-1 divide-y divide-slate-50">
+            {filteredCampaigns.length === 0 && filteredAreas.length === 0 ? (
+              <div className="p-4 text-center text-xs text-slate-400">
+                No matching campaigns or areas found
+              </div>
+            ) : (
+              <>
+                {/* Campaigns */}
+                {filteredCampaigns.map((c) => {
+                  const cId = c.job_id || c.id;
+                  const isChecked = selectedJobIds.includes(cId);
+                  const count = c.total_saved ?? c.leads_count ?? 0;
+                  const loc = [c.city, c.state].filter(Boolean).join(', ');
+                  const label = `${c.keyword || 'Search'}${loc ? ` • ${loc}` : ''}`;
+
+                  return (
+                    <div
+                      key={`c-${cId}`}
+                      onClick={() => toggleCampaign(cId)}
+                      className={cn(
+                        "flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs select-none",
+                        isChecked ? "bg-blue-50/70 text-blue-950 font-semibold" : "hover:bg-slate-50 text-slate-700"
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5 truncate pr-2">
+                        <div
+                          className={cn(
+                            "w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0",
+                            isChecked ? "bg-blue-600 border-blue-600 text-white" : "border-slate-300 bg-white"
+                          )}
+                        >
+                          {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                        <span className="truncate">🔍 {label}</span>
+                      </div>
+                      <span className={cn("text-[10px] px-2 py-0.5 rounded-full shrink-0 font-medium", isChecked ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-500")}>
+                        {count.toLocaleString()}
+                      </span>
+                    </div>
+                  );
+                })}
+
+                {/* Areas */}
+                {filteredAreas.map((a) => {
+                  const isChecked = selectedAreas.includes(a.area);
+                  return (
+                    <div
+                      key={`a-${a.area}`}
+                      onClick={() => toggleArea(a.area)}
+                      className={cn(
+                        "flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs select-none",
+                        isChecked ? "bg-teal-50/70 text-teal-950 font-semibold" : "hover:bg-slate-50 text-slate-700"
+                      )}
+                    >
+                      <div className="flex items-center gap-2.5 truncate pr-2">
+                        <div
+                          className={cn(
+                            "w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0",
+                            isChecked ? "bg-teal-600 border-teal-600 text-white" : "border-slate-300 bg-white"
+                          )}
+                        >
+                          {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                        </div>
+                        <span className="truncate">📍 {a.area}</span>
+                      </div>
+                      <span className={cn("text-[10px] px-2 py-0.5 rounded-full shrink-0 font-medium", isChecked ? "bg-teal-100 text-teal-800" : "bg-slate-100 text-slate-500")}>
+                        {a.count.toLocaleString()}
+                      </span>
+                    </div>
+                  );
+                })}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function EmailLeadsSelection() {
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
@@ -272,7 +798,7 @@ export default function EmailLeadsSelection() {
     status: 'ALL',
     search_campaign: 'ALL' as 'ALL' | 'auto' | 'normal',
     selected_areas: [] as string[],
-    selected_job_id: ''
+    selected_job_ids: [] as string[]
   });
 
   const [sort, setSort] = useState({
@@ -303,10 +829,16 @@ export default function EmailLeadsSelection() {
             : parsed.filters.selected_area
               ? [parsed.filters.selected_area]
               : [];
+          const loadedJobs = Array.isArray(parsed.filters.selected_job_ids)
+            ? parsed.filters.selected_job_ids
+            : parsed.filters.selected_job_id
+              ? [parsed.filters.selected_job_id]
+              : [];
           setFilters(prev => ({
             ...prev,
             ...parsed.filters,
-            selected_areas: loadedAreas
+            selected_areas: loadedAreas,
+            selected_job_ids: loadedJobs
           }));
         }
         if (parsed.sort) setSort(parsed.sort);
@@ -387,8 +919,8 @@ export default function EmailLeadsSelection() {
           min_rating: filters.min_rating,
           status: filters.status !== 'ALL' ? filters.status : undefined,
           is_auto_lead: isAutoLeadParam,
-          area: filters.search_campaign === 'auto' && filters.selected_areas.length > 0 ? filters.selected_areas.join(',') : undefined,
-          job_id: filters.search_campaign === 'normal' && filters.selected_job_id ? filters.selected_job_id : undefined,
+          area: (filters.search_campaign === 'auto' || filters.search_campaign === 'ALL') && filters.selected_areas.length > 0 ? filters.selected_areas.join(',') : undefined,
+          job_id: (filters.search_campaign === 'normal' || filters.search_campaign === 'ALL') && filters.selected_job_ids.length > 0 ? filters.selected_job_ids.join(',') : undefined,
           sort_by: sort.sort_by,
           sort_order: sort.sort_order
         }
@@ -439,8 +971,8 @@ export default function EmailLeadsSelection() {
           min_rating: filters.min_rating,
           status: filters.status !== 'ALL' ? filters.status : undefined,
           is_auto_lead: isAutoLeadParam,
-          area: filters.search_campaign === 'auto' && filters.selected_areas.length > 0 ? filters.selected_areas.join(',') : undefined,
-          job_id: filters.search_campaign === 'normal' && filters.selected_job_id ? filters.selected_job_id : undefined
+          area: (filters.search_campaign === 'auto' || filters.search_campaign === 'ALL') && filters.selected_areas.length > 0 ? filters.selected_areas.join(',') : undefined,
+          job_id: (filters.search_campaign === 'normal' || filters.search_campaign === 'ALL') && filters.selected_job_ids.length > 0 ? filters.selected_job_ids.join(',') : undefined
         }
       });
       const allIds = res.data.ids || [];
@@ -515,7 +1047,7 @@ export default function EmailLeadsSelection() {
             value={filters.search_campaign}
             onChange={(e) => {
               const val = e.target.value as any;
-              setFilters({ ...filters, search_campaign: val, selected_areas: [], selected_job_id: '' });
+              setFilters({ ...filters, search_campaign: val, selected_areas: [], selected_job_ids: [] });
               setPage(1);
             }}
             className="px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium text-slate-700 cursor-pointer shadow-xs"
@@ -525,6 +1057,24 @@ export default function EmailLeadsSelection() {
             <option value="auto">Auto Lead (LeadFinderAgent)</option>
             <option value="normal">Normal Lead (Manual / Regular)</option>
           </select>
+
+          {/* Cascading Filter for All Leads (Campaigns & Areas) */}
+          {filters.search_campaign === 'ALL' && (
+            <AllSourcesMultiSelect
+              campaigns={campaignOptions}
+              areas={autoAreas}
+              selectedJobIds={filters.selected_job_ids}
+              selectedAreas={filters.selected_areas}
+              onJobIdsChange={(ids) => {
+                setFilters(prev => ({ ...prev, selected_job_ids: ids }));
+                setPage(1);
+              }}
+              onAreasChange={(newAreas) => {
+                setFilters(prev => ({ ...prev, selected_areas: newAreas }));
+                setPage(1);
+              }}
+            />
+          )}
 
           {/* Cascading Multi-Select Area Filter (Auto Leads) */}
           {filters.search_campaign === 'auto' && (
@@ -538,37 +1088,27 @@ export default function EmailLeadsSelection() {
             />
           )}
 
-          {/* Cascading Campaign Filter (Normal Leads) */}
+          {/* Cascading Multi-Select Campaign Filter (Normal Leads) */}
           {filters.search_campaign === 'normal' && (
-            <select
-              value={filters.selected_job_id}
-              onChange={(e) => {
-                setFilters({ ...filters, selected_job_id: e.target.value });
+            <CampaignMultiSelect
+              campaigns={campaignOptions}
+              selectedJobIds={filters.selected_job_ids}
+              onChange={(newJobIds) => {
+                setFilters({ ...filters, selected_job_ids: newJobIds });
                 setPage(1);
               }}
-              className="px-3.5 py-2.5 bg-blue-50 border border-blue-300 rounded-xl text-sm font-semibold text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer shadow-xs animate-in fade-in max-w-[280px] truncate"
-              title="Filter by Search Campaign"
-            >
-              <option value="">🔍 All Search Campaigns ({campaignOptions.length})</option>
-              {campaignOptions.map((c: any) => {
-                const cId = c.job_id || c.id;
-                const count = c.total_saved ?? c.leads_count ?? 0;
-                const loc = [c.city, c.state].filter(Boolean).join(', ');
-                const label = `${c.keyword || 'Search'}${loc ? ` • ${loc}` : ''} (${count} leads)`;
-                return (
-                  <option key={cId} value={cId}>
-                    {label}
-                  </option>
-                );
-              })}
-            </select>
+            />
           )}
 
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
               "flex items-center gap-2 px-4 py-2.5 border rounded-xl text-sm font-medium transition-colors",
-              showFilters || Object.entries(filters).some(([k, v]) => k === 'selected_areas' ? (v as string[]).length > 0 : v !== '' && v !== undefined && v !== 'ALL')
+              showFilters || Object.entries(filters).some(([k, v]) => 
+                (k === 'selected_areas' || k === 'selected_job_ids') 
+                  ? (v as string[]).length > 0 
+                  : v !== '' && v !== undefined && v !== 'ALL'
+              )
                 ? "bg-blue-50 border-blue-200 text-blue-700"
                 : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
             )}
@@ -605,7 +1145,7 @@ export default function EmailLeadsSelection() {
                 value={filters.search_campaign}
                 onChange={(e) => {
                   const val = e.target.value as any;
-                  setFilters({ ...filters, search_campaign: val, selected_areas: [], selected_job_id: '' });
+                  setFilters({ ...filters, search_campaign: val, selected_areas: [], selected_job_ids: [] });
                   setPage(1);
                 }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
@@ -615,7 +1155,26 @@ export default function EmailLeadsSelection() {
                 <option value="normal">Normal Lead (Manual / Regular)</option>
               </select>
             </div>
-            {filters.search_campaign === 'auto' ? (
+            {filters.search_campaign === 'ALL' ? (
+              <div>
+                <label className="text-xs font-semibold text-indigo-700 mb-1.5 block">Sources (Multi-Select)</label>
+                <AllSourcesMultiSelect
+                  campaigns={campaignOptions}
+                  areas={autoAreas}
+                  selectedJobIds={filters.selected_job_ids}
+                  selectedAreas={filters.selected_areas}
+                  onJobIdsChange={(ids) => {
+                    setFilters(prev => ({ ...prev, selected_job_ids: ids }));
+                    setPage(1);
+                  }}
+                  onAreasChange={(newAreas) => {
+                    setFilters(prev => ({ ...prev, selected_areas: newAreas }));
+                    setPage(1);
+                  }}
+                  className="w-full"
+                />
+              </div>
+            ) : filters.search_campaign === 'auto' ? (
               <div>
                 <label className="text-xs font-semibold text-teal-700 mb-1.5 block">Area / Locality (Multi-Select)</label>
                 <AreaMultiSelect
@@ -628,29 +1187,20 @@ export default function EmailLeadsSelection() {
                   className="w-full"
                 />
               </div>
-            ) : filters.search_campaign === 'normal' ? (
+            ) : (
               <div>
-                <label className="text-xs font-semibold text-blue-700 mb-1.5 block">Search Campaign</label>
-                <select
-                  value={filters.selected_job_id}
-                  onChange={(e) => { setFilters({ ...filters, selected_job_id: e.target.value }); setPage(1); }}
-                  className="w-full px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900 focus:outline-none focus:border-blue-500"
-                >
-                  <option value="">All Campaigns</option>
-                  {campaignOptions.map((c: any) => {
-                    const cId = c.job_id || c.id;
-                    const count = c.total_saved ?? c.leads_count ?? 0;
-                    const loc = [c.city, c.state].filter(Boolean).join(', ');
-                    const label = `${c.keyword || 'Search'}${loc ? ` • ${loc}` : ''} (${count})`;
-                    return (
-                      <option key={cId} value={cId}>
-                        {label}
-                      </option>
-                    );
-                  })}
-                </select>
+                <label className="text-xs font-semibold text-blue-700 mb-1.5 block">Campaigns (Multi-Select)</label>
+                <CampaignMultiSelect
+                  campaigns={campaignOptions}
+                  selectedJobIds={filters.selected_job_ids}
+                  onChange={(newJobIds) => {
+                    setFilters({ ...filters, selected_job_ids: newJobIds });
+                    setPage(1);
+                  }}
+                  className="w-full"
+                />
               </div>
-            ) : null}
+            )}
             <div>
               <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Category / Industry</label>
               <input
@@ -758,7 +1308,7 @@ export default function EmailLeadsSelection() {
                       <button
                         onClick={() => {
                           setSearch('');
-                          setFilters({ city: '', category: '', has_website: undefined, has_phone: undefined, has_email: undefined, min_rating: undefined, status: 'ALL', search_campaign: 'ALL', selected_areas: [], selected_job_id: '' });
+                          setFilters({ city: '', category: '', has_website: undefined, has_phone: undefined, has_email: undefined, min_rating: undefined, status: 'ALL', search_campaign: 'ALL', selected_areas: [], selected_job_ids: [] });
                         }}
                         className="mt-6 px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-xl hover:bg-slate-200 transition-colors"
                       >

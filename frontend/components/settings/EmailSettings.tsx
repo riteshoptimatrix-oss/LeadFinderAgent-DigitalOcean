@@ -106,12 +106,20 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
   useEffect(() => {
     if (smtpData) {
       const effEmail = (smtpData.smtp_user || accountEmail || '').trim().toLowerCase();
+      const detProvider = smtpData.detected_provider?.provider;
+      const isUnconfiguredKnown =
+        !smtpData.has_password &&
+        smtpData.smtp_status === 'NOT_CONFIGURED' &&
+        smtpData.detected_provider?.is_known_provider &&
+        detProvider?.smtp?.supported &&
+        detProvider?.smtp?.host;
+
       const loaded = {
-        smtp_host: smtpData.smtp_host || 'smtp.gmail.com',
-        smtp_port: smtpData.smtp_port || 587,
+        smtp_host: isUnconfiguredKnown ? detProvider.smtp.host : (smtpData.smtp_host || 'smtp.gmail.com'),
+        smtp_port: isUnconfiguredKnown ? (detProvider.smtp.port || 587) : (smtpData.smtp_port || 587),
         smtp_user: effEmail,
         smtp_pass: '',
-        smtp_encryption: smtpData.smtp_encryption || 'TLS',
+        smtp_encryption: isUnconfiguredKnown ? (detProvider.smtp.encryption || 'TLS') : (smtpData.smtp_encryption || 'TLS'),
         smtp_from_email: smtpData.smtp_from_email || smtpData.from_email || effEmail,
         smtp_sender_name: smtpData.smtp_sender_name || '',
         imap_host: smtpData.imap_host || '',
@@ -160,9 +168,13 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
         const pInfo = payload?.provider;
         if (pInfo) {
           setSettings((prev) => {
-            // Only auto-populate server settings if provider changed or host is empty/default from another provider
             const providerChanged = prev.detected_provider_id !== payload.provider_id;
-            if (!providerChanged && prev.smtp_host) {
+            const shouldAutoPopulate =
+              providerChanged ||
+              !prev.smtp_host ||
+              (!prev.has_password && payload.is_known_provider && pInfo.smtp?.supported && pInfo.smtp?.host && prev.smtp_host !== pInfo.smtp.host);
+
+            if (!shouldAutoPopulate) {
               return prev;
             }
             return {

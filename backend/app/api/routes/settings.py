@@ -68,16 +68,29 @@ async def get_smtp_settings(
     detected = await detect_email_provider_async(effective_user, include_details=True)
     provider_info = detected.get("provider", {})
 
-    default_imap_host = provider_info.get("imap", {}).get("host", "") if provider_info.get("imap", {}).get("supported") else ""
-    default_imap_port = provider_info.get("imap", {}).get("port", 993)
-    default_imap_enc = provider_info.get("imap", {}).get("encryption", "SSL")
+    default_smtp = provider_info.get("smtp", {})
+    default_imap = provider_info.get("imap", {})
+    default_imap_host = default_imap.get("host", "") if default_imap.get("supported") else ""
+    default_imap_port = default_imap.get("port", 993)
+    default_imap_enc = default_imap.get("encryption", "SSL")
+
+    # If user hasn't configured credentials yet, prefer the detected provider's defaults over generic gmail fallback
+    is_unconfigured = not config.get("has_password") and config.get("smtp_status", "NOT_CONFIGURED") == "NOT_CONFIGURED"
+    if is_unconfigured and detected.get("is_known_provider") and default_smtp.get("supported") and default_smtp.get("host"):
+        resolved_smtp_host = default_smtp["host"]
+        resolved_smtp_port = default_smtp.get("port", 587)
+        resolved_smtp_enc = default_smtp.get("encryption", "TLS")
+    else:
+        resolved_smtp_host = config.get("smtp_host") or default_smtp.get("host") or "smtp.gmail.com"
+        resolved_smtp_port = config.get("smtp_port") or default_smtp.get("port") or 587
+        resolved_smtp_enc = config.get("smtp_encryption") or default_smtp.get("encryption") or "TLS"
 
     return SMTPSettingsResponse(
-        smtp_host=config.get("smtp_host") or provider_info.get("smtp", {}).get("host") or "smtp.gmail.com",
-        smtp_port=config.get("smtp_port") or provider_info.get("smtp", {}).get("port") or 587,
+        smtp_host=resolved_smtp_host,
+        smtp_port=resolved_smtp_port,
         smtp_user=effective_user,
         smtp_pass=config.get("smtp_pass", ""),
-        smtp_encryption=config.get("smtp_encryption") or provider_info.get("smtp", {}).get("encryption") or "TLS",
+        smtp_encryption=resolved_smtp_enc,
         smtp_from_email=config.get("smtp_from_email") or effective_user,
         smtp_sender_name=config.get("smtp_sender_name", ""),
         smtp_status=config.get("smtp_status", "NOT_CONFIGURED"),

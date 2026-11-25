@@ -87,6 +87,24 @@ async def list_users(
     raw_db = get_raw_db()
     query: Dict[str, Any] = {}
 
+    # Exclude system administrator accounts and admins collection accounts from the user list
+    excluded_emails = set()
+    if settings.ADMIN_EMAIL:
+        excluded_emails.add(settings.ADMIN_EMAIL.strip().lower())
+    excluded_emails.add("info@optiinfo.com")
+    try:
+        admins_cursor = raw_db["admins"].find({}, {"email": 1})
+        async for adm in admins_cursor:
+            if adm.get("email"):
+                excluded_emails.add(adm["email"].strip().lower())
+    except Exception:
+        pass
+
+    if excluded_emails:
+        query["email"] = {
+            "$nin": [re.compile(f"^{re.escape(e)}$", re.IGNORECASE) for e in excluded_emails]
+        }
+
     if search and search.strip():
         s = search.strip()
         query["$or"] = [
@@ -556,6 +574,14 @@ async def delete_user(
 
     user_email = existing_user.get("email", "Unknown")
 
+    # Prevent deleting system administrator accounts
+    protected_admin_emails = {e.lower().strip() for e in [settings.ADMIN_EMAIL, "info@optiinfo.com"] if e}
+    if user_email.lower().strip() in protected_admin_emails:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete the primary system administrator account."
+        )
+
     # Clean up associated records
     user_filter = build_user_filter(user_id)
     await raw_db["leads"].delete_many(user_filter)
@@ -613,6 +639,9 @@ async def impersonate_user(
     target_user_id = str(target_user["_id"])
     target_email = target_user.get("email")
     target_role = (target_user.get("role") or "user").lower()
+
+    if target_role == "admin":
+        raise HTTPException(status_code=400, detail="Cannot impersonate an administrator account.")
 
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     refresh_token_expires = timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES)

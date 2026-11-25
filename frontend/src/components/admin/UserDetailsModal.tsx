@@ -93,16 +93,18 @@ export default function UserDetailsModal({ userId, isOpen, onClose, onImpersonat
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      onClose();
-                      onImpersonate(user);
-                    }}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95"
-                  >
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>Login as this User</span>
-                  </button>
+                  {(user?.role || '').toUpperCase() !== 'ADMIN' && (
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onImpersonate(user);
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-all cursor-pointer active:scale-95"
+                    >
+                      <LogIn className="w-3.5 h-3.5" />
+                      <span>Login as this User</span>
+                    </button>
+                  )}
                 </div>
               </div>
 

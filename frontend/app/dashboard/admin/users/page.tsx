@@ -238,10 +238,21 @@ export default function AdminUsersPage() {
     return null;
   }
 
-  const usersList = usersData?.items || [];
-  const totalUsers = usersData?.total || 0;
+  const rawUsersList = usersData?.items || [];
+  // Exclude system administrator account from the user management table
+  const systemAdminEmails = ['info@optiinfo.com'];
+  const usersList = rawUsersList.filter((u: any) => {
+    const email = (u.email || '').toLowerCase().trim();
+    const name = (u.full_name || '').toLowerCase().trim();
+    if (systemAdminEmails.includes(email)) return false;
+    if (name === 'system administrator' && (u.role || '').toUpperCase() === 'ADMIN') return false;
+    return true;
+  });
+  const excludedCount = rawUsersList.length - usersList.length;
+  const totalUsers = Math.max(0, (usersData?.total || 0) - excludedCount);
   const totalPages = Math.ceil(totalUsers / limit) || 1;
 
+  const currentAdminEmail = (authUser?.email || userProfile?.email || '').toLowerCase().trim();
   const currentAdminId = authUser?.id || userProfile?.id || userProfile?._id;
 
   return (
@@ -425,7 +436,8 @@ export default function AdminUsersPage() {
               ) : (
                 usersList.map((u: any) => {
                   const userId = u._id || u.id;
-                  const isCurrentAdmin = String(userId) === String(currentAdminId);
+                  const isCurrentAdmin = String(userId) === String(currentAdminId) ||
+                    (Boolean(currentAdminEmail) && (u.email || '').toLowerCase().trim() === currentAdminEmail);
                   const initial = (u.full_name?.[0] || u.email?.[0] || 'U').toUpperCase();
                   const roleStr = (u.role || 'USER').toUpperCase();
                   const statusStr = u.account_status || (u.is_active === false ? 'Suspended' : 'Active');
@@ -596,7 +608,7 @@ export default function AdminUsersPage() {
                       <td className="py-4 px-6 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {/* LOGIN AS USER (IMPERSONATE) BUTTON */}
-                          {!isCurrentAdmin && (
+                          {!isCurrentAdmin && roleStr !== 'ADMIN' && (
                             <button
                               onClick={() => handleImpersonate(u)}
                               disabled={isImpersonatingId === userId || statusStr === 'Suspended'}
@@ -629,9 +641,9 @@ export default function AdminUsersPage() {
                           {/* Delete */}
                           <button
                             onClick={() => setSelectedUserForDelete(u)}
-                            disabled={isCurrentAdmin}
+                            disabled={isCurrentAdmin || roleStr === 'ADMIN'}
                             className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
-                            title={isCurrentAdmin ? 'Cannot delete yourself' : 'Delete User'}
+                            title={isCurrentAdmin ? 'Cannot delete yourself' : roleStr === 'ADMIN' ? 'Cannot delete administrator accounts' : 'Delete User'}
                           >
                             <Trash2 className="w-4 h-4" />
                           </button>

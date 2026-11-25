@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -106,8 +106,7 @@ class WebsiteAuditResponse(BaseModel):
     audited_at: datetime
     processing_time_ms: int
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class GlobalAuditStats(BaseModel):
     user_id: Optional[str] = None
@@ -142,8 +141,7 @@ class GlobalAuditResponse(BaseModel):
     stats: GlobalAuditStats
     generated_at: datetime
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class AuditLogCreate(BaseModel):
     user_id: Optional[str] = None

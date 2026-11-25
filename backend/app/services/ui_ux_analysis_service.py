@@ -31,7 +31,15 @@ class UiUxAnalysisService:
         screenshots = []
         
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(
+                headless=True,
+                args=[
+                    '--no-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--js-flags=--max-old-space-size=512'
+                ]
+            )
             
             for device, size in self.viewports.items():
                 if on_update:

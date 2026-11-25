@@ -3,6 +3,7 @@
 import React, { useEffect, createContext, useContext } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { getWebSocketUrl } from '@/src/lib/wsUrl';
 
 const GlobalSyncContext = createContext(null);
 
@@ -10,10 +11,6 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    const wsUrl = (process.env.NEXT_PUBLIC_API_URL
-      ? process.env.NEXT_PUBLIC_API_URL.replace(/^http/, 'ws').replace(/\/api\/v1$/, '') + '/api/v1/ws/events'
-      : window.location.origin.replace(/^http/, 'ws').replace(/:\d+$/, ':8000') + '/api/v1/ws/events').replace('localhost', '127.0.0.1');
-
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
     let isMounted = true;
@@ -23,8 +20,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
 
     const connect = () => {
       if (!isMounted || socketUnavailable) return;
-      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-      const finalWsUrl = token ? `${wsUrl}?token=${token}` : wsUrl;
+      const finalWsUrl = getWebSocketUrl('/api/v1/ws/events');
       console.info(`Connecting to Global Sync WebSocket: ${finalWsUrl}`);
       socket = new WebSocket(finalWsUrl);
 

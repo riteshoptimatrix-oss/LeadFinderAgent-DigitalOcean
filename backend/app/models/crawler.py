@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 from app.models.pyobjectid import PyObjectId
 from bson import ObjectId
@@ -64,10 +64,7 @@ class CrawlPage(BaseModel):
     
     crawled_at: datetime = Field(default_factory=datetime.utcnow)
     
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)
 
 class CrawlSession(BaseModel):
     user_id: Optional[str] = None
@@ -89,7 +86,4 @@ class CrawlSession(BaseModel):
     completed_at: Optional[datetime] = None
     error_message: Optional[str] = None
     
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)

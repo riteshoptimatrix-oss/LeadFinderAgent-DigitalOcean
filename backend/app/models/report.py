@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from enum import Enum
 
 class ReportType(str, Enum):
@@ -67,8 +67,7 @@ class ReportInDB(ReportCreate):
     id: str = Field(alias="_id")
 
 class ReportResponse(ReportInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class PaginatedReportResponse(BaseModel):
     user_id: Optional[str] = None

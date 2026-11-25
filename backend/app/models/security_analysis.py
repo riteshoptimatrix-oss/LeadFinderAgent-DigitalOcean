@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 class SecurityIssue(BaseModel):
@@ -50,5 +50,4 @@ class SecurityAnalysisResultInDB(SecurityAnalysisResultCreate):
     id: str = Field(alias="_id")
 
 class SecurityAnalysisResultResponse(SecurityAnalysisResultInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

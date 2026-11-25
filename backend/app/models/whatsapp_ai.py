@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -24,8 +24,7 @@ class WAAITemplateInDB(WAAITemplateBase):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class WAAICampaignBase(BaseModel):
     user_id: Optional[str] = None
@@ -48,8 +47,7 @@ class WAAICampaignInDB(WAAICampaignBase):
     updated_at: datetime
     completed_at: Optional[datetime] = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class WhatsAppConfigUpdate(BaseModel):

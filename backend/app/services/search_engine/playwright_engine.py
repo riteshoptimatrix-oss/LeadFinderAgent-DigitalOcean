@@ -95,6 +95,11 @@ class PlaywrightEngine:
                 "--disable-sync",
                 "--mute-audio",
                 "--no-first-run",
+                "--js-flags=--max-old-space-size=512",
+                "--disable-breakpad",
+                "--disable-component-update",
+                "--disable-renderer-backgrounding",
+                "--disable-backgrounding-occluded-windows",
             ]
         )
         self.context = await self.browser.new_context(

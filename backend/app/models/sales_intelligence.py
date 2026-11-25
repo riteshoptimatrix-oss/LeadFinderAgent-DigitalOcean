@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 class ServiceOpportunity(BaseModel):
@@ -50,5 +50,4 @@ class SalesIntelligenceResultInDB(SalesIntelligenceResultCreate):
     id: str = Field(alias="_id")
 
 class SalesIntelligenceResultResponse(SalesIntelligenceResultInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

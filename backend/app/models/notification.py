@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class NotificationBase(BaseModel):
     user_id: str
@@ -28,5 +28,4 @@ class NotificationUpdate(BaseModel):
 class NotificationInDB(NotificationBase):
     id: str = Field(alias="_id")
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from app.models.pyobjectid import PyObjectId
 from bson import ObjectId
 
@@ -28,7 +28,4 @@ class ContactDiscoveryResult(BaseModel):
     social_facebook: Optional[str] = None
     social_instagram: Optional[str] = None
     
-    class Config:
-        populate_by_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
+    model_config = ConfigDict(populate_by_name=True, arbitrary_types_allowed=True)

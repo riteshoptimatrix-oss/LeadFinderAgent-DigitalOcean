@@ -179,7 +179,7 @@ export default function AutoLeadFinderPage() {
     if (settingsResponse) {
       setIsActive(settingsResponse.is_active ?? true);
       setDailyLimit(settingsResponse.daily_limit ?? (isKutchUser ? 500 : 100));
-      setKeywordInput(isKutchUser ? 'Travel Agency' : (settingsResponse.keyword || ''));
+      setKeywordInput(settingsResponse.keyword || (isKutchUser ? 'Travel Agency' : ''));
       setCountry(settingsResponse.country || 'India');
       setCountryCode(settingsResponse.country_code || 'IN');
       setState(settingsResponse.state || (isKutchUser ? 'Gujarat' : ''));
@@ -282,7 +282,7 @@ export default function AutoLeadFinderPage() {
   const handleSaveSettings = async () => {
     setIsSaving(true);
     try {
-      const finalKeyword = isKutchUser ? 'Travel Agency' : (keywordInput || 'Business').trim();
+      const finalKeyword = (keywordInput || (isKutchUser ? 'Travel Agency' : 'Business')).trim();
       const payload = {
         is_configured: true,
         is_active: isActive,
@@ -330,7 +330,9 @@ export default function AutoLeadFinderPage() {
   };
 
   const handleTriggerManualRun = async () => {
-    if (!isKutchUser && (!city.trim() || !keywordInput.trim())) {
+    const effectiveCity = city.trim() || (isKutchUser ? 'Kutch district' : '');
+    const effectiveKeyword = keywordInput.trim() || (isKutchUser ? 'Travel Agency' : '');
+    if (!effectiveCity || !effectiveKeyword) {
       toast.error('Please enter a target city and industry keyword first.');
       return;
     }
@@ -402,7 +404,7 @@ export default function AutoLeadFinderPage() {
   const totalLocalities = settingsResponse?.total_kutch_localities ?? 38;
   const kutchCatalog = settingsResponse?.kutch_localities_catalog ?? [];
   const displayCity = (city || '').replace(/\s+district$/i, '').trim();
-  const isKeywordFixed = isKutchUser || settingsResponse?.is_keyword_fixed === true;
+  const isKeywordFixed = settingsResponse?.is_keyword_fixed === true;
   const activeKeyword = settingsResponse?.keyword || keywordInput || (isKutchUser ? 'Travel Agency' : 'Custom');
 
   return (
@@ -575,7 +577,7 @@ export default function AutoLeadFinderPage() {
                 state={state}
                 stateCode={stateCode}
                 city={city}
-                disabled={isKutchUser}
+                disabled={false}
                 layout="vertical"
                 onChange={(loc) => {
                   setCountry(loc.country);

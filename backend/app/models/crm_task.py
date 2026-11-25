@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class CRMTaskCreate(BaseModel):
     user_id: Optional[str] = None
@@ -21,5 +21,4 @@ class CRMTaskInDB(CRMTaskCreate):
     completed_at: Optional[datetime] = None
 
 class CRMTaskResponse(CRMTaskInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

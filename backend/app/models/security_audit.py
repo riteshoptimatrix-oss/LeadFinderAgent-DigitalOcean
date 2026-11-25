@@ -13,7 +13,7 @@ Field names use camelCase to match the spec's database shape:
     }
 """
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 
@@ -164,5 +164,4 @@ class SecurityAuditResultInDB(SecurityAuditResultCreate):
 
 
 class SecurityAuditResultResponse(SecurityAuditResultInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

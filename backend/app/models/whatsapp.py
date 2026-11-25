@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -75,8 +75,7 @@ class WATemplateResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # ──────────────────────────────────────────────
@@ -120,8 +119,7 @@ class WACampaignResponse(BaseModel):
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # ──────────────────────────────────────────────
@@ -147,8 +145,7 @@ class WAMessageLogResponse(BaseModel):
     read_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # ──────────────────────────────────────────────
@@ -165,8 +162,7 @@ class WACampaignHistoryResponse(BaseModel):
     details: Optional[str] = None
     created_at: datetime
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 # ──────────────────────────────────────────────
@@ -221,8 +217,7 @@ class WALeadResponse(BaseModel):
     google_rating: Optional[float] = None
     created_at: Optional[datetime] = None
 
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class PaginatedWALeadResponse(BaseModel):

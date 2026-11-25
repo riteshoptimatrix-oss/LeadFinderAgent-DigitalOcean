@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class CRMActivityCreate(BaseModel):
     user_id: Optional[str] = None
@@ -15,5 +15,4 @@ class CRMActivityInDB(CRMActivityCreate):
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
 class CRMActivityResponse(CRMActivityInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

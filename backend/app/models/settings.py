@@ -1,6 +1,6 @@
 from typing import Optional, Dict, Any
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class SMTPSettings(BaseModel):
     user_id: Optional[str] = None
@@ -151,5 +151,4 @@ class UserSettingsInDB(UserSettingsBase):
 class UserSettingsResponse(UserSettingsBase):
     id: str = Field(alias="_id")
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import Optional, Dict, Any, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 class EnrichmentJobState(str, Enum):
@@ -33,8 +33,4 @@ class EnrichmentJob(BaseModel):
     final_quality_score: Optional[float] = None
     final_completeness_percent: Optional[float] = None
     
-    class Config:
-        populate_by_name = True
-        json_encoders = {
-            datetime: lambda v: v.isoformat()
-        }
+    model_config = ConfigDict(populate_by_name=True)

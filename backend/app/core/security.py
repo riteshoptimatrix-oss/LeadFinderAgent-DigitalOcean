@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Union
 import uuid
 import bcrypt
@@ -31,17 +31,18 @@ def get_password_hash(password: str) -> str:
     return pwd_context.hash(password[:72])
 
 def create_access_token(subject: Union[str, Any], expires_delta: timedelta = None, additional_claims: dict = None) -> str:
+    now_utc = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = now_utc + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+        expire = now_utc + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     
     to_encode = {
         "exp": expire,
         "sub": str(subject),
         "iss": settings.JWT_ISSUER,
         "aud": settings.JWT_AUDIENCE,
-        "iat": datetime.utcnow(),
+        "iat": now_utc,
         "jti": str(uuid.uuid4()),
     }
     if additional_claims:
@@ -49,10 +50,11 @@ def create_access_token(subject: Union[str, Any], expires_delta: timedelta = Non
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return encoded_jwt
 def create_refresh_token(subject: Union[str, Any], expires_delta: timedelta = None, additional_claims: dict = None) -> str:
+    now_utc = datetime.now(timezone.utc)
     if expires_delta:
-        expire = datetime.utcnow() + expires_delta
+        expire = now_utc + expires_delta
     else:
-        expire = datetime.utcnow() + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES)
+        expire = now_utc + timedelta(minutes=settings.REFRESH_TOKEN_EXPIRE_MINUTES)
     
     to_encode = {
         "exp": expire,
@@ -60,7 +62,7 @@ def create_refresh_token(subject: Union[str, Any], expires_delta: timedelta = No
         "type": "refresh",
         "iss": settings.JWT_ISSUER,
         "aud": settings.JWT_AUDIENCE,
-        "iat": datetime.utcnow(),
+        "iat": now_utc,
         "jti": str(uuid.uuid4()),
     }
     if additional_claims:

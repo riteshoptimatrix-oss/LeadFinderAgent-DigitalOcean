@@ -384,25 +384,17 @@ async def update_settings(payload: Dict[str, Any], user_email: Optional[str] = N
     if "default_visibility" in payload and payload["default_visibility"]:
         update_data["default_visibility"] = str(payload["default_visibility"]).strip().lower()
 
-    # Rule: For kutchtourguide user, keyword "Travel Agency" remains permanently fixed and non-editable.
-    # For all other users, keyword and niche are completely dynamic and user-defined.
-    is_kutch_target = clean_email == TARGET_USER_EMAIL.lower()
-
-    if is_kutch_target:
-        update_data["industry_keywords"] = ["Travel Agency"]
-        update_data["keyword"] = "Travel Agency"
-        update_data["is_configured"] = True
-    else:
-        if "keyword" in payload and payload["keyword"]:
-            kw = str(payload["keyword"]).strip()
-            if kw:
-                update_data["industry_keywords"] = [kw]
-                update_data["keyword"] = kw
-        elif "industry_keywords" in payload and isinstance(payload["industry_keywords"], list):
-            cleaned_kws = [str(k).strip() for k in payload["industry_keywords"] if str(k).strip()]
-            if cleaned_kws:
-                update_data["industry_keywords"] = cleaned_kws
-                update_data["keyword"] = cleaned_kws[0]
+    # Dynamic keywords & niche handling: user-defined for all accounts
+    if "keyword" in payload and payload["keyword"]:
+        kw = str(payload["keyword"]).strip()
+        if kw:
+            update_data["industry_keywords"] = [kw]
+            update_data["keyword"] = kw
+    elif "industry_keywords" in payload and isinstance(payload["industry_keywords"], list):
+        cleaned_kws = [str(k).strip() for k in payload["industry_keywords"] if str(k).strip()]
+        if cleaned_kws:
+            update_data["industry_keywords"] = cleaned_kws
+            update_data["keyword"] = cleaned_kws[0]
 
         # Auto-mark as configured if city and keyword are present
         if update_data.get("city") and (update_data.get("keyword") or update_data.get("industry_keywords")):
@@ -554,8 +546,8 @@ async def get_kpi_stats(user_email: Optional[str] = None, db = None) -> Dict[str
     is_kutch_target = clean_email == TARGET_USER_EMAIL.lower()
     is_configured = settings.get("is_configured", True if is_kutch_target else False)
 
-    effective_keywords = ["Travel Agency"] if is_kutch_target else (settings.get("industry_keywords") or [settings.get("keyword") or ""])
-    keyword_str = "Travel Agency" if is_kutch_target else (settings.get("keyword") or (effective_keywords[0] if effective_keywords else ""))
+    effective_keywords = (settings.get("industry_keywords") or [settings.get("keyword") or ""]) if (settings.get("keyword") or settings.get("industry_keywords")) else (["Travel Agency"] if is_kutch_target else [""])
+    keyword_str = settings.get("keyword") or (effective_keywords[0] if effective_keywords and effective_keywords[0] else ("Travel Agency" if is_kutch_target else ""))
 
     user_display_name = user.get("full_name") or clean_email if user else clean_email
 
@@ -593,8 +585,8 @@ async def get_kpi_stats(user_email: Optional[str] = None, db = None) -> Dict[str
         "kutch_localities_catalog": KUTCH_LOCALITIES_CATALOG,
         "industry_keywords": effective_keywords,
         "keyword": keyword_str,
-        "is_keyword_fixed": is_kutch_target,
-        "fixed_keyword": "Travel Agency" if is_kutch_target else None,
+        "is_keyword_fixed": False,
+        "fixed_keyword": None,
         "assigned_user_id": user_id,
         "assigned_user_email": clean_email,
         "default_visibility": settings.get("default_visibility", "visible"),
@@ -692,13 +684,15 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                 "message": f"Auto LeadFinder for {clean_email} is unconfigured. Target city and search keywords are required before searching."
             }
 
-    if is_kutch_target:
-        active_keywords = ["Travel Agency"]
-    elif user and user.get("auto_leadfinder_keyword"):
+    if user and user.get("auto_leadfinder_keyword"):
         active_keywords = [str(user.get("auto_leadfinder_keyword")).strip()]
-    else:
+    elif settings.get("industry_keywords") or settings.get("keyword"):
         raw_kws = settings.get("industry_keywords")
-        active_keywords = [str(k).strip() for k in raw_kws if str(k).strip()] if raw_kws else [settings.get("keyword", "Business")]
+        active_keywords = [str(k).strip() for k in raw_kws if str(k).strip()] if raw_kws else [str(settings.get("keyword")).strip()]
+    elif is_kutch_target:
+        active_keywords = ["Travel Agency"]
+    else:
+        active_keywords = [settings.get("keyword", "Business")]
 
     if not is_active and trigger_type == "SCHEDULED":
         logger.info(f"[AUTO_LEADFINDER] Automation is toggled OFF for {clean_email}. Skipping scheduled run.")

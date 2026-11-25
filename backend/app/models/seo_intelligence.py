@@ -18,7 +18,7 @@ Every category module reports a ``score`` (0-100), a visual ``status``
 module with Status, Score, Issue Count and Recommendation Count.
 """
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 
@@ -230,8 +230,7 @@ class SEOSEORecommendation(BaseModel):
 
 
 class SEOAuditResultCreate(BaseModel):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
     user_id: Optional[str] = None
     lead_id: str
@@ -271,5 +270,4 @@ class SEOAuditResultInDB(SEOAuditResultCreate):
 
 
 class SEOAuditResultResponse(SEOAuditResultInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

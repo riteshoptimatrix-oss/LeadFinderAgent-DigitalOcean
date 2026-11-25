@@ -15,7 +15,8 @@ from app.models.user import (
     AdminUpdateUserRequest,
 )
 from app.models.session import SessionCreate
-from app.api.dependencies import RequireRole
+from app.api.dependencies import RequireRole, get_current_user, oauth2_scheme
+from jose import jwt
 from app.core import security
 from app.core.config import settings
 from app.services.audit import log_audit_action
@@ -689,24 +690,61 @@ async def impersonate_user(
     }
 
 
+async def get_current_user_or_impersonator(
+    token: str = Depends(oauth2_scheme),
+    current_user: UserInDB = Depends(get_current_user)
+) -> Dict[str, Any]:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=[settings.ALGORITHM],
+            audience=settings.JWT_AUDIENCE,
+            issuer=settings.JWT_ISSUER
+        )
+    except Exception:
+        payload = {}
+
+    is_impersonated = payload.get("is_impersonated", False)
+    user_role = (current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)).upper()
+
+    if user_role == "ADMIN" or is_impersonated:
+        return {
+            "current_user": current_user,
+            "is_impersonated": is_impersonated,
+            "impersonated_by": payload.get("impersonated_by"),
+            "admin_email": payload.get("admin_email")
+        }
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Operation not permitted")
+
+
 @router.post("/impersonate/stop")
 async def stop_impersonation(
     request: Request,
-    current_user: UserInDB = Depends(require_admin)
+    auth_data: Dict[str, Any] = Depends(get_current_user_or_impersonator)
 ) -> Any:
     """
     Log audit action when Admin exits impersonation session and returns to their admin account.
     """
+    current_user = auth_data["current_user"]
+    admin_id = auth_data.get("impersonated_by") or str(current_user.id)
+    admin_email = auth_data.get("admin_email") or current_user.email
     ip_address = request.client.host if request.client else "Unknown"
+    device_info = request.headers.get("user-agent", "Unknown")
+
     await log_audit_action(
         action="ADMIN_IMPERSONATE_STOP",
-        user_id=str(current_user.id),
-        user_email=current_user.email,
+        user_id=str(admin_id),
+        user_email=admin_email,
         resource="users",
+        resource_id=str(current_user.id),
         ip_address=ip_address,
+        user_agent=device_info,
         details={
-            "admin_id": str(current_user.id),
-            "admin_email": current_user.email
+            "admin_id": str(admin_id),
+            "admin_email": admin_email,
+            "impersonated_user_id": str(current_user.id),
+            "impersonated_user_email": current_user.email
         }
     )
     return {

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
+import { getWebSocketUrl } from '@/src/lib/wsUrl';
 import { Loader2, ArrowLeft, Download, Trash2, Search, Filter, ChevronLeft, ChevronRight, CheckSquare, Square } from 'lucide-react';
 import Link from 'next/link';
 
@@ -52,15 +53,7 @@ export default function SearchHistoryPage() {
       const jobId = job._id || job.id;
       if (!jobId) return;
       
-      const wsUrl = process.env.NEXT_PUBLIC_API_URL 
-        ? process.env.NEXT_PUBLIC_API_URL.replace(/^http/, 'ws').replace(/\/api\/v1$/, '') + `/ws/search/${jobId}`
-        : (typeof window !== 'undefined' ? window.location.origin.replace(/^http/, 'ws').replace(/:\d+$/, ':8000') + `/ws/search/${jobId}` : '');
-      
-      if (!wsUrl) return;
-
-      const token = typeof window !== 'undefined' ? localStorage.getItem('access_token') : null;
-      const finalWsUrl = token ? `${wsUrl}?token=${token}` : wsUrl;
-
+      const finalWsUrl = getWebSocketUrl(`/api/v1/ws/search/${jobId}`);
       const ws = new WebSocket(finalWsUrl);
       
       ws.onmessage = (event) => {

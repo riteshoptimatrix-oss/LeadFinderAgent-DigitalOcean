@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 class ScoreEvidence(BaseModel):
@@ -58,5 +58,4 @@ class BusinessIntelligenceResultInDB(BusinessIntelligenceResultCreate):
     id: str = Field(alias="_id")
 
 class BusinessIntelligenceResultResponse(BusinessIntelligenceResultInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

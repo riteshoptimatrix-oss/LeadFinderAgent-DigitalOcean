@@ -1,6 +1,6 @@
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class LeadNoteCreate(BaseModel):
     user_id: Optional[str] = None
@@ -17,5 +17,4 @@ class LeadNoteInDB(LeadNoteCreate):
     updated_at: Optional[datetime] = None
 
 class LeadNoteResponse(LeadNoteInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

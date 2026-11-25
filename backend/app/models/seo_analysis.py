@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 class SeoIssue(BaseModel):
@@ -59,5 +59,4 @@ class SeoAnalysisResultInDB(SeoAnalysisResultCreate):
     id: str = Field(alias="_id")
 
 class SeoAnalysisResultResponse(SeoAnalysisResultInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

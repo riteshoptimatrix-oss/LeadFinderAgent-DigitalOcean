@@ -37,7 +37,8 @@ env/
 
 # Test files
 pass.txt
-test_*.py
+/test_*.py
+!tests/**.py
 quick_test.py
 
 # IDE

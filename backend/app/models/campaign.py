@@ -1,7 +1,7 @@
 from enum import Enum
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class CampaignStatus(str, Enum):
     DRAFT = "Draft"
@@ -68,8 +68,7 @@ class CampaignInDB(CampaignCreate):
     id: str = Field(alias="_id")
 
 class CampaignResponse(CampaignInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class CampaignLog(BaseModel):
     user_id: Optional[str] = None

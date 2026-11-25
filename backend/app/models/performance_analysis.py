@@ -1,5 +1,5 @@
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 class PerformanceIssue(BaseModel):
@@ -85,5 +85,4 @@ class PerformanceAnalysisResultInDB(PerformanceAnalysisResultCreate):
     id: str = Field(alias="_id")
 
 class PerformanceAnalysisResultResponse(PerformanceAnalysisResultInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

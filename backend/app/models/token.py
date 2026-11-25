@@ -10,3 +10,6 @@ class Token(BaseModel):
 class TokenPayload(BaseModel):
     sub: Optional[str] = None
     role: str = "user"
+    is_impersonated: Optional[bool] = False
+    impersonated_by: Optional[str] = None
+    admin_email: Optional[str] = None

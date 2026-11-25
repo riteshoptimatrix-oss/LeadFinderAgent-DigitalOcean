@@ -2,7 +2,7 @@ from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError as PydanticValidationError
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.logger import logger
 import traceback
 import uuid
@@ -69,7 +69,7 @@ def create_error_response(
             "message": message,
             "details": details or {},
         },
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "request_id": request_id or str(uuid.uuid4())
     }
 

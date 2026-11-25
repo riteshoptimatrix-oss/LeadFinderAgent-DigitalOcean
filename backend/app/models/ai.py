@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_validator, ConfigDict
 from typing import Optional, List, Union, Any, Dict
 from datetime import datetime
 
@@ -84,8 +84,7 @@ class AIAnalysisDetailResponse(BaseModel):
     # Full analysis data
     analysis_data: Optional[AIAnalysisData] = None
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
     @model_validator(mode="before")
     @classmethod

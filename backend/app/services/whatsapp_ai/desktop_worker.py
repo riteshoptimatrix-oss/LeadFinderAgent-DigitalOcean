@@ -196,8 +196,20 @@ class WADesktopQueueWorker:
             await self._update_campaign_status(campaign["_id"], "COMPLETED")
 
     async def _send_whatsapp_desktop(self, phone: str, message: str) -> bool:
-        """Execute the native Windows workflow."""
+        """Execute the native Windows workflow with safety checks for Linux/cloud deployments."""
         try:
+            import sys
+            if sys.platform != 'win32' or not hasattr(os, 'startfile'):
+                logger.warning(
+                    f"[WADesktopQueueWorker] Native desktop automation is only supported on Windows with the desktop app. "
+                    f"Running on '{sys.platform}'. Please use WhatsApp Cloud API mode on Linux/DigitalOcean servers."
+                )
+                return False
+
+            if not pyautogui:
+                logger.warning("[WADesktopQueueWorker] pyautogui is not available in this environment.")
+                return False
+
             # Step 1: Open WhatsApp Desktop via URL Protocol
             # Using only the phone ensures the app opens to the chat.
             # (Passing text via URL sometimes fails on new numbers, we will paste it instead)
@@ -205,7 +217,7 @@ class WADesktopQueueWorker:
             is_web = False
             try:
                 os.startfile(wa_url)
-            except (FileNotFoundError, OSError):
+            except (FileNotFoundError, OSError, AttributeError):
                 # Fallback to web.whatsapp.com if WhatsApp Desktop is not found
                 import webbrowser
                 logger.info(f"[WADesktopQueueWorker] WhatsApp Desktop not found, falling back to web.whatsapp.com for {phone}")

@@ -64,7 +64,7 @@ from app.db.database import connect_to_mongo, close_mongo_connection, get_db
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from app.api.routes import auth, users, settings as settings_routes, search, leads, templates, campaigns, tracking, dashboard, system, email as email_routes, whatsapp as whatsapp_routes, ai as ai_routes, health, audit, backup, wa_campaigns, wa_templates, tags, ai_analysis, intelligence as intelligence_routes, reports, enrichment
+from app.api.routes import auth, users, settings as settings_routes, search, leads, templates, campaigns, tracking, dashboard, system, email as email_routes, whatsapp as whatsapp_routes, ai as ai_routes, health, audit, backup, tags, ai_analysis, intelligence as intelligence_routes, reports, enrichment
 from app.api.routes import search_sessions
 from app.api import advanced_analysis, websockets
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -516,8 +516,6 @@ app.include_router(ai_routes.router, prefix=f"{app_settings.API_V1_STR}/ai", tag
 app.include_router(health.router, prefix=f"{app_settings.API_V1_STR}/health", tags=["health"])
 app.include_router(audit.router, prefix=f"{app_settings.API_V1_STR}/audit", tags=["audit"])
 app.include_router(backup.router, prefix=f"{app_settings.API_V1_STR}/backup", tags=["backup"])
-app.include_router(wa_campaigns.router, prefix=f"{app_settings.API_V1_STR}/wa-campaigns", tags=["wa-campaigns"])
-app.include_router(wa_templates.router, prefix=f"{app_settings.API_V1_STR}/wa-templates", tags=["wa-templates"])
 app.include_router(ai_analysis.router, prefix=f"{app_settings.API_V1_STR}/ai-analysis", tags=["ai-analysis"])
 app.include_router(intelligence_routes.router, prefix=f"{app_settings.API_V1_STR}/intelligence", tags=["intelligence"])
 app.include_router(reports.router, prefix=f"{app_settings.API_V1_STR}/reports", tags=["reports"])

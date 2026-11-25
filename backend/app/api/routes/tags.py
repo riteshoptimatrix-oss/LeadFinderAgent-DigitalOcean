@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from typing import List, Optional
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from bson import ObjectId
 
 from app.db.database import get_db
@@ -37,8 +37,7 @@ class TagResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class TagsListResponse(BaseModel):
     data: List[TagResponse]

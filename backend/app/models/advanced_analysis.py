@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 
@@ -23,8 +23,7 @@ class AdvancedAnalysisJobInDB(AdvancedAnalysisJobCreate):
     completed_at: Optional[datetime] = None
 
 class AdvancedAnalysisJobResponse(AdvancedAnalysisJobInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class AdvancedAnalysisStartRequest(BaseModel):
     user_id: Optional[str] = None

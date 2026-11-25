@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class WorkerNodeBase(BaseModel):
     user_id: Optional[str] = None
@@ -16,8 +16,7 @@ class WorkerNodeInDB(WorkerNodeCreate):
     id: str = Field(alias="_id")
 
 class WorkerNodeResponse(WorkerNodeInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)
 
 class JobLogBase(BaseModel):
     user_id: Optional[str] = None
@@ -34,5 +33,4 @@ class JobLogInDB(JobLogCreate):
     id: str = Field(alias="_id")
 
 class JobLogResponse(JobLogInDB):
-    class Config:
-        populate_by_name = True
+    model_config = ConfigDict(populate_by_name=True)

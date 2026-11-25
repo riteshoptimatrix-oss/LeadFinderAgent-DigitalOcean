@@ -1297,12 +1297,9 @@ async def get_all_leads_for_email_ai(
         area_list = [a.strip() for a in unquote_plus(str(area)).split(",") if a.strip()]
         for a in area_list:
             combined_source_or.extend([
-                {"auto_scraped_area": {"$regex": re.escape(a), "$options": "i"}},
-                {"area": {"$regex": re.escape(a), "$options": "i"}},
-                {"search_area": {"$regex": re.escape(a), "$options": "i"}},
-                {"city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                {"auto_scraped_city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                {"address": {"$regex": re.escape(a), "$options": "i"}},
+                {"auto_scraped_area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
+                {"area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
+                {"search_area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
             ])
         and_conds.append({"$or": combined_source_or})
     else:
@@ -1311,12 +1308,9 @@ async def get_all_leads_for_email_ai(
             multi_area_conds = []
             for a in area_list:
                 multi_area_conds.extend([
-                    {"auto_scraped_area": {"$regex": re.escape(a), "$options": "i"}},
-                    {"area": {"$regex": re.escape(a), "$options": "i"}},
-                    {"search_area": {"$regex": re.escape(a), "$options": "i"}},
-                    {"city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                    {"auto_scraped_city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                    {"address": {"$regex": re.escape(a), "$options": "i"}},
+                    {"auto_scraped_area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
+                    {"area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
+                    {"search_area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
                 ])
             if multi_area_conds:
                 and_conds.append({"$or": multi_area_conds})

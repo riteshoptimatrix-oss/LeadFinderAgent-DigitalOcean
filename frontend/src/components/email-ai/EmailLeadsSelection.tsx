@@ -872,12 +872,33 @@ export default function EmailLeadsSelection() {
         ? false
         : undefined;
 
-  // Fetch distinct Auto Lead Areas for cascading dropdown
+  // Fetch distinct Auto Lead Areas for cascading dropdown (synced with active filters)
   const { data: autoAreas = [] } = useQuery({
-    queryKey: ['autoLeadAreas'],
+    queryKey: [
+      'autoLeadAreas',
+      debouncedSearch,
+      filters.city,
+      filters.category,
+      filters.has_website,
+      filters.has_phone,
+      filters.has_email,
+      filters.min_rating,
+      filters.status,
+    ],
     queryFn: async () => {
       try {
-        const res = await api.get('/leads/auto-areas');
+        const res = await api.get('/leads/auto-areas', {
+          params: {
+            search: debouncedSearch || undefined,
+            city: filters.city || undefined,
+            category: filters.category || undefined,
+            has_website: filters.has_website,
+            has_phone: filters.has_phone,
+            has_email: filters.has_email,
+            min_rating: filters.min_rating,
+            status: filters.status !== 'ALL' ? filters.status : undefined,
+          }
+        });
         return (res.data || []) as { area: string; count: number }[];
       } catch {
         return [];

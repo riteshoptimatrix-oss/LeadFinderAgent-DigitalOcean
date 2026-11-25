@@ -340,12 +340,9 @@ def build_lead_filters(
         area_list = [a.strip() for a in unquote_plus(str(area)).split(",") if a.strip()]
         for a in area_list:
             combined_source_or.extend([
-                {"auto_scraped_area": {"$regex": re.escape(a), "$options": "i"}},
-                {"area": {"$regex": re.escape(a), "$options": "i"}},
-                {"search_area": {"$regex": re.escape(a), "$options": "i"}},
-                {"city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                {"auto_scraped_city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                {"address": {"$regex": re.escape(a), "$options": "i"}},
+                {"auto_scraped_area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
+                {"area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
+                {"search_area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
             ])
         filter_clauses.append({"$or": combined_source_or})
     else:
@@ -366,12 +363,9 @@ def build_lead_filters(
             multi_area_conds = []
             for a in area_list:
                 multi_area_conds.extend([
-                    {"auto_scraped_area": {"$regex": re.escape(a), "$options": "i"}},
-                    {"area": {"$regex": re.escape(a), "$options": "i"}},
-                    {"search_area": {"$regex": re.escape(a), "$options": "i"}},
-                    {"city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                    {"auto_scraped_city": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
-                    {"address": {"$regex": re.escape(a), "$options": "i"}},
+                    {"auto_scraped_area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
+                    {"area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
+                    {"search_area": {"$regex": f"^\\s*{re.escape(a)}\\s*$", "$options": "i"}},
                 ])
             if multi_area_conds:
                 filter_clauses.append({"$or": multi_area_conds})
@@ -439,34 +433,66 @@ class NoteCreate(BaseModel):
 
 @router.get("/auto-areas")
 async def get_auto_lead_areas(
+    search: Optional[str] = None,
+    keyword: Optional[str] = None,
+    city: Optional[str] = None,
+    category: Optional[str] = None,
+    has_website: Optional[bool] = None,
+    has_phone: Optional[bool] = None,
+    has_email: Optional[bool] = None,
+    min_rating: Optional[float] = None,
+    status: Optional[str] = None,
     current_user: UserInDB = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
-    """Return distinct area names with counts for Auto Leads belonging to the user."""
-    match_q: Dict[str, Any] = {
-        "$or": [
-            {"is_auto_lead": True},
-            {"source": "auto_leadfinder"},
-            {"requested_provider": "Auto LeadFinder"},
-        ]
-    }
+    """Return distinct area names with counts matching the active filters for Auto Leads."""
+    match_q = build_lead_filters(
+        search_term=keyword or search,
+        city=city,
+        category=category,
+        has_website=has_website,
+        has_phone=has_phone,
+        has_email=has_email,
+        min_rating=min_rating,
+        status=status,
+        is_auto_lead=True,
+    )
     if current_user.role != "ADMIN":
-        match_q["$and"] = [
+        ownership_vis_clauses = [
             {
                 "$or": [
                     {"user_id": current_user.id},
                     {"assigned_to": current_user.id},
                     {"assigned_user_email": current_user.email},
                 ]
-            }
+            },
+            {"visibility": {"$ne": "hidden"}},
         ]
-    
+        if "$and" in match_q:
+            match_q["$and"].extend(ownership_vis_clauses)
+        else:
+            match_q["$and"] = ownership_vis_clauses
+
     pipeline = [
         {"$match": match_q},
         {
             "$project": {
                 "area_val": {
-                    "$ifNull": ["$auto_scraped_area", {"$ifNull": ["$area", "$search_area"]}]
+                    "$trim": {
+                        "input": {
+                            "$cond": [
+                                {"$and": [{"$ne": ["$auto_scraped_area", None]}, {"$ne": ["$auto_scraped_area", ""]}]},
+                                "$auto_scraped_area",
+                                {
+                                    "$cond": [
+                                        {"$and": [{"$ne": ["$area", None]}, {"$ne": ["$area", ""]}]},
+                                        "$area",
+                                        {"$ifNull": ["$search_area", ""]},
+                                    ]
+                                },
+                            ]
+                        }
+                    }
                 }
             }
         },

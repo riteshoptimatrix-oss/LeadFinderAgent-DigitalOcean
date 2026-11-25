@@ -1017,34 +1017,24 @@ export default function EmailLeadsSelection() {
             <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
             Selected {selectedIds.size.toLocaleString()} / {total.toLocaleString()}
           </div>
-          {selectedIds.size > 0 && (
-            <button
-              onClick={handleDeselectAll}
-              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 rounded-xl text-sm font-semibold border border-slate-200 hover:border-red-200 transition-all shadow-xs cursor-pointer"
-              title="Deselect all selected leads"
-            >
-              <X className="w-4 h-4" />
-              Deselect All
-            </button>
-          )}
           <button
-            onClick={isAllSelected ? handleDeselectAll : handleSelectAllGlobally}
-            disabled={isSelectingAll || total === 0}
+            onClick={selectedIds.size > 0 ? handleDeselectAll : handleSelectAllGlobally}
+            disabled={isSelectingAll || (selectedIds.size === 0 && total === 0)}
             className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 shadow-xs cursor-pointer",
-              isAllSelected
-                ? "bg-slate-800 text-white hover:bg-slate-900"
-                : "bg-blue-600 text-white hover:bg-blue-700"
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-all disabled:opacity-50 shadow-xs cursor-pointer",
+              selectedIds.size > 0
+                ? "bg-slate-800 hover:bg-slate-900 text-white"
+                : "bg-blue-600 hover:bg-blue-700 text-white"
             )}
           >
             {isSelectingAll ? (
               <Loader2 className="w-4 h-4 animate-spin" />
-            ) : isAllSelected ? (
+            ) : selectedIds.size > 0 ? (
               <Square className="w-4 h-4" />
             ) : (
               <CheckSquare className="w-4 h-4" />
             )}
-            {isAllSelected ? 'Deselect All' : 'Select All Leads'}
+            {selectedIds.size > 0 ? 'Deselect All' : 'Select All Leads'}
           </button>
         </div>
       </div>

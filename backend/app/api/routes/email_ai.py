@@ -1165,6 +1165,7 @@ async def get_all_leads_for_email_ai(
     has_email: Optional[bool] = None,
     min_rating: Optional[float] = None,
     status: Optional[str] = None,
+    is_auto_lead: Optional[bool] = None,
     current_user=Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
@@ -1220,6 +1221,22 @@ async def get_all_leads_for_email_ai(
     if status and status != "ALL":
         and_conds.append({"status": status})
         
+    if is_auto_lead is True:
+        and_conds.append({
+            "$or": [
+                {"is_auto_lead": True},
+                {"source": "auto_leadfinder"},
+                {"requested_provider": "Auto LeadFinder"},
+            ]
+        })
+    elif is_auto_lead is False:
+        and_conds.append({
+            "$or": [
+                {"is_auto_lead": {"$ne": True}},
+                {"is_auto_lead": {"$exists": False}},
+            ]
+        })
+
     query["$and"] = and_conds
     query["blacklisted"] = {"$ne": True}
     

@@ -3,9 +3,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { 
-  Search, MapPin, Building2, Phone, Mail, Globe, Sparkles,  
-  CheckSquare, Square, Loader2, ArrowRight, Filter, ChevronDown, 
+import {
+  Search, MapPin, Building2, Phone, Mail, Globe, Sparkles,
+  CheckSquare, Square, Loader2, ArrowRight, Filter, ChevronDown,
   SortAsc, Calendar, Tag, AlertCircle, Trash2
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -34,6 +34,9 @@ interface Lead {
   business_status?: string;
   created_at?: string;
   user_id?: string;
+  is_auto_lead?: boolean;
+  source?: string;
+  requested_provider?: string;
 }
 
 const STEPS = [
@@ -61,7 +64,8 @@ export default function EmailLeadsSelection() {
     has_phone: undefined as boolean | undefined,
     has_email: undefined as boolean | undefined,
     min_rating: undefined as number | undefined,
-    status: 'ALL'
+    status: 'ALL',
+    search_campaign: 'ALL' as 'ALL' | 'auto' | 'normal'
   });
 
   const [sort, setSort] = useState({
@@ -86,10 +90,10 @@ export default function EmailLeadsSelection() {
           setSearch(parsed.search);
           setDebouncedSearch(parsed.search);
         }
-        if (parsed.filters) setFilters(parsed.filters);
+        if (parsed.filters) setFilters(prev => ({ ...prev, ...parsed.filters }));
         if (parsed.sort) setSort(parsed.sort);
       }
-    } catch (e) {}
+    } catch (e) { }
   }, []);
 
   // Save persistent state
@@ -110,12 +114,19 @@ export default function EmailLeadsSelection() {
     return () => clearTimeout(timer);
   }, [search]);
 
+  const isAutoLeadParam =
+    filters.search_campaign === 'auto'
+      ? true
+      : filters.search_campaign === 'normal'
+        ? false
+        : undefined;
+
   // Fetch Data using Global Leads API
   const { data, isLoading, error } = useQuery({
     queryKey: ['email-ai-global-leads', page, debouncedSearch, filters, sort],
     queryFn: async () => {
       const res = await api.get('/leads', {
-        params: { 
+        params: {
           limit: 15,
           skip: (page - 1) * 15,
           search: debouncedSearch,
@@ -126,6 +137,7 @@ export default function EmailLeadsSelection() {
           has_email: filters.has_email,
           min_rating: filters.min_rating,
           status: filters.status !== 'ALL' ? filters.status : undefined,
+          is_auto_lead: isAutoLeadParam,
           sort_by: sort.sort_by,
           sort_order: sort.sort_order
         }
@@ -166,7 +178,7 @@ export default function EmailLeadsSelection() {
     setIsSelectingAll(true);
     try {
       const res = await api.get('/email-ai/leads/select-all', {
-        params: { 
+        params: {
           search: debouncedSearch,
           city: filters.city || undefined,
           category: filters.category || undefined,
@@ -174,7 +186,8 @@ export default function EmailLeadsSelection() {
           has_phone: filters.has_phone,
           has_email: filters.has_email,
           min_rating: filters.min_rating,
-          status: filters.status !== 'ALL' ? filters.status : undefined
+          status: filters.status !== 'ALL' ? filters.status : undefined,
+          is_auto_lead: isAutoLeadParam
         }
       });
       const allIds = res.data.ids || [];
@@ -199,7 +212,7 @@ export default function EmailLeadsSelection() {
 
   return (
     <div className="flex flex-col h-full animate-in fade-in">
-      
+
       {/* Step Indicator */}
       <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-200">
         <div className="flex items-center gap-4 sm:gap-8 overflow-x-auto w-full no-scrollbar">
@@ -207,8 +220,8 @@ export default function EmailLeadsSelection() {
             <div key={step.id} className="flex items-center">
               <div className={cn(
                 "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all duration-300",
-                step.active 
-                  ? "bg-blue-600 text-white shadow-md shadow-blue-500/20" 
+                step.active
+                  ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
                   : "bg-slate-100 text-slate-400"
               )}>
                 <span className={cn(
@@ -259,7 +272,7 @@ export default function EmailLeadsSelection() {
         <div className="flex items-center gap-4">
           <div className="relative flex-1">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input 
+            <input
               type="text"
               placeholder="Search by name, email, phone, website..."
               value={search}
@@ -267,13 +280,28 @@ export default function EmailLeadsSelection() {
               className="pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 w-full transition-all"
             />
           </div>
-          
-          <button 
+
+          {/* Search Campaign Filter */}
+          <select
+            value={filters.search_campaign}
+            onChange={(e) => {
+              setFilters({ ...filters, search_campaign: e.target.value as any });
+              setPage(1);
+            }}
+            className="px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium text-slate-700 cursor-pointer shadow-xs"
+            title="Filter by Search Campaign"
+          >
+            <option value="ALL">Search Campaign: All Leads</option>
+            <option value="auto">Auto Lead (LeadFinderAgent)</option>
+            <option value="normal">Normal Lead (Manual / Regular)</option>
+          </select>
+
+          <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
               "flex items-center gap-2 px-4 py-2.5 border rounded-xl text-sm font-medium transition-colors",
               showFilters || Object.values(filters).some(v => v !== '' && v !== undefined && v !== 'ALL')
-                ? "bg-blue-50 border-blue-200 text-blue-700" 
+                ? "bg-blue-50 border-blue-200 text-blue-700"
                 : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
             )}
           >
@@ -281,8 +309,8 @@ export default function EmailLeadsSelection() {
             Filters
             <ChevronDown className={cn("w-4 h-4 transition-transform", showFilters && "rotate-180")} />
           </button>
-          
-          <select 
+
+          <select
             value={`${sort.sort_by}|${sort.sort_order}`}
             onChange={(e) => {
               const [by, order] = e.target.value.split('|');
@@ -299,37 +327,49 @@ export default function EmailLeadsSelection() {
             <option value="name|-1">Business Name Z-A</option>
           </select>
         </div>
-        
+
         {/* Expanded Filters */}
         {showFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 pt-4 border-t border-slate-100 animate-in slide-in-from-top-2">
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t border-slate-100 animate-in slide-in-from-top-2">
+            <div>
+              <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Search Campaign</label>
+              <select
+                value={filters.search_campaign}
+                onChange={(e) => { setFilters({ ...filters, search_campaign: e.target.value as any }); setPage(1); }}
+                className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
+              >
+                <option value="ALL">All Leads</option>
+                <option value="auto">Auto Lead (LeadFinderAgent)</option>
+                <option value="normal">Normal Lead (Manual / Regular)</option>
+              </select>
+            </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Category / Industry</label>
-              <input 
-                type="text" 
-                placeholder="e.g. Software, Plumber..." 
+              <input
+                type="text"
+                placeholder="e.g. Software, Plumber..."
                 value={filters.category}
-                onChange={(e) => { setFilters({...filters, category: e.target.value}); setPage(1); }}
+                onChange={(e) => { setFilters({ ...filters, category: e.target.value }); setPage(1); }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
               />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 mb-1.5 block">City</label>
-              <input 
-                type="text" 
-                placeholder="e.g. New York, London..." 
+              <input
+                type="text"
+                placeholder="e.g. New York, London..."
                 value={filters.city}
-                onChange={(e) => { setFilters({...filters, city: e.target.value}); setPage(1); }}
+                onChange={(e) => { setFilters({ ...filters, city: e.target.value }); setPage(1); }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
               />
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Contact Info Available</label>
-              <select 
+              <select
                 value={filters.has_email === undefined ? "" : filters.has_email.toString()}
                 onChange={(e) => {
                   const val = e.target.value;
-                  setFilters({...filters, has_email: val === "" ? undefined : val === "true"});
+                  setFilters({ ...filters, has_email: val === "" ? undefined : val === "true" });
                   setPage(1);
                 }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
@@ -341,9 +381,9 @@ export default function EmailLeadsSelection() {
             </div>
             <div>
               <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Status</label>
-              <select 
+              <select
                 value={filters.status}
-                onChange={(e) => { setFilters({...filters, status: e.target.value}); setPage(1); }}
+                onChange={(e) => { setFilters({ ...filters, status: e.target.value }); setPage(1); }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
               >
                 <option value="ALL">All Statuses</option>
@@ -407,10 +447,10 @@ export default function EmailLeadsSelection() {
                       </div>
                       <h3 className="text-lg font-bold text-slate-900 mb-1">No leads found</h3>
                       <p className="text-slate-500">Try adjusting your filters or search query.</p>
-                      <button 
+                      <button
                         onClick={() => {
                           setSearch('');
-                          setFilters({ city: '', category: '', has_website: undefined, has_phone: undefined, has_email: undefined, min_rating: undefined, status: 'ALL' });
+                          setFilters({ city: '', category: '', has_website: undefined, has_phone: undefined, has_email: undefined, min_rating: undefined, status: 'ALL', search_campaign: 'ALL' });
                         }}
                         className="mt-6 px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-xl hover:bg-slate-200 transition-colors"
                       >
@@ -427,10 +467,10 @@ export default function EmailLeadsSelection() {
                   const phone = lead.whatsapp_number || lead.phone || 'N/A';
                   const industry = lead.industry || lead.category || 'Uncategorized';
                   const score = lead.ai_score || lead.lead_score || lead.ai_score || null;
-                  
+
                   return (
-                    <tr 
-                      key={lead._id} 
+                    <tr
+                      key={lead._id}
                       className={cn(
                         "transition-all duration-200 hover:bg-slate-50 cursor-pointer group",
                         isSelected ? "bg-blue-50/60 hover:bg-blue-50/80" : ""
@@ -448,11 +488,22 @@ export default function EmailLeadsSelection() {
                             <Building2 className="w-4 h-4 text-slate-400 shrink-0" />
                             <span className="truncate">{businessName}</span>
                           </span>
-                          {lead.status && (
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mt-1">
-                              {lead.status}
-                            </span>
-                          )}
+                          <div className="flex items-center gap-1.5 mt-1">
+                            {(lead.is_auto_lead || lead.source === 'auto_leadfinder' || lead.requested_provider === 'Auto LeadFinder') ? (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-extrabold bg-teal-50 border border-teal-200 text-teal-700 shrink-0">
+                                <Sparkles className="w-2.5 h-2.5 text-teal-600" /> Auto Lead
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 border border-slate-200 text-slate-600 shrink-0">
+                                Normal Lead
+                              </span>
+                            )}
+                            {lead.status && (
+                              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                                • {lead.status}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="p-4">
@@ -497,8 +548,8 @@ export default function EmailLeadsSelection() {
                           <div className={cn(
                             "px-2.5 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5",
                             score >= 80 ? "bg-green-100 text-green-700 border border-green-200" :
-                            score >= 50 ? "bg-amber-100 text-amber-700 border border-amber-200" :
-                            "bg-red-100 text-red-700 border border-red-200"
+                              score >= 50 ? "bg-amber-100 text-amber-700 border border-amber-200" :
+                                "bg-red-100 text-red-700 border border-red-200"
                           )}>
                             <Sparkles className="w-3 h-3" />
                             {score}
@@ -530,14 +581,14 @@ export default function EmailLeadsSelection() {
           Showing {leads.length} of {total.toLocaleString()} leads
         </span>
         <div className="flex items-center gap-2">
-          <button 
+          <button
             disabled={page === 1}
             onClick={() => setPage(p => Math.max(1, p - 1))}
             className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed bg-white transition-colors"
           >
             Previous
           </button>
-          <button 
+          <button
             disabled={page * 15 >= total}
             onClick={() => setPage(p => p + 1)}
             className="px-4 py-2 border border-slate-200 rounded-xl text-sm font-medium hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed bg-white transition-colors"

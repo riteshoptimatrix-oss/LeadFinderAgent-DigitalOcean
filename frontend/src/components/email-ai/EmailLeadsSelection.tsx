@@ -951,10 +951,16 @@ export default function EmailLeadsSelection() {
     setSelectedIds(next);
   };
 
+  const handleDeselectAll = () => {
+    setSelectedIds(new Set());
+    toast.success('All leads deselected.');
+  };
+
+  const isAllSelected = total > 0 && selectedIds.size >= total;
+
   const handleSelectAllGlobally = async () => {
-    if (selectedIds.size === total && total > 0) {
-      setSelectedIds(new Set());
-      toast.success('All leads deselected.');
+    if (isAllSelected) {
+      handleDeselectAll();
       return;
     }
 
@@ -1011,19 +1017,34 @@ export default function EmailLeadsSelection() {
             <span className="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
             Selected {selectedIds.size.toLocaleString()} / {total.toLocaleString()}
           </div>
+          {selectedIds.size > 0 && (
+            <button
+              onClick={handleDeselectAll}
+              className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-100 hover:bg-red-50 text-slate-700 hover:text-red-600 rounded-xl text-sm font-semibold border border-slate-200 hover:border-red-200 transition-all shadow-xs cursor-pointer"
+              title="Deselect all selected leads"
+            >
+              <X className="w-4 h-4" />
+              Deselect All
+            </button>
+          )}
           <button
-            onClick={handleSelectAllGlobally}
+            onClick={isAllSelected ? handleDeselectAll : handleSelectAllGlobally}
             disabled={isSelectingAll || total === 0}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 shadow-xs"
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold transition-colors disabled:opacity-50 shadow-xs cursor-pointer",
+              isAllSelected
+                ? "bg-slate-800 text-white hover:bg-slate-900"
+                : "bg-blue-600 text-white hover:bg-blue-700"
+            )}
           >
             {isSelectingAll ? (
               <Loader2 className="w-4 h-4 animate-spin" />
-            ) : selectedIds.size === total && total > 0 ? (
+            ) : isAllSelected ? (
               <Square className="w-4 h-4" />
             ) : (
               <CheckSquare className="w-4 h-4" />
             )}
-            {selectedIds.size === total && total > 0 ? 'Deselect All' : 'Select All Leads'}
+            {isAllSelected ? 'Deselect All' : 'Select All Leads'}
           </button>
         </div>
       </div>
@@ -1104,9 +1125,9 @@ export default function EmailLeadsSelection() {
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
               "flex items-center gap-2 px-4 py-2.5 border rounded-xl text-sm font-medium transition-colors",
-              showFilters || Object.entries(filters).some(([k, v]) => 
-                (k === 'selected_areas' || k === 'selected_job_ids') 
-                  ? (v as string[]).length > 0 
+              showFilters || Object.entries(filters).some(([k, v]) =>
+                (k === 'selected_areas' || k === 'selected_job_ids')
+                  ? (v as string[]).length > 0
                   : v !== '' && v !== undefined && v !== 'ALL'
               )
                 ? "bg-blue-50 border-blue-200 text-blue-700"
@@ -1267,7 +1288,11 @@ export default function EmailLeadsSelection() {
             <thead className="bg-slate-50/80 backdrop-blur-md sticky top-0 z-10 border-b border-slate-200">
               <tr>
                 <th className="p-4 w-12 text-center">
-                  <button onClick={handleSelectAllOnPage} className="text-slate-400 hover:text-blue-500 transition-colors">
+                  <button
+                    onClick={handleSelectAllOnPage}
+                    className="text-slate-400 hover:text-blue-500 transition-colors cursor-pointer"
+                    title={leads.length > 0 && leads.every(l => selectedIds.has(l._id)) ? "Deselect leads on this page" : "Select all leads on this page"}
+                  >
                     {leads.length > 0 && leads.every(l => selectedIds.has(l._id)) ? (
                       <CheckSquare className="w-5 h-5 text-blue-500" />
                     ) : (

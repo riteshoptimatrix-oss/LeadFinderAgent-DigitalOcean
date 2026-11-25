@@ -553,39 +553,60 @@ async def create_campaign(
         f"leads={len(campaign.target_leads)}, template={campaign.template_id}, smtp={campaign.smtp_id}"
     )
 
-    # ── Validation before persisting anything ─────────────────────────────
-    try:
-        template = await db["email_ai_templates"].find_one(
-            {"_id": ObjectId(campaign.template_id), "is_active": {"$ne": False}}
+    # ── Step-by-Step Strict Validation ─────────────────────────────
+    # Step 1: Target Leads
+    if not campaign.target_leads or len(campaign.target_leads) == 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Step 1 Validation Failed: At least one targeted lead must be selected."
         )
-        if not template:
-            raise HTTPException(status_code=400, detail="Selected template does not exist or is inactive.")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid template_id.")
-
-    try:
-        smtp_profile = await db["email_ai_smtp"].find_one(
-            {"_id": ObjectId(campaign.smtp_id), "is_active": {"$ne": False}}
-        )
-        if not smtp_profile:
-            raise HTTPException(status_code=400, detail="Selected SMTP profile does not exist or is inactive.")
-    except HTTPException:
-        raise
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid smtp_id.")
-
-    if not campaign.target_leads:
-        raise HTTPException(status_code=400, detail="At least one lead must be selected.")
 
     # Validate lead ids are valid ObjectIds (avoid queueing garbage references)
     invalid_ids = [lid for lid in campaign.target_leads if not ObjectId.is_valid(lid)]
     if invalid_ids:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid lead id(s) in target_leads: {invalid_ids[:5]}"
+            detail=f"Step 1 Validation Failed: Invalid lead id(s) in target_leads: {invalid_ids[:5]}"
         )
+
+    # Step 2: Email Template
+    if not campaign.template_id or not ObjectId.is_valid(campaign.template_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Step 2 Validation Failed: Invalid or missing template_id."
+        )
+
+    try:
+        template = await db["email_ai_templates"].find_one(
+            {"_id": ObjectId(campaign.template_id), "is_active": {"$ne": False}}
+        )
+        if not template:
+            raise HTTPException(status_code=400, detail="Step 2 Validation Failed: Selected template does not exist or is inactive.")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Step 2 Validation Failed: Invalid template_id.")
+
+    # Step 3: SMTP & Wizard Config
+    if not campaign.smtp_id or not ObjectId.is_valid(campaign.smtp_id):
+        raise HTTPException(
+            status_code=400,
+            detail="Step 3 Validation Failed: Invalid or missing smtp_id."
+        )
+
+    try:
+        smtp_profile = await db["email_ai_smtp"].find_one(
+            {"_id": ObjectId(campaign.smtp_id), "is_active": {"$ne": False}}
+        )
+        if not smtp_profile:
+            raise HTTPException(status_code=400, detail="Step 3 Validation Failed: Selected SMTP profile does not exist or is inactive.")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(status_code=400, detail="Step 3 Validation Failed: Invalid smtp_id.")
+
+    if not campaign.info or not campaign.info.name or not campaign.info.name.strip():
+        raise HTTPException(status_code=400, detail="Step 3 Validation Failed: Campaign name is required.")
 
     new_campaign = campaign.model_dump()
     new_campaign["user_id"] = str(current_user.id)
@@ -1240,14 +1261,27 @@ async def get_all_leads_for_email_ai(
         })
 
     if area:
-        and_conds.append({
-            "$or": [
-                {"auto_scraped_area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
-                {"area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
-                {"search_area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
-                {"address": {"$regex": re.escape(area), "$options": "i"}},
-            ]
-        })
+        area_list = [a.strip() for a in str(area).split(",") if a.strip()]
+        if len(area_list) == 1:
+            target_area = area_list[0]
+            and_conds.append({
+                "$or": [
+                    {"auto_scraped_area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
+                    {"area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
+                    {"search_area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
+                    {"address": {"$regex": re.escape(target_area), "$options": "i"}},
+                ]
+            })
+        elif len(area_list) > 1:
+            multi_area_conds = []
+            for a in area_list:
+                multi_area_conds.extend([
+                    {"auto_scraped_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"search_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"address": {"$regex": re.escape(a), "$options": "i"}},
+                ])
+            and_conds.append({"$or": multi_area_conds})
 
     if job_id:
         and_conds.append({

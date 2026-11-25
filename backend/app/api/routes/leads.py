@@ -339,14 +339,27 @@ def build_lead_filters(
         })
 
     if area:
-        filter_clauses.append({
-            "$or": [
-                {"auto_scraped_area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
-                {"area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
-                {"search_area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
-                {"address": {"$regex": re.escape(area), "$options": "i"}},
-            ]
-        })
+        area_list = [a.strip() for a in str(area).split(",") if a.strip()]
+        if len(area_list) == 1:
+            target_area = area_list[0]
+            filter_clauses.append({
+                "$or": [
+                    {"auto_scraped_area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
+                    {"area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
+                    {"search_area": {"$regex": f"^{re.escape(target_area)}$", "$options": "i"}},
+                    {"address": {"$regex": re.escape(target_area), "$options": "i"}},
+                ]
+            })
+        elif len(area_list) > 1:
+            multi_area_conds = []
+            for a in area_list:
+                multi_area_conds.extend([
+                    {"auto_scraped_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"search_area": {"$regex": f"^{re.escape(a)}$", "$options": "i"}},
+                    {"address": {"$regex": re.escape(a), "$options": "i"}},
+                ])
+            filter_clauses.append({"$or": multi_area_conds})
 
     if filter_clauses:
         query["$and"] = filter_clauses

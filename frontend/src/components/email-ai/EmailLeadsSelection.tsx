@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import {
   Search, MapPin, Building2, Phone, Mail, Globe, Sparkles,
   CheckSquare, Square, Loader2, ArrowRight, Filter, ChevronDown,
-  SortAsc, Calendar, Tag, AlertCircle, Trash2
+  SortAsc, Calendar, Tag, AlertCircle, Trash2, X, Check
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/src/lib/utils';
@@ -43,6 +43,214 @@ interface Lead {
 
 
 
+function AreaMultiSelect({
+  areas,
+  selectedAreas,
+  onChange,
+  className
+}: {
+  areas: { area: string; count: number }[];
+  selectedAreas: string[];
+  onChange: (areas: string[]) => void;
+  className?: string;
+}) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const totalAllLeads = useMemo(
+    () => areas.reduce((sum, a) => sum + (a.count || 0), 0),
+    [areas]
+  );
+
+  const selectedCount = selectedAreas.length;
+
+  const totalSelectedLeads = useMemo(
+    () =>
+      areas
+        .filter(a => selectedAreas.includes(a.area))
+        .reduce((sum, a) => sum + (a.count || 0), 0),
+    [areas, selectedAreas]
+  );
+
+  const filteredAreas = useMemo(
+    () =>
+      areas.filter(a =>
+        a.area.toLowerCase().includes(search.toLowerCase())
+      ),
+    [areas, search]
+  );
+
+  const toggleArea = (area: string) => {
+    if (selectedAreas.includes(area)) {
+      onChange(selectedAreas.filter(a => a !== area));
+    } else {
+      onChange([...selectedAreas, area]);
+    }
+  };
+
+  const selectAllFiltered = () => {
+    const allFilteredNames = filteredAreas.map(a => a.area);
+    const combined = Array.from(new Set([...selectedAreas, ...allFilteredNames]));
+    onChange(combined);
+  };
+
+  const clearSelection = () => {
+    onChange([]);
+  };
+
+  return (
+    <div className={cn("relative inline-block", className)} ref={dropdownRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className={cn(
+          "px-3.5 py-2.5 bg-teal-50 border border-teal-300 rounded-xl text-sm font-semibold text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer shadow-xs transition-all flex items-center justify-between gap-2 min-w-[200px] max-w-[340px]",
+          isOpen && "ring-2 ring-teal-500/30 border-teal-400"
+        )}
+        title="Filter by Multiple Areas / Localities"
+      >
+        <span className="truncate flex items-center gap-1.5 text-xs sm:text-sm">
+          <span>📍</span>
+          {selectedCount === 0 && (
+            <span>All Areas ({totalAllLeads.toLocaleString()} leads)</span>
+          )}
+          {selectedCount === 1 && (
+            <span>{selectedAreas[0]} ({totalSelectedLeads.toLocaleString()} leads)</span>
+          )}
+          {selectedCount > 1 && (
+            <span>{selectedCount} Areas Selected ({totalSelectedLeads.toLocaleString()} leads)</span>
+          )}
+        </span>
+
+        <div className="flex items-center gap-1 shrink-0 ml-1">
+          {selectedCount > 0 && (
+            <span
+              onClick={(e) => {
+                e.stopPropagation();
+                clearSelection();
+              }}
+              className="p-0.5 rounded-full hover:bg-teal-200/60 text-teal-700 hover:text-teal-900 transition-colors"
+              title="Clear area filter"
+            >
+              <X className="w-3.5 h-3.5" />
+            </span>
+          )}
+          <ChevronDown
+            className={cn(
+              "w-4 h-4 text-teal-600 transition-transform duration-200",
+              isOpen && "rotate-180"
+            )}
+          />
+        </div>
+      </button>
+
+      {isOpen && (
+        <div className="absolute left-0 top-full mt-1.5 w-80 bg-white rounded-xl border border-slate-200 shadow-xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+          {/* Search Bar */}
+          <div className="p-2.5 border-b border-slate-100 bg-slate-50/60">
+            <div className="relative">
+              <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search areas..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                autoFocus
+                className="w-full pl-8 pr-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:border-teal-500 focus:ring-1 focus:ring-teal-500"
+              />
+            </div>
+
+            {/* Quick Actions */}
+            <div className="flex items-center justify-between mt-2 pt-1.5 border-t border-slate-200/60 text-[11px] font-semibold">
+              <span className="text-slate-500">
+                {selectedCount} of {areas.length} selected
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={selectAllFiltered}
+                  className="text-teal-600 hover:text-teal-700 hover:underline cursor-pointer"
+                >
+                  Select All
+                </button>
+                <span className="text-slate-300">•</span>
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  disabled={selectedCount === 0}
+                  className="text-slate-500 hover:text-slate-700 disabled:opacity-40 disabled:hover:no-underline hover:underline cursor-pointer"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* List of Areas */}
+          <div className="max-h-60 overflow-y-auto p-1 divide-y divide-slate-50">
+            {filteredAreas.length === 0 ? (
+              <div className="p-4 text-center text-xs text-slate-400">
+                No matching areas found
+              </div>
+            ) : (
+              filteredAreas.map((a) => {
+                const isChecked = selectedAreas.includes(a.area);
+                return (
+                  <div
+                    key={a.area}
+                    onClick={() => toggleArea(a.area)}
+                    className={cn(
+                      "flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs select-none",
+                      isChecked
+                        ? "bg-teal-50/70 text-teal-950 font-semibold"
+                        : "hover:bg-slate-50 text-slate-700"
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5 truncate pr-2">
+                      <div
+                        className={cn(
+                          "w-4 h-4 rounded border flex items-center justify-center transition-colors shrink-0",
+                          isChecked
+                            ? "bg-teal-600 border-teal-600 text-white"
+                            : "border-slate-300 bg-white"
+                        )}
+                      >
+                        {isChecked && <Check className="w-3 h-3 stroke-[3]" />}
+                      </div>
+                      <span className="truncate">📍 {a.area}</span>
+                    </div>
+                    <span
+                      className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-full shrink-0 font-medium",
+                        isChecked
+                          ? "bg-teal-100/80 text-teal-800"
+                          : "bg-slate-100 text-slate-500"
+                      )}
+                    >
+                      {a.count.toLocaleString()} leads
+                    </span>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function EmailLeadsSelection() {
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
@@ -63,7 +271,7 @@ export default function EmailLeadsSelection() {
     min_rating: undefined as number | undefined,
     status: 'ALL',
     search_campaign: 'ALL' as 'ALL' | 'auto' | 'normal',
-    selected_area: '',
+    selected_areas: [] as string[],
     selected_job_id: ''
   });
 
@@ -89,7 +297,18 @@ export default function EmailLeadsSelection() {
           setSearch(parsed.search);
           setDebouncedSearch(parsed.search);
         }
-        if (parsed.filters) setFilters(prev => ({ ...prev, ...parsed.filters }));
+        if (parsed.filters) {
+          const loadedAreas = Array.isArray(parsed.filters.selected_areas)
+            ? parsed.filters.selected_areas
+            : parsed.filters.selected_area
+              ? [parsed.filters.selected_area]
+              : [];
+          setFilters(prev => ({
+            ...prev,
+            ...parsed.filters,
+            selected_areas: loadedAreas
+          }));
+        }
         if (parsed.sort) setSort(parsed.sort);
       }
     } catch (e) { }
@@ -102,6 +321,7 @@ export default function EmailLeadsSelection() {
     localStorage.setItem('email_leads_state', JSON.stringify({
       page, search: debouncedSearch, filters, sort
     }));
+    window.dispatchEvent(new CustomEvent('email-ai-workflow-sync'));
   }, [selectedIds, page, debouncedSearch, filters, sort, isMounted]);
 
   // Debounce search
@@ -167,7 +387,7 @@ export default function EmailLeadsSelection() {
           min_rating: filters.min_rating,
           status: filters.status !== 'ALL' ? filters.status : undefined,
           is_auto_lead: isAutoLeadParam,
-          area: filters.search_campaign === 'auto' && filters.selected_area ? filters.selected_area : undefined,
+          area: filters.search_campaign === 'auto' && filters.selected_areas.length > 0 ? filters.selected_areas.join(',') : undefined,
           job_id: filters.search_campaign === 'normal' && filters.selected_job_id ? filters.selected_job_id : undefined,
           sort_by: sort.sort_by,
           sort_order: sort.sort_order
@@ -219,7 +439,7 @@ export default function EmailLeadsSelection() {
           min_rating: filters.min_rating,
           status: filters.status !== 'ALL' ? filters.status : undefined,
           is_auto_lead: isAutoLeadParam,
-          area: filters.search_campaign === 'auto' && filters.selected_area ? filters.selected_area : undefined,
+          area: filters.search_campaign === 'auto' && filters.selected_areas.length > 0 ? filters.selected_areas.join(',') : undefined,
           job_id: filters.search_campaign === 'normal' && filters.selected_job_id ? filters.selected_job_id : undefined
         }
       });
@@ -235,9 +455,12 @@ export default function EmailLeadsSelection() {
 
   const handleGoAhead = () => {
     if (selectedIds.size === 0) {
-      toast.error('Please select at least one lead to continue.');
+      toast.error('Step 1 Required: Please select at least one targeted lead to proceed.');
       return;
     }
+    localStorage.setItem('email_selected_leads', JSON.stringify(Array.from(selectedIds)));
+    window.dispatchEvent(new CustomEvent('email-ai-workflow-sync'));
+    toast.success(`Selected ${selectedIds.size.toLocaleString()} leads! Proceeding to Step 2: Choose Template.`);
     window.dispatchEvent(new CustomEvent('change-tab', { detail: 'templates' }));
   };
 
@@ -292,7 +515,7 @@ export default function EmailLeadsSelection() {
             value={filters.search_campaign}
             onChange={(e) => {
               const val = e.target.value as any;
-              setFilters({ ...filters, search_campaign: val, selected_area: '', selected_job_id: '' });
+              setFilters({ ...filters, search_campaign: val, selected_areas: [], selected_job_id: '' });
               setPage(1);
             }}
             className="px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium text-slate-700 cursor-pointer shadow-xs"
@@ -303,24 +526,16 @@ export default function EmailLeadsSelection() {
             <option value="normal">Normal Lead (Manual / Regular)</option>
           </select>
 
-          {/* Cascading Area Filter (Auto Leads) */}
+          {/* Cascading Multi-Select Area Filter (Auto Leads) */}
           {filters.search_campaign === 'auto' && (
-            <select
-              value={filters.selected_area}
-              onChange={(e) => {
-                setFilters({ ...filters, selected_area: e.target.value });
+            <AreaMultiSelect
+              areas={autoAreas}
+              selectedAreas={filters.selected_areas}
+              onChange={(newAreas) => {
+                setFilters({ ...filters, selected_areas: newAreas });
                 setPage(1);
               }}
-              className="px-3.5 py-2.5 bg-teal-50 border border-teal-300 rounded-xl text-sm font-semibold text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer shadow-xs animate-in fade-in"
-              title="Filter by Area / Locality"
-            >
-              <option value="">📍 All Areas ({autoAreas.reduce((acc, a) => acc + (a.count || 0), 0)} leads)</option>
-              {autoAreas.map((a: any) => (
-                <option key={a.area} value={a.area}>
-                  📍 {a.area} ({a.count} leads)
-                </option>
-              ))}
-            </select>
+            />
           )}
 
           {/* Cascading Campaign Filter (Normal Leads) */}
@@ -353,7 +568,7 @@ export default function EmailLeadsSelection() {
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
               "flex items-center gap-2 px-4 py-2.5 border rounded-xl text-sm font-medium transition-colors",
-              showFilters || Object.values(filters).some(v => v !== '' && v !== undefined && v !== 'ALL')
+              showFilters || Object.entries(filters).some(([k, v]) => k === 'selected_areas' ? (v as string[]).length > 0 : v !== '' && v !== undefined && v !== 'ALL')
                 ? "bg-blue-50 border-blue-200 text-blue-700"
                 : "bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
             )}
@@ -390,7 +605,7 @@ export default function EmailLeadsSelection() {
                 value={filters.search_campaign}
                 onChange={(e) => {
                   const val = e.target.value as any;
-                  setFilters({ ...filters, search_campaign: val, selected_area: '', selected_job_id: '' });
+                  setFilters({ ...filters, search_campaign: val, selected_areas: [], selected_job_id: '' });
                   setPage(1);
                 }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
@@ -402,19 +617,16 @@ export default function EmailLeadsSelection() {
             </div>
             {filters.search_campaign === 'auto' ? (
               <div>
-                <label className="text-xs font-semibold text-teal-700 mb-1.5 block">Area / Locality</label>
-                <select
-                  value={filters.selected_area}
-                  onChange={(e) => { setFilters({ ...filters, selected_area: e.target.value }); setPage(1); }}
-                  className="w-full px-3 py-2 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-900 focus:outline-none focus:border-teal-500"
-                >
-                  <option value="">All Areas ({autoAreas.reduce((sum: number, a: any) => sum + (a.count || 0), 0)})</option>
-                  {autoAreas.map((a: any) => (
-                    <option key={a.area} value={a.area}>
-                      📍 {a.area} ({a.count})
-                    </option>
-                  ))}
-                </select>
+                <label className="text-xs font-semibold text-teal-700 mb-1.5 block">Area / Locality (Multi-Select)</label>
+                <AreaMultiSelect
+                  areas={autoAreas}
+                  selectedAreas={filters.selected_areas}
+                  onChange={(newAreas) => {
+                    setFilters({ ...filters, selected_areas: newAreas });
+                    setPage(1);
+                  }}
+                  className="w-full"
+                />
               </div>
             ) : filters.search_campaign === 'normal' ? (
               <div>
@@ -546,7 +758,7 @@ export default function EmailLeadsSelection() {
                       <button
                         onClick={() => {
                           setSearch('');
-                          setFilters({ city: '', category: '', has_website: undefined, has_phone: undefined, has_email: undefined, min_rating: undefined, status: 'ALL', search_campaign: 'ALL', selected_area: '', selected_job_id: '' });
+                          setFilters({ city: '', category: '', has_website: undefined, has_phone: undefined, has_email: undefined, min_rating: undefined, status: 'ALL', search_campaign: 'ALL', selected_areas: [], selected_job_id: '' });
                         }}
                         className="mt-6 px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-xl hover:bg-slate-200 transition-colors"
                       >

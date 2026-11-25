@@ -105,6 +105,7 @@ export default function EmailCampaignWizard() {
       if (res?.data?._id) {
         localStorage.setItem('email_active_campaign', res.data._id);
       }
+      window.dispatchEvent(new CustomEvent('email-ai-workflow-sync'));
       queryClient.invalidateQueries({ queryKey: ['email-ai-header-analytics'] });
       queryClient.invalidateQueries({ queryKey: ['email-ai-campaigns'] });
       queryClient.invalidateQueries({ queryKey: ['email-ai-analytics'] });
@@ -136,10 +137,21 @@ export default function EmailCampaignWizard() {
 
     try {
       const savedLeads = localStorage.getItem('email_selected_leads');
-      if (savedLeads) setSelectedLeadIds(JSON.parse(savedLeads));
+      const leadIds: string[] = savedLeads ? JSON.parse(savedLeads) : [];
+      if (!leadIds || leadIds.length === 0) {
+        toast.error('Step 1 Required: Please select target leads first.');
+        window.dispatchEvent(new CustomEvent('change-tab', { detail: 'leads' }));
+        return;
+      }
+      setSelectedLeadIds(leadIds);
 
       const savedTemplate = localStorage.getItem('email_selected_template');
-      if (savedTemplate) setSelectedTemplateId(savedTemplate);
+      if (!savedTemplate) {
+        toast.error('Step 2 Required: Please select an email template first.');
+        window.dispatchEvent(new CustomEvent('change-tab', { detail: 'templates' }));
+        return;
+      }
+      setSelectedTemplateId(savedTemplate);
       
       const savedDraft = localStorage.getItem('email_campaign_draft');
       if (savedDraft) {
@@ -197,6 +209,12 @@ export default function EmailCampaignWizard() {
     if (currentStep === 5 && formData.schedule.type === 'Later' && (!formData.schedule.start_date || !formData.schedule.start_time)) {
       return toast.error('Please select a valid date and time for scheduling');
     }
+    if (currentStep === 1 && !formData.info.name.trim()) {
+      return toast.error('Campaign Name is required to proceed.');
+    }
+    if (currentStep === 2 && !formData.smtp_id) {
+      return toast.error('Please select an active SMTP server to proceed.');
+    }
     
     if (currentStep < 6) {
       logWizardEvent('next_step', { from: currentStep, to: currentStep + 1 });
@@ -213,9 +231,26 @@ export default function EmailCampaignWizard() {
   };
 
   const handleStartCampaign = () => {
-    if (selectedLeadIds.length === 0) return toast.error('No leads selected! Please go back to Step 1.');
-    if (!selectedTemplateId) return toast.error('No template selected! Please go back to Step 2.');
-    if (!formData.smtp_id) return toast.error('No SMTP profile selected!');
+    if (selectedLeadIds.length === 0) {
+      toast.error('Step 1 Incomplete: No target leads selected. Campaign cannot start.');
+      window.dispatchEvent(new CustomEvent('change-tab', { detail: 'leads' }));
+      return;
+    }
+    if (!selectedTemplateId) {
+      toast.error('Step 2 Incomplete: No email template selected. Campaign cannot start.');
+      window.dispatchEvent(new CustomEvent('change-tab', { detail: 'templates' }));
+      return;
+    }
+    if (!formData.smtp_id) {
+      toast.error('Step 3 Incomplete: No SMTP profile selected! Please choose an active SMTP server.');
+      setCurrentStep(2);
+      return;
+    }
+    if (!formData.info.name.trim()) {
+      toast.error('Step 3 Incomplete: Campaign Name is required.');
+      setCurrentStep(1);
+      return;
+    }
 
     logWizardEvent('start_campaign', {
       step: currentStep,

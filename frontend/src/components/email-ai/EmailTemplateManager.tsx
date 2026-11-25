@@ -72,6 +72,7 @@ export default function EmailTemplateManager() {
   const [htmlMode, setHtmlMode] = useState(false);
   const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [sampleLead, setSampleLead] = useState<any>(null);
+  const [selectedLeadsCount, setSelectedLeadsCount] = useState<number>(0);
   const [isLibraryOpen, setIsLibraryOpen] = useState(true);
   const [isPreviewOpen, setIsPreviewOpen] = useState(true);
 
@@ -85,6 +86,7 @@ export default function EmailTemplateManager() {
         let realLead: any = null;
         const savedIds = localStorage.getItem('email_selected_leads');
         const ids: string[] = savedIds ? JSON.parse(savedIds) : [];
+        setSelectedLeadsCount(ids.length);
 
         if (ids.length > 0) {
           try {
@@ -304,12 +306,29 @@ export default function EmailTemplateManager() {
   };
 
   const handleGoAhead = () => {
+    // 1. Strict Step 1 Check
+    let leadCount = selectedLeadsCount;
+    try {
+      const savedLeads = localStorage.getItem('email_selected_leads');
+      const parsed = savedLeads ? JSON.parse(savedLeads) : [];
+      leadCount = Array.isArray(parsed) ? parsed.length : 0;
+    } catch {}
+
+    if (leadCount === 0) {
+      toast.error('Step 1 Required: Please select target leads first.');
+      window.dispatchEvent(new CustomEvent('change-tab', { detail: 'leads' }));
+      return;
+    }
+
+    // 2. Strict Step 2 Check
     if (!activeTemplateId) {
-      toast.error('Please select or create a template to continue.');
+      toast.error('Step 2 Required: Please select or create an email template to continue.');
       return;
     }
     // Save to local storage for the next step
     localStorage.setItem('email_selected_template', activeTemplateId);
+    window.dispatchEvent(new CustomEvent('email-ai-workflow-sync'));
+    toast.success('Template selected! Proceeding to Step 3: Campaign Wizard.');
     window.dispatchEvent(new CustomEvent('change-tab', { detail: 'campaigns' }));
   };
 
@@ -319,7 +338,21 @@ export default function EmailTemplateManager() {
     <div className="flex flex-col animate-in fade-in" style={{ minHeight: '600px' }}>
 
       {/* Header Actions */}
-      <div className="flex-none mb-6">
+      <div className="flex-none mb-4">
+        {selectedLeadsCount === 0 && (
+          <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-center justify-between animate-in fade-in">
+            <div className="flex items-center gap-2.5 text-xs text-amber-800 font-medium">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span><strong>Step 1 Incomplete:</strong> No targeted leads have been selected yet. You must complete Step 1 before creating or starting a campaign.</span>
+            </div>
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('change-tab', { detail: 'leads' }))}
+              className="px-3.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold shrink-0 transition-colors cursor-pointer"
+            >
+              ← Select Target Leads
+            </button>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-slate-900">AI Template Studio</h2>
@@ -429,7 +462,11 @@ export default function EmailTemplateManager() {
                   filteredTemplates.map(t => (
                     <div
                       key={t._id}
-                      onClick={() => setActiveTemplateId(t._id)}
+                      onClick={() => {
+                        setActiveTemplateId(t._id);
+                        localStorage.setItem('email_selected_template', t._id);
+                        window.dispatchEvent(new CustomEvent('email-ai-workflow-sync'));
+                      }}
                       className={cn(
                         "p-3 rounded-xl border transition-all cursor-pointer group relative overflow-hidden",
                         activeTemplateId === t._id

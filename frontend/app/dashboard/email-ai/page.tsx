@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
@@ -13,8 +13,10 @@ import {
   Server,
   ShieldAlert,
   Rocket,
-  CheckCircle2
+  CheckCircle2,
+  Lock
 } from 'lucide-react';
+import { toast } from 'sonner';
 import EmailLeadsSelection from '@/src/components/email-ai/EmailLeadsSelection';
 import EmailTemplateManager from '@/src/components/email-ai/EmailTemplateManager';
 import EmailCampaignWizard from '@/src/components/email-ai/EmailCampaignWizard';
@@ -48,14 +50,14 @@ const VALID_TABS: Tab[] = [
   'errors'
 ];
 
-// The 4 workflow-specific tabs that show the progress rail
+// The 4 mandatory workflow steps in strict sequential order
 const WORKFLOW_TAB_IDS: Tab[] = ['leads', 'templates', 'campaigns', 'live'];
 
 const WORKFLOW_STEPS = [
-  { id: 'leads' as Tab, label: 'Leads' },
-  { id: 'templates' as Tab, label: 'Templates' },
-  { id: 'campaigns' as Tab, label: 'Campaign' },
-  { id: 'live' as Tab, label: 'Live' },
+  { id: 'leads' as Tab, label: '1. Select Leads', stepNum: 1 },
+  { id: 'templates' as Tab, label: '2. Select Template', stepNum: 2 },
+  { id: 'campaigns' as Tab, label: '3. Campaign Wizard', stepNum: 3 },
+  { id: 'live' as Tab, label: '4. Start Campaign', stepNum: 4 },
 ];
 
 export default function EmailAIPage() {
@@ -63,6 +65,112 @@ export default function EmailAIPage() {
   const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const [activeTab, setActiveTab] = useState<Tab>('dashboard');
+
+  // Track workflow prerequisites in state
+  const [selectedLeadsCount, setSelectedLeadsCount] = useState<number>(0);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
+
+  const refreshWorkflowState = useCallback(() => {
+    try {
+      const rawLeads = typeof window !== 'undefined' ? localStorage.getItem('email_selected_leads') : null;
+      const leads = rawLeads ? JSON.parse(rawLeads) : [];
+      setSelectedLeadsCount(Array.isArray(leads) ? leads.length : 0);
+
+      const template = typeof window !== 'undefined' ? (localStorage.getItem('email_selected_template') || '') : '';
+      setSelectedTemplateId(template);
+    } catch {
+      setSelectedLeadsCount(0);
+      setSelectedTemplateId('');
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshWorkflowState();
+    const handleSync = () => refreshWorkflowState();
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('email-ai-workflow-sync', handleSync);
+    return () => {
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('email-ai-workflow-sync', handleSync);
+    };
+  }, [refreshWorkflowState]);
+
+  // Strict sequential validation rule
+  const validateNavigation = (targetTab: Tab, notify = true): { allowed: boolean; redirectTab?: Tab } => {
+    // Non-workflow tabs (Dashboard, History, SMTP, Errors) are always accessible
+    if (!WORKFLOW_TAB_IDS.includes(targetTab)) {
+      return { allowed: true };
+    }
+
+    // Step 1: Target Leads is the mandatory starting point
+    if (targetTab === 'leads') {
+      return { allowed: true };
+    }
+
+    // Step 2: Templates requires Step 1 (at least 1 lead selected)
+    let leadCount = selectedLeadsCount;
+    try {
+      const rawLeads = localStorage.getItem('email_selected_leads');
+      const parsed = rawLeads ? JSON.parse(rawLeads) : [];
+      leadCount = Array.isArray(parsed) ? parsed.length : 0;
+    } catch {}
+
+    if (leadCount === 0) {
+      if (notify) {
+        toast.error('Step 1 Required: Select Targeted Leads', {
+          description: 'You must select at least one targeted lead before choosing an email template.'
+        });
+      }
+      return { allowed: false, redirectTab: 'leads' };
+    }
+
+    if (targetTab === 'templates') {
+      return { allowed: true };
+    }
+
+    // Step 3: Campaign Wizard requires Step 1 (leads) AND Step 2 (template selected)
+    const templateId = typeof window !== 'undefined' ? localStorage.getItem('email_selected_template') : null;
+    if (!templateId) {
+      if (notify) {
+        toast.error('Step 2 Required: Select Email Template', {
+          description: 'You must choose or build an email template before entering the Campaign Wizard.'
+        });
+      }
+      return { allowed: false, redirectTab: 'templates' };
+    }
+
+    if (targetTab === 'campaigns') {
+      return { allowed: true };
+    }
+
+    // Step 4: Live Dispatch requires campaign to be launched from Wizard
+    if (targetTab === 'live') {
+      // If user is in the middle of creation flow and has not launched yet
+      const hasActiveCampaign = typeof window !== 'undefined' && Boolean(localStorage.getItem('email_active_campaign'));
+      if (!hasActiveCampaign && (activeTab === 'leads' || activeTab === 'templates' || activeTab === 'campaigns')) {
+        if (notify) {
+          toast.error('Step 3 Required: Complete Campaign Wizard', {
+            description: 'You must complete the Campaign Wizard and click "Start Campaign" to enter live dispatch.'
+          });
+        }
+        return { allowed: false, redirectTab: 'campaigns' };
+      }
+    }
+
+    return { allowed: true };
+  };
+
+  const handleTabClick = (targetTab: Tab) => {
+    refreshWorkflowState();
+    const result = validateNavigation(targetTab, true);
+    if (!result.allowed) {
+      if (result.redirectTab) {
+        setActiveTab(result.redirectTab);
+      }
+      return;
+    }
+    setActiveTab(targetTab);
+  };
 
   // Verify user-wise access permission
   const { data: userProfile, isLoading: isProfileLoading } = useQuery({
@@ -109,9 +217,13 @@ export default function EmailAIPage() {
 
     let channel: BroadcastChannel | null = null;
     try {
-      channel = new BroadcastChannel('leadfinder_smtp_sync');
-      channel.onmessage = () => handleEmailSync();
-    } catch (e) {}
+      channel = new BroadcastChannel('email-ai-sync');
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'campaign_updated' || event.data?.type === 'stats_updated') {
+          handleEmailSync();
+        }
+      };
+    } catch {}
 
     return () => {
       window.removeEventListener('email-ai-live-event', handleEmailSync);
@@ -119,11 +231,16 @@ export default function EmailAIPage() {
     };
   }, [queryClient]);
 
-  // Handle URL search params tab sync
+  // Sync tab with URL
   useEffect(() => {
-    const tabParam = searchParams.get('tab') as Tab | null;
+    const tabParam = searchParams.get('tab') as Tab;
     if (tabParam && VALID_TABS.includes(tabParam)) {
-      setActiveTab(tabParam);
+      const check = validateNavigation(tabParam, false);
+      if (check.allowed) {
+        setActiveTab(tabParam);
+      } else if (check.redirectTab) {
+        setActiveTab(check.redirectTab);
+      }
     }
   }, [searchParams]);
 
@@ -141,31 +258,38 @@ export default function EmailAIPage() {
       if (requested === 'senders') mapped = 'smtp';
 
       if (VALID_TABS.includes(mapped as Tab)) {
-        setActiveTab(mapped as Tab);
+        refreshWorkflowState();
+        const check = validateNavigation(mapped as Tab, true);
+        if (check.allowed) {
+          setActiveTab(mapped as Tab);
+        } else if (check.redirectTab) {
+          setActiveTab(check.redirectTab);
+        }
       }
     };
 
     window.addEventListener('change-tab', handleTabChange);
     return () => window.removeEventListener('change-tab', handleTabChange);
-  }, []);
+  }, [refreshWorkflowState]);
 
   const activeSenders = Array.isArray(smtpProfiles)
     ? smtpProfiles.filter((s: any) => s.is_active !== false)
     : [];
   const hasActiveSender = activeSenders.length > 0;
 
+  // Tabs configured with distinct names alongside icons
   const tabs = [
-    { id: 'dashboard' as Tab, label: 'Analytics & Overview', icon: BarChart3 },
+    { id: 'dashboard' as Tab, label: 'Analytics', icon: BarChart3 },
     { id: 'live' as Tab, label: 'Live Dispatch', icon: Activity, badge: 'Live' },
     { id: 'leads' as Tab, label: 'Target Leads', icon: ListTodo },
-    { id: 'templates' as Tab, label: 'AI Templates', icon: Sparkles },
+    { id: 'templates' as Tab, label: 'Templates', icon: Sparkles },
     { id: 'campaigns' as Tab, label: 'Campaign Wizard', icon: Rocket },
-    { id: 'history' as Tab, label: 'Campaign History', icon: History },
-    { id: 'smtp' as Tab, label: 'Senders & SMTP', icon: Server },
-    { id: 'errors' as Tab, label: 'Deliverability & Errors', icon: ShieldAlert },
+    { id: 'history' as Tab, label: 'History', icon: History },
+    { id: 'smtp' as Tab, label: 'SMTP Senders', icon: Server },
+    { id: 'errors' as Tab, label: 'Deliverability', icon: ShieldAlert },
   ] as const;
 
-  // Access restricted
+  // Access restricted view
   if (!isProfileLoading && userProfile && !hasAccess) {
     return (
       <div className="w-full flex flex-col items-center justify-center py-24 px-4 text-center animate-in fade-in">
@@ -187,7 +311,6 @@ export default function EmailAIPage() {
   }
 
   const isWorkflowTab = WORKFLOW_TAB_IDS.includes(activeTab);
-  const workflowStepIndex = WORKFLOW_TAB_IDS.indexOf(activeTab);
 
   return (
     <div className="w-full flex flex-col pb-12">
@@ -201,46 +324,37 @@ export default function EmailAIPage() {
         />
       </div>
 
-      {/* ── Tab Bar + Status Pill ── */}
-      <div className="border-b border-slate-200 mb-6">
-        <div className="flex items-center justify-between pb-0">
+      {/* ── Tab Bar + Status Pill (Icons and Names displayed together) ── */}
+      <div className="border-b border-slate-200 mb-6 pb-2">
+        <div className="flex items-center justify-between flex-wrap gap-3">
 
-          {/* Icon-only tabs */}
-          <div className="flex items-center gap-0.5">
+          {/* Navigation Tabs with Visible Icon and Name */}
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
             {tabs.map((tab) => {
               const Icon = tab.icon;
               const isActive = activeTab === tab.id;
               return (
-                <div key={tab.id} className="relative group">
-                  <button
-                    onClick={() => setActiveTab(tab.id)}
-                    className={cn(
-                      'relative flex items-center justify-center w-10 h-10 rounded-lg transition-colors duration-150',
-                      isActive
-                        ? 'text-blue-600'
-                        : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50'
-                    )}
-                    aria-label={tab.label}
-                  >
-                    <Icon className="w-5 h-5" />
+                <button
+                  key={tab.id}
+                  onClick={() => handleTabClick(tab.id)}
+                  className={cn(
+                    'relative flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold transition-all duration-150 whitespace-nowrap cursor-pointer select-none',
+                    isActive
+                      ? 'text-blue-600 bg-blue-50/80 border border-blue-200 shadow-2xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/80 border border-transparent'
+                  )}
+                >
+                  <Icon className={cn('w-4 h-4 shrink-0', isActive ? 'text-blue-600' : 'text-slate-400')} />
+                  <span>{tab.label}</span>
 
-                    {/* Live badge dot */}
-                    {'badge' in tab && tab.badge === 'Live' && (
-                      <span className="absolute top-2 right-1.5 w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                    )}
-
-                    {/* Active underline */}
-                    {isActive && (
-                      <span className="absolute bottom-0 inset-x-1 h-0.5 bg-blue-600 rounded-t-full" />
-                    )}
-                  </button>
-
-                  {/* Tooltip */}
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2.5 px-2.5 py-1 bg-slate-900 text-white text-xs font-medium rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-150 z-50 shadow-lg">
-                    {tab.label}
-                    <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-slate-900" />
-                  </div>
-                </div>
+                  {/* Live status badge */}
+                  {'badge' in tab && tab.badge === 'Live' && (
+                    <span className="flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700 ml-0.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Live
+                    </span>
+                  )}
+                </button>
               );
             })}
           </div>
@@ -249,7 +363,7 @@ export default function EmailAIPage() {
           <button
             onClick={() => setActiveTab('smtp')}
             className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors duration-150 mb-1',
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors duration-150 shrink-0 cursor-pointer',
               hasActiveSender
                 ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
                 : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
@@ -269,60 +383,91 @@ export default function EmailAIPage() {
         </div>
       </div>
 
-      {/* ── Workflow Progress Rail (Leads → Templates → Campaign → Live) ── */}
+      {/* ── Mandatory Workflow Progress Rail (Step 1 → Step 2 → Step 3 → Step 4) ── */}
       {isWorkflowTab && (
-        <div className="flex items-center gap-0 mb-6 animate-in fade-in duration-150">
-          {WORKFLOW_STEPS.map((step, idx) => {
-            const stepTabIndex = WORKFLOW_TAB_IDS.indexOf(step.id);
-            const isActive = step.id === activeTab;
-            const isCompleted = workflowStepIndex > stepTabIndex;
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 mb-6 animate-in fade-in duration-150">
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar">
+              {WORKFLOW_STEPS.map((step, idx) => {
+                const isActive = step.id === activeTab;
+                const isStep1Done = selectedLeadsCount > 0;
+                const isStep2Done = isStep1Done && Boolean(selectedTemplateId);
+                const isStep3Done = isStep2Done && Boolean(typeof window !== 'undefined' && localStorage.getItem('email_active_campaign'));
 
-            return (
-              <div key={step.id} className="flex items-center">
-                <button
-                  onClick={() => {
-                    if (isCompleted) setActiveTab(step.id);
-                  }}
-                  disabled={!isCompleted && !isActive}
-                  className={cn(
-                    'flex items-center gap-1.5 text-xs font-semibold transition-colors duration-150 px-1',
-                    isActive
-                      ? 'text-blue-600 cursor-default'
-                      : isCompleted
-                      ? 'text-emerald-600 hover:text-emerald-700 cursor-pointer'
-                      : 'text-slate-400 cursor-default'
-                  )}
-                >
-                  <span
-                    className={cn(
-                      'flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold border transition-colors duration-150 shrink-0',
-                      isActive
-                        ? 'bg-blue-600 border-blue-600 text-white'
-                        : isCompleted
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-600'
-                        : 'bg-white border-slate-200 text-slate-400'
-                    )}
-                  >
-                    {isCompleted ? (
-                      <CheckCircle2 className="w-3 h-3" />
-                    ) : (
-                      idx + 1
-                    )}
-                  </span>
-                  {step.label}
-                </button>
+                // Sequential Lock rules
+                const isLocked =
+                  step.id === 'templates' ? !isStep1Done :
+                  step.id === 'campaigns' ? !isStep2Done :
+                  step.id === 'live' ? !isStep2Done : false;
 
-                {idx < WORKFLOW_STEPS.length - 1 && (
-                  <div
-                    className={cn(
-                      'w-8 h-px mx-1 transition-colors duration-150',
-                      isCompleted ? 'bg-emerald-300' : 'bg-slate-200'
+                const isCompleted =
+                  step.id === 'leads' ? isStep1Done :
+                  step.id === 'templates' ? isStep2Done :
+                  step.id === 'campaigns' ? isStep3Done : false;
+
+                return (
+                  <div key={step.id} className="flex items-center">
+                    <button
+                      onClick={() => handleTabClick(step.id)}
+                      className={cn(
+                        'flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all duration-150 cursor-pointer',
+                        isActive
+                          ? 'bg-blue-600 text-white shadow-xs'
+                          : isCompleted
+                          ? 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'
+                          : isLocked
+                          ? 'bg-slate-100 text-slate-400 hover:bg-slate-200/80 cursor-not-allowed border border-slate-200'
+                          : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                      )}
+                      title={isLocked ? 'This step is locked. Complete the previous steps first.' : step.label}
+                    >
+                      <span
+                        className={cn(
+                          'flex items-center justify-center w-4 h-4 rounded-full text-[10px] font-bold shrink-0',
+                          isActive
+                            ? 'bg-white/20 text-white'
+                            : isCompleted
+                            ? 'bg-emerald-600 text-white'
+                            : isLocked
+                            ? 'bg-slate-200 text-slate-500'
+                            : 'bg-slate-100 text-slate-600'
+                        )}
+                      >
+                        {isCompleted && !isActive ? (
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                        ) : isLocked ? (
+                          <Lock className="w-2.5 h-2.5" />
+                        ) : (
+                          step.stepNum
+                        )}
+                      </span>
+                      <span>{step.label}</span>
+                    </button>
+
+                    {idx < WORKFLOW_STEPS.length - 1 && (
+                      <div
+                        className={cn(
+                          'w-6 sm:w-10 h-0.5 mx-1 transition-colors duration-150',
+                          isCompleted ? 'bg-emerald-400' : 'bg-slate-200'
+                        )}
+                      />
                     )}
-                  />
-                )}
-              </div>
-            );
-          })}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Live workflow indicator */}
+            <div className="text-[11px] font-semibold text-slate-500 flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
+              <span>
+                {activeTab === 'leads' && (selectedLeadsCount > 0 ? `${selectedLeadsCount.toLocaleString()} leads selected` : 'Step 1: Select leads to begin')}
+                {activeTab === 'templates' && (selectedTemplateId ? 'Step 2: Template selected' : 'Step 2: Choose a template')}
+                {activeTab === 'campaigns' && 'Step 3: Configure Campaign Wizard'}
+                {activeTab === 'live' && 'Step 4: Campaign Live Dispatch'}
+              </span>
+            </div>
+          </div>
         </div>
       )}
 

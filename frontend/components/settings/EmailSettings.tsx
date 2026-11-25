@@ -193,10 +193,17 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
       const updated = { ...prev, [key]: value };
       if (key === 'smtp_port') {
         const p = parseInt(value, 10);
-        if (p === 465 && prev.smtp_encryption !== 'SSL') {
+        if (p === 465 && !['SSL', 'SMTPS'].includes(prev.smtp_encryption)) {
           updated.smtp_encryption = 'SSL';
-        } else if (p === 587 && prev.smtp_encryption !== 'TLS') {
+        } else if (p === 587 && !['TLS', 'STARTTLS'].includes(prev.smtp_encryption)) {
           updated.smtp_encryption = 'TLS';
+        }
+      }
+      if (key === 'smtp_encryption') {
+        if ((value === 'SSL' || value === 'SMTPS') && prev.smtp_port === 587) {
+          updated.smtp_port = 465;
+        } else if ((value === 'TLS' || value === 'STARTTLS') && prev.smtp_port === 465) {
+          updated.smtp_port = 587;
         }
       }
       if (key === 'smtp_user' && (!prev.smtp_from_email || prev.smtp_from_email === prev.smtp_user)) {
@@ -688,9 +695,12 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                       onChange={(e) => handleChange('smtp_encryption', e.target.value)}
                       className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-3 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
                     >
-                      <option value="TLS">TLS (STARTTLS)</option>
-                      <option value="SSL">SSL / SMTPS</option>
-                      <option value="NONE">None</option>
+                      <option value="TLS">TLS (Port 587)</option>
+                      <option value="STARTTLS">STARTTLS (Explicit TLS - Port 587)</option>
+                      <option value="SSL">SSL / TLS (Implicit - Port 465)</option>
+                      <option value="SMTPS">SMTPS (Port 465)</option>
+                      <option value="AUTO">Auto-Negotiate (TLS / SSL)</option>
+                      <option value="NONE">None / Plaintext (Port 25/2525)</option>
                     </select>
                   </div>
                 </div>
@@ -734,9 +744,12 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                           onChange={(e) => handleChange('imap_encryption', e.target.value)}
                           className="w-full rounded-lg border border-slate-200 bg-white py-2 px-2.5 text-xs text-slate-900 outline-none"
                         >
-                          <option value="SSL">SSL</option>
-                          <option value="TLS">TLS</option>
-                          <option value="NONE">None</option>
+                          <option value="SSL">SSL / TLS (Port 993)</option>
+                          <option value="IMAPS">IMAPS (Port 993)</option>
+                          <option value="STARTTLS">STARTTLS (Port 143)</option>
+                          <option value="TLS">TLS (Port 143)</option>
+                          <option value="AUTO">Auto-Negotiate</option>
+                          <option value="NONE">None / Plaintext</option>
                         </select>
                       </div>
                     </div>

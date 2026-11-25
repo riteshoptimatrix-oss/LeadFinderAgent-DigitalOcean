@@ -66,8 +66,8 @@ def run_smtp_verification_sync(
     raw_pwd = str(password or "").strip()
     clean_pwd = clean_app_password(raw_pwd, host)
     encryption = str(encryption or "TLS").upper().strip()
-    if encryption == "STARTTLS":
-        encryption = "TLS"
+    if encryption == "AUTO":
+        encryption = "SSL" if port == 465 else "TLS"
 
     timeout = int(timeout or 15)
     eff_from = str(from_email or username).strip()
@@ -465,8 +465,6 @@ async def save_user_smtp_config(db, user_id: str, data: Dict[str, Any], verified
     port = int(data.get("smtp_port") or 587)
     user = (data.get("smtp_user") or "").strip()
     encryption = (data.get("smtp_encryption") or "TLS").upper().strip()
-    if encryption == "STARTTLS":
-        encryption = "TLS"
     from_email = (data.get("smtp_from_email") or user).strip()
     from_name = (data.get("smtp_sender_name") or "").strip()
     daily_limit = int(data.get("daily_limit") or 500)
@@ -624,11 +622,11 @@ def run_imap_verification_sync(
         context.check_hostname = False
         context.verify_mode = ssl.CERT_NONE
 
-        if encryption == "SSL" or port == 993:
+        if encryption in ("SSL", "IMAPS") or (encryption == "AUTO" and port == 993):
             conn = imaplib.IMAP4_SSL(host, port, ssl_context=context, timeout=timeout)
         else:
             conn = imaplib.IMAP4(host, port, timeout=timeout)
-            if encryption in ("TLS", "STARTTLS"):
+            if encryption in ("TLS", "STARTTLS", "AUTO"):
                 conn.starttls(ssl_context=context)
 
         conn.login(username, clean_pwd)

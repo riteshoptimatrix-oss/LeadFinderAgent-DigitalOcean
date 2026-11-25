@@ -230,11 +230,12 @@ class EmailWorker:
                 part = MIMEText(html_content, "html")
                 msg.attach(part)
 
-                if smtp_enc == "SSL":
+                enc_upper = str(smtp_enc or "TLS").upper().strip()
+                if enc_upper in ("SSL", "SMTPS") or (enc_upper == "AUTO" and smtp_port == 465):
                     server = smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=10)
                 else:
                     server = smtplib.SMTP(smtp_host, smtp_port, timeout=10)
-                    if smtp_enc == "TLS":
+                    if enc_upper in ("TLS", "STARTTLS", "AUTO"):
                         server.starttls()
                 
                 server.login(smtp_user, smtp_pass)

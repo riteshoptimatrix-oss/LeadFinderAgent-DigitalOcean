@@ -41,12 +41,7 @@ interface Lead {
   area?: string;
 }
 
-const STEPS = [
-  { id: 1, label: 'Select Leads', active: true },
-  { id: 2, label: 'AI Templates', active: false },
-  { id: 3, label: 'Campaign Wizard', active: false },
-  { id: 4, label: 'Live Campaign', active: false },
-];
+
 
 export default function EmailLeadsSelection() {
   const router = useRouter();
@@ -250,33 +245,6 @@ export default function EmailLeadsSelection() {
 
   return (
     <div className="flex flex-col h-full animate-in fade-in">
-
-      {/* Step Indicator */}
-      <div className="flex items-center justify-between mb-8 pb-6 border-b border-slate-200">
-        <div className="flex items-center gap-4 sm:gap-8 overflow-x-auto w-full no-scrollbar">
-          {STEPS.map((step, idx) => (
-            <div key={step.id} className="flex items-center">
-              <div className={cn(
-                "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all duration-300",
-                step.active
-                  ? "bg-blue-600 text-white shadow-md shadow-blue-500/20"
-                  : "bg-slate-100 text-slate-400"
-              )}>
-                <span className={cn(
-                  "flex items-center justify-center w-5 h-5 rounded-full text-[10px]",
-                  step.active ? "bg-white text-blue-600" : "bg-slate-200 text-slate-500"
-                )}>
-                  {step.id}
-                </span>
-                {step.label}
-              </div>
-              {idx < STEPS.length - 1 && (
-                <div className="w-8 sm:w-12 h-[2px] mx-2 bg-slate-200 rounded-full" />
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
 
       <div className="flex items-center justify-between mb-6">
         <div>

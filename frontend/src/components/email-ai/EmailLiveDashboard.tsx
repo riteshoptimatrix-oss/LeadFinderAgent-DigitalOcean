@@ -309,7 +309,7 @@ export default function EmailLiveDashboard() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] animate-in fade-in">
+    <div className="flex flex-col animate-in fade-in" style={{ minHeight: '600px' }}>
       
       {/* Header */}
       <div className="flex-none p-6 bg-white border border-slate-200 rounded-2xl shadow-sm mb-6 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-10">

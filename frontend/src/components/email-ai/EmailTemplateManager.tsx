@@ -3,10 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { 
-  Search, Plus, FileText, Settings, Star, Trash2, Copy, Eye, Clock, Hash, ChevronDown, 
-  Smartphone, Monitor, Tablet, Bold, Italic, Underline, List, Link as LinkIcon, Image as ImageIcon, 
-  AlignLeft, AlignCenter, AlignRight, Type, Undo, Redo, LayoutTemplate, LayoutPanelTop, MousePointerSquareDashed, Filter, CheckCircle2, 
+import {
+  Search, Plus, FileText, Settings, Star, Trash2, Copy, Eye, Clock, Hash, ChevronDown,
+  Smartphone, Monitor, Tablet, Bold, Italic, Underline, List, Link as LinkIcon, Image as ImageIcon,
+  AlignLeft, AlignCenter, AlignRight, Type, Undo, Redo, LayoutTemplate, LayoutPanelTop, MousePointerSquareDashed, Filter, CheckCircle2,
   Sparkles, MessageSquare, AlertTriangle, ShieldAlert, Zap, History, X,
   Building2, User, Mail, Phone, Globe, Briefcase, MapPin, ArrowRight, Loader2
 } from 'lucide-react';
@@ -30,8 +30,8 @@ interface Template {
 }
 
 const CATEGORIES = [
-  "Cold Outreach", "Warm Outreach", "Follow Up", "Second Follow Up", 
-  "Meeting Request", "Sales", "Marketing", "IT Services", 
+  "Cold Outreach", "Warm Outreach", "Follow Up", "Second Follow Up",
+  "Meeting Request", "Sales", "Marketing", "IT Services",
   "Website Development", "SEO", "AI Automation", "Consultation", "Custom"
 ];
 
@@ -48,23 +48,18 @@ const VARIABLES = [
 
 
 
-const STEPS = [
-  { id: 1, label: 'Select Leads', active: false, completed: true },
-  { id: 2, label: 'AI Templates', active: true, completed: false },
-  { id: 3, label: 'Campaign Wizard', active: false, completed: false },
-  { id: 4, label: 'Live Campaign', active: false, completed: false },
-];
+
 
 export default function EmailTemplateManager() {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [isMounted, setIsMounted] = useState(false);
-  
+
   // App State
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('All');
   const [activeTemplateId, setActiveTemplateId] = useState<string | null>(null);
-  
+
   // Editor State
   const [formData, setFormData] = useState({
     name: 'New Template',
@@ -73,11 +68,13 @@ export default function EmailTemplateManager() {
     category: 'Custom',
     language: 'English'
   });
-  
+
   const [htmlMode, setHtmlMode] = useState(false);
   const [previewMode, setPreviewMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [sampleLead, setSampleLead] = useState<any>(null);
-  
+  const [isLibraryOpen, setIsLibraryOpen] = useState(true);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(true);
+
   const editorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -147,7 +144,7 @@ export default function EmailTemplateManager() {
 
   // Derived state
   const activeTemplate = templates.find(t => t._id === activeTemplateId);
-  
+
   const filteredTemplates = templates.filter(t => {
     if (activeCategory !== 'All' && activeCategory !== 'Favorites' && t.category !== activeCategory) return false;
     if (activeCategory === 'Favorites' && !t.is_favorite) return false;
@@ -180,7 +177,7 @@ export default function EmailTemplateManager() {
       toast.success('Template deleted');
     }
   });
-  
+
   const duplicateMutation = useMutation({
     mutationFn: async (id: string) => await api.post(`/email-ai/templates/${id}/duplicate`),
     onSuccess: (res) => {
@@ -189,9 +186,9 @@ export default function EmailTemplateManager() {
       toast.success('Template duplicated');
     }
   });
-  
+
   const favoriteMutation = useMutation({
-    mutationFn: async ({ id, is_favorite }: { id: string, is_favorite: boolean }) => 
+    mutationFn: async ({ id, is_favorite }: { id: string, is_favorite: boolean }) =>
       await api.put(`/email-ai/templates/${id}/favorite?is_favorite=${is_favorite}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['email-ai-templates'] });
@@ -201,15 +198,15 @@ export default function EmailTemplateManager() {
   // Auto-save logic
   useEffect(() => {
     if (!activeTemplateId) return;
-    
+
     // Check if form actually changed from activeTemplate
     if (
-      activeTemplate && 
+      activeTemplate &&
       (formData.name !== activeTemplate.name ||
-       formData.subject !== activeTemplate.subject ||
-       formData.body_html !== activeTemplate.body_html ||
-       formData.category !== activeTemplate.category ||
-       formData.language !== activeTemplate.language)
+        formData.subject !== activeTemplate.subject ||
+        formData.body_html !== activeTemplate.body_html ||
+        formData.category !== activeTemplate.category ||
+        formData.language !== activeTemplate.language)
     ) {
       const timer = setTimeout(() => {
         updateMutation.mutate({ id: activeTemplateId, data: formData });
@@ -265,7 +262,7 @@ export default function EmailTemplateManager() {
       }
     }
   };
-  
+
   const insertBlock = (html: string) => {
     if (htmlMode) {
       setFormData(prev => ({ ...prev, body_html: prev.body_html + html }));
@@ -319,162 +316,164 @@ export default function EmailTemplateManager() {
   if (!isMounted) return null;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-8rem)] animate-in fade-in">
-      
-      {/* Header & Steps */}
+    <div className="flex flex-col animate-in fade-in" style={{ minHeight: '600px' }}>
+
+      {/* Header Actions */}
       <div className="flex-none mb-6">
-        <div className="flex items-center justify-between pb-6 border-b border-slate-200">
-          <div className="flex items-center gap-4 sm:gap-8 overflow-x-auto w-full no-scrollbar">
-            {STEPS.map((step, idx) => (
-              <div key={step.id} className="flex items-center">
-                <div className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all duration-300",
-                  step.active 
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-500/20" 
-                    : step.completed 
-                      ? "bg-green-50 text-green-700" 
-                      : "bg-slate-100 text-slate-400"
-                )}>
-                  <span className={cn(
-                    "flex items-center justify-center w-5 h-5 rounded-full text-[10px]",
-                    step.active ? "bg-white text-blue-600" : step.completed ? "bg-green-600 text-white" : "bg-slate-200 text-slate-500"
-                  )}>
-                    {step.completed ? <CheckCircle2 className="w-3 h-3" /> : step.id}
-                  </span>
-                  {step.label}
-                </div>
-                {idx < STEPS.length - 1 && (
-                  <div className={cn("w-8 sm:w-12 h-[2px] mx-2 rounded-full", step.completed ? "bg-green-500" : "bg-slate-200")} />
-                )}
-              </div>
-            ))}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">AI Template Studio</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Build, preview, and manage your outbound email templates.</p>
           </div>
-          <div className="flex items-center gap-4 shrink-0">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => window.dispatchEvent(new CustomEvent('change-tab', { detail: 'leads' }))}
-              className="px-4 py-2 text-slate-600 hover:text-slate-900 font-medium transition-colors"
+              className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-50 rounded-lg transition-colors"
             >
-              ← Back
+              ← Back to Leads
             </button>
             <button
               onClick={handleGoAhead}
-              className="group flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-md shadow-blue-500/30 transition-all hover:shadow-blue-500/40"
+              className="group flex items-center gap-2 px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold text-sm transition-colors"
             >
               Next Step
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+              <ArrowRight className="w-4 h-4 group-hover:translate-x-0.5 transition-transform" />
             </button>
           </div>
         </div>
       </div>
 
       {/* Main 3-Column Workspace */}
-      <div className="flex-1 flex gap-6 min-h-0">
-        
+      <div className="flex-1 flex gap-4 min-h-0" style={{ minHeight: '540px' }}>
+
         {/* Left Panel: Library */}
-        <div className="w-80 flex-none flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-slate-100 space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-slate-900 flex items-center gap-2">
-                <LayoutTemplate className="w-5 h-5 text-blue-500" />
-                Library
+        <div className={cn(
+          'flex-none flex flex-col bg-white rounded-xl border border-slate-200 overflow-hidden transition-all duration-200',
+          isLibraryOpen ? 'w-72' : 'w-10'
+        )}>
+          {/* Library collapse toggle */}
+          <div className={cn('flex items-center border-b border-slate-100', isLibraryOpen ? 'p-3 justify-between' : 'p-1.5 justify-center')}>
+            {isLibraryOpen && (
+              <h3 className="font-semibold text-slate-900 flex items-center gap-1.5 text-sm">
+                <LayoutTemplate className="w-4 h-4 text-blue-500" /> Library
               </h3>
-              <button 
-                onClick={handleCreateNew}
-                className="w-8 h-8 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-            
-            <div className="relative">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input 
-                type="text"
-                placeholder="Search templates..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 transition-colors"
-              />
-            </div>
-            
-            <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar snap-x">
-              <button 
-                onClick={() => setActiveCategory('All')}
-                className={cn("px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap snap-start transition-colors", activeCategory === 'All' ? "bg-blue-600 text-white shadow-xs" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}
-              >
-                All
-              </button>
-              <button 
-                onClick={() => setActiveCategory('Favorites')}
-                className={cn("px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap snap-start transition-colors flex items-center gap-1", activeCategory === 'Favorites' ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}
-              >
-                <Star className={cn("w-3 h-3", activeCategory === 'Favorites' ? "fill-amber-500 text-amber-500" : "")} />
-                Favorites
-              </button>
-              {CATEGORIES.map(cat => (
-                <button 
-                  key={cat}
-                  onClick={() => setActiveCategory(cat)}
-                  className={cn("px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap snap-start transition-colors", activeCategory === cat ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-          </div>
-          
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {isLoading ? (
-              <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-slate-300" /></div>
-            ) : filteredTemplates.length === 0 ? (
-              <div className="text-center p-8 text-slate-500 text-sm">No templates found.</div>
-            ) : (
-              filteredTemplates.map(t => (
-                <div 
-                  key={t._id}
-                  onClick={() => setActiveTemplateId(t._id)}
-                  className={cn(
-                    "p-3 rounded-xl border transition-all cursor-pointer group relative overflow-hidden",
-                    activeTemplateId === t._id 
-                      ? "bg-blue-50 border-blue-200 shadow-sm" 
-                      : "bg-white border-slate-100 hover:border-slate-300 hover:shadow-sm"
-                  )}
-                >
-                  <div className="flex items-start justify-between mb-1">
-                    <h4 className="font-semibold text-slate-900 truncate pr-6 text-sm">{t.name}</h4>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); favoriteMutation.mutate({ id: t._id, is_favorite: !t.is_favorite }); }}
-                      className="absolute top-3 right-3 text-slate-300 hover:text-amber-500 transition-colors"
-                    >
-                      <Star className={cn("w-4 h-4", t.is_favorite ? "fill-amber-500 text-amber-500" : "")} />
-                    </button>
-                  </div>
-                  <p className="text-xs text-slate-500 truncate mb-2">{t.subject || 'No subject'}</p>
-                  <div className="flex items-center justify-between mt-2">
-                    <span className="text-[10px] font-medium px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full truncate max-w-[100px]">
-                      {t.category}
-                    </span>
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={(e) => { e.stopPropagation(); duplicateMutation.mutate(t._id); }} className="p-1 text-slate-400 hover:text-blue-500 bg-white rounded shadow-sm" title="Duplicate">
-                        <Copy className="w-3 h-3" />
-                      </button>
-                      <button onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(t._id); }} className="p-1 text-slate-400 hover:text-red-500 bg-white rounded shadow-sm" title="Delete">
-                        <Trash2 className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {activeTemplateId === t._id && (
-                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 rounded-l-xl" />
-                  )}
-                </div>
-              ))
             )}
+            <button
+              onClick={() => setIsLibraryOpen(!isLibraryOpen)}
+              className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-slate-100 text-slate-400 hover:text-slate-700 transition-colors shrink-0"
+              title={isLibraryOpen ? 'Collapse library' : 'Expand library'}
+            >
+              {isLibraryOpen ? <ChevronDown className="w-3.5 h-3.5 -rotate-90" /> : <ChevronDown className="w-3.5 h-3.5 rotate-90" />}
+            </button>
           </div>
+
+          {isLibraryOpen && (
+            <>
+              <div className="p-4 border-b border-slate-100 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                    <LayoutTemplate className="w-5 h-5 text-blue-500" />
+                    Library
+                  </h3>
+                  <button
+                    onClick={handleCreateNew}
+                    className="w-8 h-8 rounded-full bg-blue-50 hover:bg-blue-100 text-blue-600 flex items-center justify-center transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search templates..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-blue-500 transition-colors"
+                  />
+                </div>
+
+                <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar snap-x">
+                  <button
+                    onClick={() => setActiveCategory('All')}
+                    className={cn("px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap snap-start transition-colors", activeCategory === 'All' ? "bg-blue-600 text-white shadow-xs" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}
+                  >
+                    All
+                  </button>
+                  <button
+                    onClick={() => setActiveCategory('Favorites')}
+                    className={cn("px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap snap-start transition-colors flex items-center gap-1", activeCategory === 'Favorites' ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}
+                  >
+                    <Star className={cn("w-3 h-3", activeCategory === 'Favorites' ? "fill-amber-500 text-amber-500" : "")} />
+                    Favorites
+                  </button>
+                  {CATEGORIES.map(cat => (
+                    <button
+                      key={cat}
+                      onClick={() => setActiveCategory(cat)}
+                      className={cn("px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap snap-start transition-colors", activeCategory === cat ? "bg-blue-100 text-blue-700" : "bg-slate-100 text-slate-600 hover:bg-slate-200")}
+                    >
+                      {cat}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                {isLoading ? (
+                  <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-slate-300" /></div>
+                ) : filteredTemplates.length === 0 ? (
+                  <div className="text-center p-8 text-slate-500 text-sm">No templates found.</div>
+                ) : (
+                  filteredTemplates.map(t => (
+                    <div
+                      key={t._id}
+                      onClick={() => setActiveTemplateId(t._id)}
+                      className={cn(
+                        "p-3 rounded-xl border transition-all cursor-pointer group relative overflow-hidden",
+                        activeTemplateId === t._id
+                          ? "bg-blue-50 border-blue-200 shadow-sm"
+                          : "bg-white border-slate-100 hover:border-slate-300 hover:shadow-sm"
+                      )}
+                    >
+                      <div className="flex items-start justify-between mb-1">
+                        <h4 className="font-semibold text-slate-900 truncate pr-6 text-sm">{t.name}</h4>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); favoriteMutation.mutate({ id: t._id, is_favorite: !t.is_favorite }); }}
+                          className="absolute top-3 right-3 text-slate-300 hover:text-amber-500 transition-colors"
+                        >
+                          <Star className={cn("w-4 h-4", t.is_favorite ? "fill-amber-500 text-amber-500" : "")} />
+                        </button>
+                      </div>
+                      <p className="text-xs text-slate-500 truncate mb-2">{t.subject || 'No subject'}</p>
+                      <div className="flex items-center justify-between mt-2">
+                        <span className="text-[10px] font-medium px-2 py-0.5 bg-slate-100 text-slate-600 rounded-full truncate max-w-[100px]">
+                          {t.category}
+                        </span>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={(e) => { e.stopPropagation(); duplicateMutation.mutate(t._id); }} className="p-1 text-slate-400 hover:text-blue-500 bg-white rounded shadow-sm" title="Duplicate">
+                            <Copy className="w-3 h-3" />
+                          </button>
+                          <button onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(t._id); }} className="p-1 text-slate-400 hover:text-red-500 bg-white rounded shadow-sm" title="Delete">
+                            <Trash2 className="w-3 h-3" />
+                          </button>
+                        </div>
+                      </div>
+
+                      {activeTemplateId === t._id && (
+                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-blue-500 rounded-l-xl" />
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Center Panel: Builder */}
-        <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden relative">
+        <div className="flex-1 flex flex-col bg-white rounded-xl border border-slate-200 overflow-hidden relative">
           {activeTemplate ? (
             <>
               {updateMutation.isPending && (
@@ -482,13 +481,13 @@ export default function EmailTemplateManager() {
                   <Loader2 className="w-3 h-3 animate-spin" /> Saving...
                 </div>
               )}
-              
+
               <div className="flex-none p-5 border-b border-slate-100 bg-slate-50/50">
                 <div className="flex items-center justify-between mb-4">
-                  <input 
+                  <input
                     type="text"
                     value={formData.name}
-                    onChange={e => setFormData({...formData, name: e.target.value})}
+                    onChange={e => setFormData({ ...formData, name: e.target.value })}
                     className="text-lg font-bold text-slate-900 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-blue-500 focus:outline-none transition-colors px-1 py-0.5 -ml-1"
                     placeholder="Template Name"
                   />
@@ -498,15 +497,15 @@ export default function EmailTemplateManager() {
                     <span>{activeTemplate.language}</span>
                   </div>
                 </div>
-                
+
                 <div className="space-y-3">
                   <div className="flex items-center gap-3">
                     <label className="text-sm font-semibold text-slate-600 w-16">Subject</label>
                     <div className="relative flex-1">
-                      <input 
+                      <input
                         type="text"
                         value={formData.subject}
-                        onChange={e => setFormData({...formData, subject: e.target.value})}
+                        onChange={e => setFormData({ ...formData, subject: e.target.value })}
                         placeholder="e.g. Quick question regarding {{business_name}}"
                         className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 pr-24 shadow-sm"
                       />
@@ -518,7 +517,7 @@ export default function EmailTemplateManager() {
                           <div className="hidden group-hover:block absolute right-0 top-full mt-1 bg-white border border-slate-200 shadow-xl rounded-xl p-2 z-50 w-48">
                             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-2">Variables</div>
                             {VARIABLES.map(v => (
-                              <button 
+                              <button
                                 key={v.key}
                                 onClick={() => insertVariable(v.key, 'subject')}
                                 className="w-full text-left px-2 py-1.5 hover:bg-blue-50 hover:text-blue-600 text-slate-700 rounded-lg text-xs flex items-center gap-2 transition-colors"
@@ -533,7 +532,7 @@ export default function EmailTemplateManager() {
                   </div>
                 </div>
               </div>
-              
+
               {/* Toolbar */}
               <div className="flex-none p-2 border-b border-slate-200 bg-white flex items-center justify-between sticky top-0 z-10">
                 <div className="flex items-center gap-1">
@@ -551,7 +550,7 @@ export default function EmailTemplateManager() {
                     if (url) execCommand('createLink', url);
                   }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-700" title="Link"><LinkIcon className="w-4 h-4" /></button>
                   <div className="w-px h-5 bg-slate-200 mx-1" />
-                  
+
                   {/* Blocks Dropdown */}
                   <div className="group relative">
                     <button className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors">
@@ -572,7 +571,7 @@ export default function EmailTemplateManager() {
                     <div className="hidden group-hover:block absolute left-0 top-full mt-1 bg-white border border-slate-200 shadow-xl rounded-xl p-2 z-50 w-48">
                       <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2 px-2">Dynamic Tags</div>
                       {VARIABLES.map(v => (
-                        <button 
+                        <button
                           key={v.key}
                           onClick={() => insertVariable(v.key, 'body')}
                           className="w-full text-left px-2 py-1.5 hover:bg-blue-50 hover:text-blue-600 text-slate-700 rounded-lg text-xs flex items-center gap-2 transition-colors"
@@ -585,7 +584,17 @@ export default function EmailTemplateManager() {
 
                 </div>
                 <div className="flex items-center gap-2">
-                  <button 
+                  <button
+                    onClick={() => setIsPreviewOpen(!isPreviewOpen)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors",
+                      isPreviewOpen ? "bg-blue-50 text-blue-700" : "bg-slate-100 hover:bg-slate-200 text-slate-700"
+                    )}
+                    title={isPreviewOpen ? "Hide live preview" : "Show live preview"}
+                  >
+                    <Eye className="w-3.5 h-3.5" /> {isPreviewOpen ? 'Preview On' : 'Preview Off'}
+                  </button>
+                  <button
                     onClick={() => setHtmlMode(!htmlMode)}
                     className={cn("px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors", htmlMode ? "bg-blue-600 text-white" : "bg-slate-100 hover:bg-slate-200 text-slate-700")}
                   >
@@ -593,18 +602,18 @@ export default function EmailTemplateManager() {
                   </button>
                 </div>
               </div>
-              
+
               {/* Editor Area */}
               <div className="flex-1 overflow-auto bg-white p-6 relative">
                 {htmlMode ? (
-                  <textarea 
+                  <textarea
                     value={formData.body_html}
-                    onChange={e => setFormData({...formData, body_html: e.target.value})}
+                    onChange={e => setFormData({ ...formData, body_html: e.target.value })}
                     className="w-full h-full min-h-[300px] resize-none focus:outline-none font-mono text-sm text-slate-600 bg-slate-50 p-4 rounded-xl border border-slate-200"
                     placeholder="<p>Write your HTML here...</p>"
                   />
                 ) : (
-                  <div 
+                  <div
                     ref={editorRef}
                     contentEditable
                     onInput={handleEditorInput}
@@ -613,7 +622,7 @@ export default function EmailTemplateManager() {
                   />
                 )}
               </div>
-              
+
               {/* Bottom Future Phase Actions */}
               <div className="flex-none p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between">
                 <div className="flex items-center gap-2">
@@ -636,7 +645,7 @@ export default function EmailTemplateManager() {
               </div>
               <h3 className="text-xl font-bold text-slate-900 mb-2">Select a Template</h3>
               <p className="text-slate-500 max-w-md">Choose a template from the library on the left, or create a new one to start building your email campaign.</p>
-              <button 
+              <button
                 onClick={handleCreateNew}
                 className="mt-6 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl shadow-md shadow-blue-500/20 transition-all"
               >
@@ -647,56 +656,58 @@ export default function EmailTemplateManager() {
         </div>
 
         {/* Right Panel: Preview */}
-        <div className="w-[400px] flex-none flex flex-col bg-slate-50 rounded-2xl border border-slate-200 shadow-inner overflow-hidden">
-          <div className="p-4 border-b border-slate-200 bg-white flex items-center justify-between">
-            <h3 className="font-bold text-slate-900 flex items-center gap-2">
-              <Eye className="w-5 h-5 text-indigo-500" />
-              Live Preview
-            </h3>
-            <div className="flex items-center bg-slate-100 p-1 rounded-lg">
-              <button onClick={() => setPreviewMode('mobile')} className={cn("p-1.5 rounded-md transition-colors", previewMode === 'mobile' ? "bg-white shadow-sm text-blue-600" : "text-slate-500 hover:text-slate-700")}>
-                <Smartphone className="w-4 h-4" />
-              </button>
-              <button onClick={() => setPreviewMode('tablet')} className={cn("p-1.5 rounded-md transition-colors", previewMode === 'tablet' ? "bg-white shadow-sm text-blue-600" : "text-slate-500 hover:text-slate-700")}>
-                <Tablet className="w-4 h-4" />
-              </button>
-              <button onClick={() => setPreviewMode('desktop')} className={cn("p-1.5 rounded-md transition-colors", previewMode === 'desktop' ? "bg-white shadow-sm text-blue-600" : "text-slate-500 hover:text-slate-700")}>
-                <Monitor className="w-4 h-4" />
-              </button>
+        {isPreviewOpen && (
+          <div className="w-80 xl:w-96 flex-none flex flex-col bg-slate-50 rounded-xl border border-slate-200 overflow-hidden animate-in fade-in duration-150">
+            <div className="p-3 border-b border-slate-200 bg-white flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900 flex items-center gap-2 text-sm">
+                <Eye className="w-4 h-4 text-blue-600" />
+                Live Preview
+              </h3>
+              <div className="flex items-center bg-slate-100 p-0.5 rounded-lg">
+                <button onClick={() => setPreviewMode('mobile')} className={cn("p-1.5 rounded-md transition-colors", previewMode === 'mobile' ? "bg-white shadow-xs text-blue-600" : "text-slate-500 hover:text-slate-700")}>
+                  <Smartphone className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => setPreviewMode('tablet')} className={cn("p-1.5 rounded-md transition-colors", previewMode === 'tablet' ? "bg-white shadow-xs text-blue-600" : "text-slate-500 hover:text-slate-700")}>
+                  <Tablet className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={() => setPreviewMode('desktop')} className={cn("p-1.5 rounded-md transition-colors", previewMode === 'desktop' ? "bg-white shadow-xs text-blue-600" : "text-slate-500 hover:text-slate-700")}>
+                  <Monitor className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-          </div>
-          
-          <div className="flex-1 overflow-auto p-4 flex justify-center bg-slate-100">
-            {activeTemplate ? (
-              <div 
-                className={cn(
-                  "bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden flex flex-col transition-all duration-300",
-                  previewMode === 'mobile' ? "w-[320px]" : previewMode === 'tablet' ? "w-[100%]" : "w-full h-full"
-                )}
-              >
-                {/* Simulated Email Client Header */}
-                <div className="flex-none p-3 border-b border-slate-100 bg-slate-50/50">
-                  <div className="text-xs text-slate-500 mb-1">To: <span className="font-medium text-slate-700">{sampleLead?.email || 'lead@domain.com'}</span></div>
-                  <div className="text-sm font-bold text-slate-900">
-                    <span dangerouslySetInnerHTML={{ __html: renderPreview(formData.subject || 'No Subject') }} />
+
+            <div className="flex-1 overflow-auto p-3 flex justify-center bg-slate-100">
+              {activeTemplate ? (
+                <div
+                  className={cn(
+                    "bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden flex flex-col transition-all duration-300",
+                    previewMode === 'mobile' ? "w-[280px]" : previewMode === 'tablet' ? "w-[100%]" : "w-full h-full"
+                  )}
+                >
+                  {/* Simulated Email Client Header */}
+                  <div className="flex-none p-3 border-b border-slate-100 bg-slate-50/50">
+                    <div className="text-[11px] text-slate-500 mb-0.5">To: <span className="font-medium text-slate-700">{sampleLead?.email || 'lead@domain.com'}</span></div>
+                    <div className="text-xs font-bold text-slate-900 truncate">
+                      <span dangerouslySetInnerHTML={{ __html: renderPreview(formData.subject || 'No Subject') }} />
+                    </div>
+                  </div>
+
+                  {/* Email Body */}
+                  <div className="flex-1 p-4 overflow-auto">
+                    <div
+                      className="prose prose-xs max-w-none text-slate-800"
+                      dangerouslySetInnerHTML={{ __html: renderPreview(formData.body_html) }}
+                    />
                   </div>
                 </div>
-                
-                {/* Email Body */}
-                <div className="flex-1 p-5 overflow-auto">
-                  <div 
-                    className="prose prose-sm max-w-none text-slate-800"
-                    dangerouslySetInnerHTML={{ __html: renderPreview(formData.body_html) }} 
-                  />
+              ) : (
+                <div className="text-center text-slate-400 text-xs mt-12">
+                  Preview not available
                 </div>
-              </div>
-            ) : (
-              <div className="text-center text-slate-400 text-sm mt-12">
-                Preview not available
-              </div>
-            )}
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
     </div>

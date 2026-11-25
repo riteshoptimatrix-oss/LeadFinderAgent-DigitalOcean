@@ -19,24 +19,36 @@ export default function EmailErrorCenter() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-rose-50/80 border border-rose-200/80 rounded-3xl p-8 text-slate-900 flex items-center justify-between shadow-xs">
+      <div className={cn(
+        "rounded-xl p-6 text-slate-900 flex items-center justify-between border transition-colors",
+        totalErrors > 0
+          ? "bg-rose-50/70 border-rose-200"
+          : "bg-slate-50 border-slate-200"
+      )}>
         <div>
-          <h2 className="text-2xl font-bold flex items-center gap-3 text-slate-900">
-            <div className="p-2.5 rounded-2xl bg-rose-100 text-rose-600">
-              <ShieldCheck className="w-6 h-6" />
+          <h2 className="text-xl font-bold flex items-center gap-3 text-slate-900">
+            <div className={cn(
+              "p-2 rounded-xl",
+              totalErrors > 0 ? "bg-rose-100 text-rose-600" : "bg-emerald-100 text-emerald-600"
+            )}>
+              <ShieldCheck className="w-5 h-5" />
             </div>
             Error &amp; Deliverability Center
           </h2>
-          <p className="mt-2 text-slate-500 font-medium text-sm">Centralized dashboard for tracking SMTP handshakes, DNS issues, and validation drops.</p>
+          <p className="mt-1.5 text-slate-500 font-normal text-sm">Centralized dashboard for tracking SMTP handshakes, DNS issues, and validation drops.</p>
         </div>
         <div className="text-right">
-          <div className="text-4xl font-black text-rose-600">{totalErrors}</div>
-          <div className="text-slate-400 font-bold uppercase text-xs tracking-wider mt-1">Total Failures Logged</div>
+          <div className={cn("text-3xl font-black", totalErrors > 0 ? "text-rose-600" : "text-emerald-600")}>
+            {totalErrors}
+          </div>
+          <div className="text-slate-400 font-semibold uppercase text-[11px] tracking-wider mt-1">
+            {totalErrors > 0 ? "Failures Logged" : "All Systems Healthy"}
+          </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm">
+        <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-xs">
           <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
             <AlertTriangle className="w-5 h-5 text-amber-500" /> Error Distribution
           </h3>
@@ -64,24 +76,24 @@ export default function EmailErrorCenter() {
               </ResponsiveContainer>
             ) : (
               <div className="flex items-center justify-center h-full text-slate-400 font-medium flex-col gap-2">
-                <ShieldCheck className="w-8 h-8 text-green-400" /> No errors logged yet!
+                <ShieldCheck className="w-8 h-8 text-emerald-500" /> No errors logged yet!
               </div>
             )}
           </div>
         </div>
 
-        <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm overflow-hidden flex flex-col">
+        <div className="bg-white rounded-xl p-6 border border-slate-200 shadow-xs overflow-hidden flex flex-col">
           <h3 className="font-bold text-slate-900 mb-6 flex items-center gap-2">
             <FileWarning className="w-5 h-5 text-red-500" /> Top Error Categories
           </h3>
           <div className="flex-1 overflow-auto pr-2 space-y-3">
-            {errors.length > 0 ? errors.sort((a:any, b:any) => b.count - a.count).map((err: any, idx: number) => (
+            {errors.length > 0 ? errors.sort((a: any, b: any) => b.count - a.count).map((err: any, idx: number) => (
               <div key={idx} className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
                 <div className="flex items-center gap-3">
                   <div className={cn(
                     "p-2 rounded-lg",
                     err.category.includes('Auth') ? 'bg-amber-100 text-amber-600' :
-                    err.category.includes('Timeout') ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
+                      err.category.includes('Timeout') ? 'bg-blue-100 text-blue-600' : 'bg-red-100 text-red-600'
                   )}>
                     <XCircle className="w-5 h-5" />
                   </div>

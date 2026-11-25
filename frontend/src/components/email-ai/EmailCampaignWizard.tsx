@@ -14,12 +14,7 @@ import { toast } from 'sonner';
 import { cn } from '@/src/lib/utils';
 import { useRouter } from 'next/navigation';
 
-const STEPS = [
-  { id: 1, label: 'Select Leads', active: false, completed: true },
-  { id: 2, label: 'AI Templates', active: false, completed: true },
-  { id: 3, label: 'Campaign Wizard', active: true, completed: false },
-  { id: 4, label: 'Live Campaign', active: false, completed: false },
-];
+
 
 const WIZARD_STEPS = [
   { id: 1, title: 'Information', icon: <FileText className="w-4 h-4" /> },
@@ -258,33 +253,12 @@ export default function EmailCampaignWizard() {
 
   return (
     <div className="flex flex-col h-full animate-in fade-in">
-      {/* Top Header Steps */}
+      {/* Campaign Wizard Header */}
       <div className="flex-none mb-6">
-        <div className="flex items-center justify-between pb-6 border-b border-slate-200">
-          <div className="flex items-center gap-4 sm:gap-8 overflow-x-auto w-full no-scrollbar">
-            {STEPS.map((step, idx) => (
-              <div key={step.id} className="flex items-center">
-                <div className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-semibold whitespace-nowrap transition-all duration-300",
-                  step.active 
-                    ? "bg-blue-600 text-white shadow-md shadow-blue-500/20" 
-                    : step.completed 
-                      ? "bg-green-50 text-green-700" 
-                      : "bg-slate-100 text-slate-400"
-                )}>
-                  <span className={cn(
-                    "flex items-center justify-center w-5 h-5 rounded-full text-[10px]",
-                    step.active ? "bg-white text-blue-600" : step.completed ? "bg-green-600 text-white" : "bg-slate-200 text-slate-500"
-                  )}>
-                    {step.completed ? <CheckCircle2 className="w-3 h-3" /> : step.id}
-                  </span>
-                  {step.label}
-                </div>
-                {idx < STEPS.length - 1 && (
-                  <div className={cn("w-8 sm:w-12 h-[2px] mx-2 rounded-full", step.completed ? "bg-green-500" : "bg-slate-200")} />
-                )}
-              </div>
-            ))}
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">Campaign Wizard</h2>
+            <p className="text-sm text-slate-500 mt-0.5">Configure your sending rules, schedule, and launch.</p>
           </div>
         </div>
       </div>
@@ -452,7 +426,7 @@ export default function EmailCampaignWizard() {
                       <p className="text-sm mt-1">Configure your SMTP server once in Settings to dispatch campaigns automatically.</p>
                       <button
                         type="button"
-                        onClick={() => window.location.href = '/dashboard/settings?tab=email'}
+                        onClick={() => router.push('/dashboard/settings?tab=email')}
                         className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 shadow-sm transition-all"
                       >
                         <Server className="w-3.5 h-3.5" />

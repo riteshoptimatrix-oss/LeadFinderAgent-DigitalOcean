@@ -19,7 +19,7 @@ MASKED_PASSWORD = "••••••••••••••••"
 
 
 def clean_app_password(password: Optional[str], host: Optional[str] = None) -> str:
-    """Normalize password, auto-removing whitespace/dashes from 16-character Google App Passwords."""
+    """Normalize password, auto-removing whitespace/dashes from 16-character provider App Passwords."""
     raw = str(password or "").strip()
     if not raw:
         return ""
@@ -27,11 +27,15 @@ def clean_app_password(password: Optional[str], host: Optional[str] = None) -> s
     raw = re.sub(r'^[•*]+|[•*]+$', '', raw).strip()
     if not raw:
         return ""
-    # Normalize spaces / non-breaking spaces / dashes
-    no_spaces = re.sub(r'[\s\-]+', '', raw)
-    # Google App Passwords are 16 lowercase/alphanumeric characters often formatted as 'xxxx xxxx xxxx xxxx'
-    if len(no_spaces) == 16:
-        return no_spaces
+    # Only strip spaces/dashes for 16-char app passwords on providers that format them with spaces/dashes
+    host_l = str(host or "").lower()
+    is_app_password_host = (not host_l) or any(
+        p in host_l for p in ("gmail", "google", "yahoo", "icloud", "me.com")
+    )
+    if is_app_password_host:
+        no_spaces = re.sub(r'[\s\-]+', '', raw)
+        if len(no_spaces) == 16:
+            return no_spaces
     return raw
 
 

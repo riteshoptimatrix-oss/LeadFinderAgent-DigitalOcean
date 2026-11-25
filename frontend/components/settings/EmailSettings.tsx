@@ -39,6 +39,43 @@ const AUTH_METHOD_LABELS: Record<string, string> = {
   unsupported: 'SMTP / IMAP Not Supported',
 };
 
+function ToggleRow({
+  label,
+  description,
+  checked,
+  onChange,
+  icon: Icon,
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (val: boolean) => void;
+  icon: React.ComponentType<{ className?: string }>;
+}) {
+  return (
+    <div className="flex items-center justify-between p-4 hover:bg-gray-50/50 rounded-xl transition-colors">
+      <div className="flex items-center gap-4">
+        <div className="h-10 w-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500">
+          <Icon className="h-5 w-5" />
+        </div>
+        <div>
+          <p className="text-sm font-bold text-gray-900">{label}</p>
+          <p className="text-xs text-gray-500 mt-0.5">{description}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-100 ${checked ? 'bg-blue-600' : 'bg-gray-200'}`}
+      >
+        <span
+          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${checked ? 'translate-x-5' : 'translate-x-0'}`}
+        />
+      </button>
+    </div>
+  );
+}
+
 export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedChanges: (val: boolean) => void }) {
   const queryClient = useQueryClient();
   const authUser = useAuthStore((state) => state.user);
@@ -249,8 +286,10 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
         settings.smtp_sender_name !== originalSettings.smtp_sender_name ||
         settings.imap_host !== originalSettings.imap_host ||
         settings.imap_port !== originalSettings.imap_port ||
+        settings.imap_encryption !== originalSettings.imap_encryption ||
         settings.pop_host !== originalSettings.pop_host ||
         settings.pop_port !== originalSettings.pop_port ||
+        settings.pop_encryption !== originalSettings.pop_encryption ||
         settings.auth_method !== originalSettings.auth_method ||
         settings.daily_limit !== originalSettings.daily_limit ||
         settings.signature !== originalSettings.signature ||
@@ -318,7 +357,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
           const bc = new BroadcastChannel('leadfinder_smtp_sync');
           bc.postMessage({ type: 'SMTP_UPDATED' });
           bc.close();
-        } catch {}
+        } catch { }
       } else {
         const nextStatus = data?.status === 'AUTH_FAILED' ? 'AUTH_FAILED' : 'CONNECTION_FAILED';
         setStatus(nextStatus);
@@ -355,6 +394,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
       };
       setSettings(updated);
       setOriginalSettings(updated);
+      setStatus(updated.smtp_status as ConnectionStatus);
       if (data?.detected_provider) {
         setDetectedProvider(data.detected_provider);
       }
@@ -367,7 +407,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
         const bc = new BroadcastChannel('leadfinder_smtp_sync');
         bc.postMessage({ type: 'SMTP_UPDATED' });
         bc.close();
-      } catch {}
+      } catch { }
     },
     onError: (error: any) => {
       const msg = error?.response?.data?.detail || 'Failed to save email configuration.';
@@ -375,10 +415,24 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
     }
   });
 
+  const providerInfo = detectedProvider?.provider;
+  const isUnsupportedProvider = detectedProvider?.provider_id === 'tuta' || providerInfo?.smtp?.supported === false;
+  const supportedAuthMethods =
+    providerInfo?.auth_methods && providerInfo.auth_methods.length > 0
+      ? providerInfo.auth_methods
+      : ['smtp_auth', 'app_password', 'oauth2'];
+  const authMethodOptions = supportedAuthMethods.map((method) => ({
+    value: method,
+    label: AUTH_METHOD_LABELS[method] || method,
+  }));
+  const effectiveAuthMethod = supportedAuthMethods.includes(settings.auth_method)
+    ? settings.auth_method
+    : supportedAuthMethods[0];
+
   const executeSave = () => {
     const effUser = settings.smtp_user.trim().toLowerCase() || accountEmail;
-    if (detectedProvider?.provider_id === 'tuta') {
-      toast.error('Tuta Mail does not support SMTP or IMAP. Please configure a supported email provider.');
+    if (isUnsupportedProvider) {
+      toast.error(`${detectedProvider?.provider_name || 'This provider'} does not support direct SMTP/IMAP. Please configure a supported email provider.`);
       return;
     }
     if (!settings.smtp_host) {
@@ -408,7 +462,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
       pop_host: settings.pop_host.trim(),
       pop_port: settings.pop_port || 995,
       pop_encryption: settings.pop_encryption || 'SSL',
-      auth_method: settings.auth_method,
+      auth_method: effectiveAuthMethod,
       detected_provider_id: detectedProvider?.provider_id || settings.detected_provider_id,
       daily_limit: settings.daily_limit,
       signature: settings.signature,
@@ -426,13 +480,13 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
     };
     window.addEventListener('save-active-settings-tab', handleGlobalSave);
     return () => window.removeEventListener('save-active-settings-tab', handleGlobalSave);
-  }, [settings, originalSettings, accountEmail, detectedProvider]);
+  }, [settings, originalSettings, accountEmail, detectedProvider, effectiveAuthMethod, isUnsupportedProvider]);
 
   const handleTestClick = (e: React.MouseEvent) => {
     e.preventDefault();
     const effUser = settings.smtp_user.trim().toLowerCase() || accountEmail;
-    if (detectedProvider?.provider_id === 'tuta') {
-      toast.error('Tuta Mail does not support SMTP or IMAP.');
+    if (isUnsupportedProvider) {
+      toast.error(`${detectedProvider?.provider_name || 'This provider'} does not support direct SMTP/IMAP.`);
       return;
     }
     if (!settings.smtp_host) {
@@ -490,33 +544,6 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
     }
   };
 
-  const ToggleRow = ({ label, description, checked, onChange, icon: Icon }: any) => (
-    <div className="flex items-center justify-between p-4 hover:bg-gray-50/50 rounded-xl transition-colors">
-      <div className="flex items-center gap-4">
-        <div className="h-10 w-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center text-gray-500">
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <p className="text-sm font-bold text-gray-900">{label}</p>
-          <p className="text-xs text-gray-500 mt-0.5">{description}</p>
-        </div>
-      </div>
-      <button
-        type="button"
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-4 focus:ring-blue-100 ${
-          checked ? 'bg-blue-600' : 'bg-gray-200'
-        }`}
-      >
-        <span
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-            checked ? 'translate-x-5' : 'translate-x-0'
-          }`}
-        />
-      </button>
-    </div>
-  );
-
   if (isLoading) {
     return (
       <div className="flex justify-center py-20">
@@ -524,17 +551,6 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
       </div>
     );
   }
-
-  const providerInfo = detectedProvider?.provider;
-  const isUnsupportedProvider = detectedProvider?.provider_id === 'tuta' || providerInfo?.smtp?.supported === false;
-  const supportedAuthMethods =
-    providerInfo?.auth_methods && providerInfo.auth_methods.length > 0
-      ? providerInfo.auth_methods
-      : ['smtp_auth', 'app_password', 'oauth2'];
-  const authMethodOptions = supportedAuthMethods.map((method) => ({
-    value: method,
-    label: AUTH_METHOD_LABELS[method] || method,
-  }));
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -640,7 +656,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                     <div className="relative">
                       <Shield className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
                       <select
-                        value={settings.auth_method}
+                        value={effectiveAuthMethod}
                         onChange={(e) => handleChange('auth_method', e.target.value)}
                         disabled={isUnsupportedProvider}
                         className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50"
@@ -652,7 +668,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                         ))}
                       </select>
                     </div>
-                    {settings.auth_method === 'oauth2' && (
+                    {effectiveAuthMethod === 'oauth2' && (
                       <p className="mt-1 text-[11px] text-amber-700">
                         OAuth2 requires server client credentials; if not configured, use an App Password if supported.
                       </p>
@@ -662,7 +678,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
                       <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider">
-                        {settings.auth_method === 'app_password' ? 'App Password' : 'Password / Token'} <span className="text-rose-500">*</span>
+                        {effectiveAuthMethod === 'app_password' ? 'App Password' : 'Password / Token'} <span className="text-rose-500">*</span>
                       </label>
                       {settings.has_password ? (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md">
@@ -836,7 +852,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                             <option value="POP3S">POP3S (Port 995)</option>
                             <option value="STARTTLS">STARTTLS (Port 110)</option>
                             <option value="TLS">TLS (Port 110)</option>
-                          <option value="AUTO">Auto-Negotiate</option>
+                            <option value="AUTO">Auto-Negotiate</option>
                             <option value="NONE">None / Plaintext</option>
                           </select>
                         </div>
@@ -917,11 +933,10 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
 
                 {imapTestResult && (
                   <div
-                    className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
-                      imapTestResult.success
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                        : 'bg-amber-50 border-amber-200 text-amber-800'
-                    }`}
+                    className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${imapTestResult.success
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-amber-50 border-amber-200 text-amber-800'
+                      }`}
                   >
                     {imapTestResult.success ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
@@ -934,11 +949,10 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
 
                 {popTestResult && (
                   <div
-                    className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${
-                      popTestResult.success
-                        ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-                        : 'bg-amber-50 border-amber-200 text-amber-800'
-                    }`}
+                    className={`p-3 rounded-xl border text-xs flex items-center gap-2 ${popTestResult.success
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                      : 'bg-amber-50 border-amber-200 text-amber-800'
+                      }`}
                   >
                     {popTestResult.success ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />

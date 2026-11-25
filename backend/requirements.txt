@@ -17,6 +17,7 @@ bcrypt
 passlib
 psutil
 httpx
+dnspython
 beautifulsoup4
 jinja2
 pytest

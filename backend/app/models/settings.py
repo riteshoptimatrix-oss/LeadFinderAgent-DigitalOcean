@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, Field
 
@@ -13,6 +13,12 @@ class SMTPSettings(BaseModel):
     smtp_sender_name: Optional[str] = None
     smtp_reply_to: Optional[str] = None
     smtp_status: Optional[str] = "NOT_CONFIGURED" # NOT_CONFIGURED, TESTING, CONNECTED, AUTH_FAILED, CONNECTION_FAILED
+    imap_host: Optional[str] = ""
+    imap_port: Optional[int] = 993
+    imap_encryption: Optional[str] = "SSL"
+    imap_status: Optional[str] = "NOT_CONFIGURED"
+    auth_method: Optional[str] = "app_password"
+    detected_provider_id: Optional[str] = None
     last_tested_at: Optional[datetime] = None
     last_test_error: Optional[str] = None
     daily_limit: Optional[int] = 500
@@ -29,6 +35,12 @@ class SMTPSettingsResponse(BaseModel):
     smtp_from_email: str = ""
     smtp_sender_name: str = ""
     smtp_status: str = "NOT_CONFIGURED"
+    imap_host: str = ""
+    imap_port: int = 993
+    imap_encryption: str = "SSL"
+    imap_status: str = "NOT_CONFIGURED"
+    auth_method: str = "app_password"
+    detected_provider: Optional[Dict[str, Any]] = None
     last_tested_at: Optional[datetime] = None
     last_test_error: Optional[str] = None
     daily_limit: int = 500
@@ -44,6 +56,11 @@ class SMTPSettingsUpdate(BaseModel):
     smtp_encryption: Optional[str] = "TLS"
     smtp_from_email: Optional[str] = None
     smtp_sender_name: Optional[str] = None
+    imap_host: Optional[str] = None
+    imap_port: Optional[int] = 993
+    imap_encryption: Optional[str] = None
+    auth_method: Optional[str] = None
+    detected_provider_id: Optional[str] = None
     daily_limit: Optional[int] = 500
     signature: Optional[str] = None
     track_opens: Optional[bool] = None
@@ -56,6 +73,10 @@ class SMTPTestRequest(BaseModel):
     smtp_encryption: Optional[str] = "TLS"
     smtp_from_email: Optional[str] = None
     smtp_sender_name: Optional[str] = None
+    imap_host: Optional[str] = None
+    imap_port: Optional[int] = 993
+    imap_encryption: Optional[str] = "SSL"
+    test_imap: bool = False
     send_test: bool = False
     recipient: Optional[str] = None
 
@@ -66,6 +87,10 @@ class SMTPTestResponse(BaseModel):
     host: Optional[str] = None
     port: Optional[int] = None
     mode: Optional[str] = None
+    imap_tested: bool = False
+    imap_success: Optional[bool] = None
+    imap_status: Optional[str] = None
+    imap_message: Optional[str] = None
     test_email_sent: bool = False
     recipient: Optional[str] = None
     error: Optional[str] = None

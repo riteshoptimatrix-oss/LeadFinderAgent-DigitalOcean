@@ -69,7 +69,7 @@ from app.api.routes import search_sessions
 from app.api import advanced_analysis, websockets
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.services.worker_manager import emit_heartbeat, shutdown_event
-from app.db.init_db import init_admin_user, init_indexes, init_email_ai_defaults
+from app.db.init_db import init_admin_user, init_indexes, init_email_ai_defaults, backfill_user_email_providers
 from app.services.campaigns.queue_worker import CampaignQueueWorker
 from app.services.email.email_worker import email_worker_instance
 
@@ -218,6 +218,7 @@ async def lifespan(app: FastAPI):
     await connect_to_mongo()
     await init_admin_user()
     await init_indexes()
+    await backfill_user_email_providers()
     await init_email_ai_defaults()
 
     try:

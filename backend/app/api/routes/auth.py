@@ -96,12 +96,16 @@ async def login_access_token(
         user_agent=device_info
     )
     
-    # Update last login
+    # Update last login and refresh detected email provider metadata
     collection = "admins" if role == "admin" else "users"
     from bson.objectid import ObjectId
+    from app.services.email_provider_registry import build_user_provider_snapshot_async
     await db[collection].update_one(
         {"_id": ObjectId(user_id)}, 
-        {"$set": {"last_login": datetime.utcnow()}}
+        {"$set": {
+            "last_login": datetime.utcnow(),
+            "email_provider": await build_user_provider_snapshot_async(user_email)
+        }}
     )
     
     return {
@@ -125,6 +129,7 @@ async def register_user(
     if user_dict:
         raise HTTPException(status_code=400, detail="Email already registered")
         
+    from app.services.email_provider_registry import build_user_provider_snapshot_async
     hashed_password = security.get_password_hash(user_in.password)
     user_db = {
         "email": user_in.email,
@@ -134,6 +139,7 @@ async def register_user(
         "country": user_in.country,
         "state": user_in.state,
         "company_name": user_in.company_name,
+        "email_provider": await build_user_provider_snapshot_async(user_in.email),
         "is_active": True,
         "is_superuser": False,
         "role": "USER",

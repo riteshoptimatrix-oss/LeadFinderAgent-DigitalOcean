@@ -8,6 +8,7 @@ import {
 import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { StatusBadge } from '@/src/components/common/StatusBadge';
+import { EmailProviderBadge } from '@/src/components/common/EmailProviderBadge';
 
 
 interface UserDetailsModalProps {
@@ -32,6 +33,8 @@ export default function UserDetailsModal({ userId, isOpen, onClose, onImpersonat
 
   const user = data?.user;
   const stats = data?.stats;
+  const emailConfigStatus = data?.email_config_status;
+  const emailProvider = user?.email_provider;
 
   const initial = (user?.full_name?.[0] || user?.email?.[0] || 'U').toUpperCase();
 
@@ -139,6 +142,43 @@ export default function UserDetailsModal({ userId, isOpen, onClose, onImpersonat
                     <span className="text-xl font-bold text-slate-900">
                       {(stats?.total_emails || 0) + (stats?.total_whatsapp || 0)}
                     </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Email Provider & Configuration Card */}
+              <div>
+                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                  Email Provider &amp; Automation Status
+                </h4>
+                <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 grid grid-cols-1 sm:grid-cols-3 gap-4 items-center">
+                  <div className="sm:col-span-2 flex flex-col gap-1.5">
+                    <EmailProviderBadge
+                      providerName={emailProvider?.provider_name}
+                      logoKey={emailProvider?.logo_key}
+                      detectionStatus={emailProvider?.detection_status}
+                      detectionMethod={emailProvider?.detection_method}
+                      showStatus={true}
+                    />
+                    <div className="text-[11px] text-slate-500">
+                      Registered Email: <span className="font-mono font-semibold text-slate-700">{user.email}</span>
+                    </div>
+                  </div>
+                  <div className="sm:text-right">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
+                      SMTP Config Status
+                    </span>
+                    {emailConfigStatus?.configured ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                        {emailConfigStatus.smtp_status === 'CONNECTED' ? 'Connected' : emailConfigStatus.smtp_status}
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-full">
+                        <span className="w-1.5 h-1.5 rounded-full bg-slate-400" />
+                        Not Configured
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>

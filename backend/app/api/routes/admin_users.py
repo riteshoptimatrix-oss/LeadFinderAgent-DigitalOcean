@@ -19,6 +19,7 @@ from app.api.dependencies import RequireRole
 from app.core import security
 from app.core.config import settings
 from app.services.audit import log_audit_action
+from app.services.email_provider_registry import build_user_provider_snapshot, build_user_provider_snapshot_async
 
 logger = logging.getLogger(__name__)
 
@@ -107,6 +108,8 @@ async def list_users(
         user["id"] = user["_id"]
         user.pop("hashed_password", None)
         user.pop("password_hash", None)
+        if not user.get("email_provider") or user["email_provider"].get("email") != (user.get("email") or "").strip().lower():
+            user["email_provider"] = build_user_provider_snapshot(user.get("email"))
         users.append(user)
 
     total = await raw_db["users"].count_documents(query)
@@ -139,6 +142,27 @@ async def get_user_details(
     user.pop("hashed_password", None)
     user.pop("password_hash", None)
 
+    # On-demand email provider detection (with MX lookup) if missing, stale, or email changed
+    email_clean = (user.get("email") or "").strip().lower()
+    existing_ep = user.get("email_provider") or {}
+    if not existing_ep or existing_ep.get("email") != email_clean or not existing_ep.get("detection_method"):
+        snapshot = await build_user_provider_snapshot_async(email_clean)
+        user["email_provider"] = snapshot
+        await raw_db["users"].update_one(user_query, {"$set": {"email_provider": snapshot}})
+
+    # Safe email configuration status lookup (never expose passwords/tokens)
+    settings_doc = await raw_db["settings"].find_one({"user_id": user["_id"]})
+    has_smtp_pass = bool(settings_doc and settings_doc.get("smtp_pass"))
+    email_config_status = {
+        "configured": bool(settings_doc and settings_doc.get("smtp_host") and has_smtp_pass),
+        "smtp_status": (settings_doc.get("smtp_status") if settings_doc else None) or ("CONNECTED" if has_smtp_pass else "NOT_CONFIGURED"),
+        "smtp_host": settings_doc.get("smtp_host") if settings_doc else None,
+        "smtp_user": settings_doc.get("smtp_user") if settings_doc else None,
+        "imap_status": settings_doc.get("imap_status") if settings_doc else "NOT_CONFIGURED",
+        "auth_method": settings_doc.get("auth_method") if settings_doc else None,
+        "last_tested_at": settings_doc.get("last_tested_at") if settings_doc else None,
+    }
+
     user_filter = build_user_filter(user_id)
     total_searches = await raw_db["search_jobs"].count_documents(user_filter)
     total_leads = await raw_db["leads"].count_documents(user_filter)
@@ -156,7 +180,8 @@ async def get_user_details(
 
     return sanitize_doc({
         "user": user,
-        "stats": stats
+        "stats": stats,
+        "email_config_status": email_config_status,
     })
 
 
@@ -204,6 +229,7 @@ async def create_user(
         "easyadserver_token": payload.easyadserver_token.strip() if payload.easyadserver_token else None,
         "email_automation_access": bool(payload.email_automation_access) if payload.email_automation_access is not None else False,
         "whatsapp_automation_access": bool(payload.whatsapp_automation_access) if payload.whatsapp_automation_access is not None else False,
+        "email_provider": await build_user_provider_snapshot_async(email_clean),
         "created_at": now,
         "updated_at": now,
         "last_login": None,
@@ -274,6 +300,7 @@ async def update_user(
                     detail="Another account already uses this email address."
                 )
             update_fields["email"] = new_email
+            update_fields["email_provider"] = await build_user_provider_snapshot_async(new_email)
 
     if payload.full_name is not None:
         update_fields["full_name"] = payload.full_name.strip()

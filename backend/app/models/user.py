@@ -25,6 +25,18 @@ class EmailSettingsModel(BaseModel):
     track_opens: bool = True
     has_password: bool = False
 
+class EmailProviderMetadata(BaseModel):
+    email: Optional[str] = None
+    domain: Optional[str] = None
+    provider_id: Optional[str] = "custom_domain"
+    provider_name: Optional[str] = "Unknown Provider"
+    logo_key: Optional[str] = "custom"
+    detection_status: Optional[str] = "unknown_custom_domain"
+    is_known_provider: bool = False
+    detection_method: Optional[str] = None
+    mx_hosts: Optional[list[str]] = None
+    detected_at: Optional[str] = None
+
 class WhatsAppSettingsModel(BaseModel):
     auto_reply: bool = True
     campaign_limit: int = 250
@@ -57,6 +69,7 @@ class UserBase(BaseModel):
     # Integrations
     email_settings: EmailSettingsModel = Field(default_factory=lambda: EmailSettingsModel())
     whatsapp_settings: WhatsAppSettingsModel = Field(default_factory=lambda: WhatsAppSettingsModel())
+    email_provider: Optional[EmailProviderMetadata] = None
 
     # Auto LeadFinder Permissions & Configuration
     auto_leadfinder_access: bool = False

@@ -311,3 +311,42 @@ async def init_indexes():
         logger.info("Indexes successfully created.")
     except Exception as e:
         logger.error(f"Failed to create indexes: {str(e)}")
+
+
+async def backfill_user_email_providers():
+    """Safely detect and backfill email_provider metadata for all existing users and admins."""
+    try:
+        db = get_db()
+    except Exception as e:
+        logger.error(f"Database connection not found during backfill_user_email_providers: {e}")
+        return
+
+    try:
+        from app.services.email_provider_registry import build_user_provider_snapshot_async
+        updated_count = 0
+        for coll_name in ("users", "admins"):
+            cursor = db[coll_name].find(
+                {
+                    "$or": [
+                        {"email_provider": {"$exists": False}},
+                        {"email_provider": None},
+                        {"email_provider.provider_id": {"$exists": False}},
+                        {"email_provider.detection_method": {"$exists": False}},
+                    ]
+                },
+                {"_id": 1, "email": 1}
+            )
+            async for doc in cursor:
+                email = doc.get("email")
+                if not email:
+                    continue
+                snapshot = await build_user_provider_snapshot_async(email)
+                await db[coll_name].update_one(
+                    {"_id": doc["_id"]},
+                    {"$set": {"email_provider": snapshot}}
+                )
+                updated_count += 1
+        if updated_count > 0:
+            logger.info(f"[EmailProviderBackfill] Backfilled email_provider (with MX lookup) for {updated_count} existing accounts.")
+    except Exception as e:
+        logger.error(f"Failed to backfill user email providers: {str(e)}")

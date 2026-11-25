@@ -31,6 +31,8 @@ export interface DetectedProviderPayload {
     smtp: { supported: boolean; host: string; port: number; encryption: string };
     imap: { supported: boolean; host: string; port: number; encryption: string };
     pop?: { supported: boolean; host: string; port: number; encryption: string };
+    jmap?: { supported: boolean; endpoint: string };
+    additional_protocols?: string[];
     auth_methods: string[];
     recommended_auth: string;
     app_password_supported: boolean;
@@ -196,6 +198,30 @@ export default function EmailProviderGuide({
                 <div className="text-rose-600 font-semibold">Not supported</div>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Additional Protocols (JMAP / Exchange / REST API) */}
+        {provider && ((provider.additional_protocols && provider.additional_protocols.length > 0) || provider.jmap?.supported) && (
+          <div className="p-3 rounded-xl border border-slate-200/70 bg-slate-50/60 space-y-1.5">
+            <div className="text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+              Other Supported Protocols &amp; APIs
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {provider.additional_protocols?.map((proto, idx) => (
+                <span
+                  key={idx}
+                  className="inline-flex items-center px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[11px] font-semibold text-slate-700"
+                >
+                  {proto}
+                </span>
+              ))}
+            </div>
+            {provider.jmap?.supported && provider.jmap.endpoint && (
+              <div className="text-[11px] text-slate-500 pt-1">
+                JMAP Session: <span className="font-mono text-slate-700">{provider.jmap.endpoint}</span>
+              </div>
+            )}
           </div>
         )}
 

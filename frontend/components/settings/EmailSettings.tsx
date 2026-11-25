@@ -761,7 +761,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                     className="text-xs font-bold text-blue-600 hover:text-blue-700 inline-flex items-center gap-1.5"
                   >
                     <Server className="w-3.5 h-3.5" />
-                    {showImapConfig ? 'Hide IMAP & POP3 Settings' : 'Configure / View IMAP & POP3 Settings (Inbound)'}
+                    {showImapConfig ? 'Hide IMAP, POP3 & Protocol Settings' : 'Configure / View IMAP, POP3 & Other Protocols'}
                   </button>
 
                   {showImapConfig && (
@@ -836,11 +836,35 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                             <option value="POP3S">POP3S (Port 995)</option>
                             <option value="STARTTLS">STARTTLS (Port 110)</option>
                             <option value="TLS">TLS (Port 110)</option>
-                            <option value="AUTO">Auto-Negotiate</option>
+                          <option value="AUTO">Auto-Negotiate</option>
                             <option value="NONE">None / Plaintext</option>
                           </select>
                         </div>
                       </div>
+
+                      {/* Other Protocols (JMAP / Exchange / REST API) */}
+                      {(providerInfo?.additional_protocols?.length || providerInfo?.jmap?.supported) && (
+                        <div className="pt-3 border-t border-slate-200/70 space-y-1.5">
+                          <div className="text-[11px] font-bold text-slate-600 uppercase">
+                            Other Protocols Supported by {detectedProvider?.provider_name}
+                          </div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {providerInfo?.additional_protocols?.map((proto: string, idx: number) => (
+                              <span
+                                key={idx}
+                                className="inline-flex items-center px-2 py-0.5 rounded-md bg-white border border-slate-200 text-[11px] font-semibold text-slate-700"
+                              >
+                                {proto}
+                              </span>
+                            ))}
+                          </div>
+                          {providerInfo?.jmap?.supported && providerInfo.jmap.endpoint && (
+                            <div className="text-[11px] text-slate-500">
+                              JMAP Session URL: <span className="font-mono text-slate-700">{providerInfo.jmap.endpoint}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

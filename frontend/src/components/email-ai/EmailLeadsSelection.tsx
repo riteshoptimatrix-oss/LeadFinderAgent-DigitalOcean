@@ -956,6 +956,38 @@ export default function EmailLeadsSelection() {
     toast.success('All leads deselected.');
   };
 
+  const hasActiveFilters =
+    search.trim() !== '' ||
+    filters.city !== '' ||
+    filters.category !== '' ||
+    filters.has_website !== undefined ||
+    filters.has_phone !== undefined ||
+    filters.has_email !== undefined ||
+    filters.min_rating !== undefined ||
+    filters.status !== 'ALL' ||
+    filters.search_campaign !== 'ALL' ||
+    filters.selected_areas.length > 0 ||
+    filters.selected_job_ids.length > 0;
+
+  const handleClearAllFilters = () => {
+    setSearch('');
+    setDebouncedSearch('');
+    setFilters({
+      city: '',
+      category: '',
+      has_website: undefined,
+      has_phone: undefined,
+      has_email: undefined,
+      min_rating: undefined,
+      status: 'ALL',
+      search_campaign: 'ALL',
+      selected_areas: [],
+      selected_job_ids: []
+    });
+    setPage(1);
+    toast.success('All filters cleared.');
+  };
+
   const isAllSelected = total > 0 && selectedIds.size >= total;
 
   const handleSelectAllGlobally = async () => {
@@ -1114,7 +1146,7 @@ export default function EmailLeadsSelection() {
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={cn(
-              "flex items-center gap-2 px-4 py-2.5 border rounded-xl text-sm font-medium transition-colors",
+              "flex items-center gap-2 px-4 py-2.5 border rounded-xl text-sm font-medium transition-colors cursor-pointer",
               showFilters || Object.entries(filters).some(([k, v]) =>
                 (k === 'selected_areas' || k === 'selected_job_ids')
                   ? (v as string[]).length > 0
@@ -1128,6 +1160,18 @@ export default function EmailLeadsSelection() {
             Filters
             <ChevronDown className={cn("w-4 h-4 transition-transform", showFilters && "rotate-180")} />
           </button>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={handleClearAllFilters}
+              className="flex items-center gap-1.5 px-3.5 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-sm font-semibold transition-colors cursor-pointer shrink-0"
+              title="Reset all search & filters"
+            >
+              <X className="w-4 h-4" />
+              Clear All Filters
+            </button>
+          )}
 
           <select
             value={`${sort.sort_by}|${sort.sort_order}`}
@@ -1321,11 +1365,8 @@ export default function EmailLeadsSelection() {
                       <h3 className="text-lg font-bold text-slate-900 mb-1">No leads found</h3>
                       <p className="text-slate-500">Try adjusting your filters or search query.</p>
                       <button
-                        onClick={() => {
-                          setSearch('');
-                          setFilters({ city: '', category: '', has_website: undefined, has_phone: undefined, has_email: undefined, min_rating: undefined, status: 'ALL', search_campaign: 'ALL', selected_areas: [], selected_job_ids: [] });
-                        }}
-                        className="mt-6 px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-xl hover:bg-slate-200 transition-colors"
+                        onClick={handleClearAllFilters}
+                        className="mt-6 px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-xl hover:bg-slate-200 transition-colors cursor-pointer"
                       >
                         Clear all filters
                       </button>

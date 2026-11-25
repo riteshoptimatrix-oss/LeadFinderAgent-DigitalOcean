@@ -37,6 +37,8 @@ interface Lead {
   is_auto_lead?: boolean;
   source?: string;
   requested_provider?: string;
+  auto_scraped_area?: string;
+  area?: string;
 }
 
 const STEPS = [
@@ -65,7 +67,9 @@ export default function EmailLeadsSelection() {
     has_email: undefined as boolean | undefined,
     min_rating: undefined as number | undefined,
     status: 'ALL',
-    search_campaign: 'ALL' as 'ALL' | 'auto' | 'normal'
+    search_campaign: 'ALL' as 'ALL' | 'auto' | 'normal',
+    selected_area: '',
+    selected_job_id: ''
   });
 
   const [sort, setSort] = useState({
@@ -121,6 +125,36 @@ export default function EmailLeadsSelection() {
         ? false
         : undefined;
 
+  // Fetch distinct Auto Lead Areas for cascading dropdown
+  const { data: autoAreas = [] } = useQuery({
+    queryKey: ['autoLeadAreas'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/leads/auto-areas');
+        return (res.data || []) as { area: string; count: number }[];
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 30000,
+    enabled: isMounted
+  });
+
+  // Fetch Normal Search Campaigns for cascading dropdown
+  const { data: campaignOptions = [] } = useQuery({
+    queryKey: ['searchCampaignOptions'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/search/sessions?limit=50&sort_by=newest');
+        return (res.data?.data || []) as any[];
+      } catch {
+        return [];
+      }
+    },
+    staleTime: 30000,
+    enabled: isMounted
+  });
+
   // Fetch Data using Global Leads API
   const { data, isLoading, error } = useQuery({
     queryKey: ['email-ai-global-leads', page, debouncedSearch, filters, sort],
@@ -138,6 +172,8 @@ export default function EmailLeadsSelection() {
           min_rating: filters.min_rating,
           status: filters.status !== 'ALL' ? filters.status : undefined,
           is_auto_lead: isAutoLeadParam,
+          area: filters.search_campaign === 'auto' && filters.selected_area ? filters.selected_area : undefined,
+          job_id: filters.search_campaign === 'normal' && filters.selected_job_id ? filters.selected_job_id : undefined,
           sort_by: sort.sort_by,
           sort_order: sort.sort_order
         }
@@ -187,7 +223,9 @@ export default function EmailLeadsSelection() {
           has_email: filters.has_email,
           min_rating: filters.min_rating,
           status: filters.status !== 'ALL' ? filters.status : undefined,
-          is_auto_lead: isAutoLeadParam
+          is_auto_lead: isAutoLeadParam,
+          area: filters.search_campaign === 'auto' && filters.selected_area ? filters.selected_area : undefined,
+          job_id: filters.search_campaign === 'normal' && filters.selected_job_id ? filters.selected_job_id : undefined
         }
       });
       const allIds = res.data.ids || [];
@@ -285,7 +323,8 @@ export default function EmailLeadsSelection() {
           <select
             value={filters.search_campaign}
             onChange={(e) => {
-              setFilters({ ...filters, search_campaign: e.target.value as any });
+              const val = e.target.value as any;
+              setFilters({ ...filters, search_campaign: val, selected_area: '', selected_job_id: '' });
               setPage(1);
             }}
             className="px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 font-medium text-slate-700 cursor-pointer shadow-xs"
@@ -295,6 +334,52 @@ export default function EmailLeadsSelection() {
             <option value="auto">Auto Lead (LeadFinderAgent)</option>
             <option value="normal">Normal Lead (Manual / Regular)</option>
           </select>
+
+          {/* Cascading Area Filter (Auto Leads) */}
+          {filters.search_campaign === 'auto' && (
+            <select
+              value={filters.selected_area}
+              onChange={(e) => {
+                setFilters({ ...filters, selected_area: e.target.value });
+                setPage(1);
+              }}
+              className="px-3.5 py-2.5 bg-teal-50 border border-teal-300 rounded-xl text-sm font-semibold text-teal-800 focus:outline-none focus:ring-2 focus:ring-teal-500/20 cursor-pointer shadow-xs animate-in fade-in"
+              title="Filter by Area / Locality"
+            >
+              <option value="">📍 All Areas ({autoAreas.reduce((acc, a) => acc + (a.count || 0), 0)} leads)</option>
+              {autoAreas.map((a: any) => (
+                <option key={a.area} value={a.area}>
+                  📍 {a.area} ({a.count} leads)
+                </option>
+              ))}
+            </select>
+          )}
+
+          {/* Cascading Campaign Filter (Normal Leads) */}
+          {filters.search_campaign === 'normal' && (
+            <select
+              value={filters.selected_job_id}
+              onChange={(e) => {
+                setFilters({ ...filters, selected_job_id: e.target.value });
+                setPage(1);
+              }}
+              className="px-3.5 py-2.5 bg-blue-50 border border-blue-300 rounded-xl text-sm font-semibold text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500/20 cursor-pointer shadow-xs animate-in fade-in max-w-[280px] truncate"
+              title="Filter by Search Campaign"
+            >
+              <option value="">🔍 All Search Campaigns ({campaignOptions.length})</option>
+              {campaignOptions.map((c: any) => {
+                const cId = c.job_id || c.id;
+                const count = c.total_saved ?? c.leads_count ?? 0;
+                const loc = [c.city, c.state].filter(Boolean).join(', ');
+                const label = `${c.keyword || 'Search'}${loc ? ` • ${loc}` : ''} (${count} leads)`;
+                return (
+                  <option key={cId} value={cId}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
+          )}
 
           <button
             onClick={() => setShowFilters(!showFilters)}
@@ -330,12 +415,16 @@ export default function EmailLeadsSelection() {
 
         {/* Expanded Filters */}
         {showFilters && (
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-4 pt-4 border-t border-slate-100 animate-in slide-in-from-top-2">
+          <div className="grid grid-cols-1 md:grid-cols-6 gap-4 pt-4 border-t border-slate-100 animate-in slide-in-from-top-2">
             <div>
               <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Search Campaign</label>
               <select
                 value={filters.search_campaign}
-                onChange={(e) => { setFilters({ ...filters, search_campaign: e.target.value as any }); setPage(1); }}
+                onChange={(e) => {
+                  const val = e.target.value as any;
+                  setFilters({ ...filters, search_campaign: val, selected_area: '', selected_job_id: '' });
+                  setPage(1);
+                }}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-blue-500"
               >
                 <option value="ALL">All Leads</option>
@@ -343,6 +432,45 @@ export default function EmailLeadsSelection() {
                 <option value="normal">Normal Lead (Manual / Regular)</option>
               </select>
             </div>
+            {filters.search_campaign === 'auto' ? (
+              <div>
+                <label className="text-xs font-semibold text-teal-700 mb-1.5 block">Area / Locality</label>
+                <select
+                  value={filters.selected_area}
+                  onChange={(e) => { setFilters({ ...filters, selected_area: e.target.value }); setPage(1); }}
+                  className="w-full px-3 py-2 bg-teal-50 border border-teal-200 rounded-lg text-sm text-teal-900 focus:outline-none focus:border-teal-500"
+                >
+                  <option value="">All Areas ({autoAreas.reduce((sum: number, a: any) => sum + (a.count || 0), 0)})</option>
+                  {autoAreas.map((a: any) => (
+                    <option key={a.area} value={a.area}>
+                      📍 {a.area} ({a.count})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : filters.search_campaign === 'normal' ? (
+              <div>
+                <label className="text-xs font-semibold text-blue-700 mb-1.5 block">Search Campaign</label>
+                <select
+                  value={filters.selected_job_id}
+                  onChange={(e) => { setFilters({ ...filters, selected_job_id: e.target.value }); setPage(1); }}
+                  className="w-full px-3 py-2 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-900 focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">All Campaigns</option>
+                  {campaignOptions.map((c: any) => {
+                    const cId = c.job_id || c.id;
+                    const count = c.total_saved ?? c.leads_count ?? 0;
+                    const loc = [c.city, c.state].filter(Boolean).join(', ');
+                    const label = `${c.keyword || 'Search'}${loc ? ` • ${loc}` : ''} (${count})`;
+                    return (
+                      <option key={cId} value={cId}>
+                        {label}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+            ) : null}
             <div>
               <label className="text-xs font-semibold text-slate-500 mb-1.5 block">Category / Industry</label>
               <input
@@ -450,7 +578,7 @@ export default function EmailLeadsSelection() {
                       <button
                         onClick={() => {
                           setSearch('');
-                          setFilters({ city: '', category: '', has_website: undefined, has_phone: undefined, has_email: undefined, min_rating: undefined, status: 'ALL', search_campaign: 'ALL' });
+                          setFilters({ city: '', category: '', has_website: undefined, has_phone: undefined, has_email: undefined, min_rating: undefined, status: 'ALL', search_campaign: 'ALL', selected_area: '', selected_job_id: '' });
                         }}
                         className="mt-6 px-4 py-2 bg-slate-100 text-slate-700 font-medium rounded-xl hover:bg-slate-200 transition-colors"
                       >
@@ -538,7 +666,7 @@ export default function EmailLeadsSelection() {
                           <div className="flex items-center gap-2 text-slate-500 text-xs">
                             <MapPin className="w-3.5 h-3.5 shrink-0" />
                             <span className="truncate max-w-[150px]">
-                              {[lead.city, lead.state, lead.country].filter(Boolean).join(', ') || 'Unknown Location'}
+                              {[lead.auto_scraped_area || lead.area, lead.city, lead.state, lead.country].filter(Boolean).join(', ') || 'Unknown Location'}
                             </span>
                           </div>
                         </div>

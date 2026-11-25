@@ -266,6 +266,7 @@ def build_lead_filters(
     is_auto_lead: Optional[bool] = None,
     visibility: Optional[str] = None,
     user_id_alias: Optional[str] = None,
+    area: Optional[str] = None,
 ) -> dict:
     """Build the Mongo query used to filter leads on the /leads page."""
     query: dict = {}
@@ -337,6 +338,16 @@ def build_lead_filters(
             ]
         })
 
+    if area:
+        filter_clauses.append({
+            "$or": [
+                {"auto_scraped_area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
+                {"area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
+                {"search_area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
+                {"address": {"$regex": re.escape(area), "$options": "i"}},
+            ]
+        })
+
     if filter_clauses:
         query["$and"] = filter_clauses
 
@@ -384,6 +395,47 @@ class NoteCreate(BaseModel):
     lead_id: str
     content: str
 
+@router.get("/auto-areas")
+async def get_auto_lead_areas(
+    current_user: UserInDB = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db)
+):
+    """Return distinct area names with counts for Auto Leads belonging to the user."""
+    match_q: Dict[str, Any] = {
+        "$or": [
+            {"is_auto_lead": True},
+            {"source": "auto_leadfinder"},
+            {"requested_provider": "Auto LeadFinder"},
+        ]
+    }
+    if current_user.role != "ADMIN":
+        match_q["$and"] = [
+            {
+                "$or": [
+                    {"user_id": current_user.id},
+                    {"assigned_to": current_user.id},
+                    {"assigned_user_email": current_user.email},
+                ]
+            }
+        ]
+    
+    pipeline = [
+        {"$match": match_q},
+        {
+            "$project": {
+                "area_val": {
+                    "$ifNull": ["$auto_scraped_area", {"$ifNull": ["$area", "$search_area"]}]
+                }
+            }
+        },
+        {"$match": {"area_val": {"$nin": [None, ""]}}},
+        {"$group": {"_id": "$area_val", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    results = await db["leads"].aggregate(pipeline).to_list(100)
+    return [{"area": str(r["_id"]).strip(), "count": r["count"]} for r in results if str(r["_id"]).strip()]
+
+
 # Register both "" and "/" so GET /api/v1/leads (no trailing slash) resolves
 # directly instead of issuing a 307 redirect. Behind nginx the redirect gets
 # rewritten to /api/v1/api/v1/leads/ (double prefix) and 404s, which made the
@@ -406,6 +458,7 @@ async def get_leads(
     assigned_to: Optional[str] = None,
     is_auto_lead: Optional[bool] = None,
     visibility: Optional[str] = None,
+    area: Optional[str] = None,
     sort_by: str = "created_at",
     sort_order: int = -1,
     current_user: UserInDB = Depends(get_current_user),
@@ -434,6 +487,7 @@ async def get_leads(
         is_auto_lead=is_auto_lead,
         visibility=visibility,
         user_id_alias=user_id_alias,
+        area=area,
     )
     if current_user.role != "ADMIN":
         ownership_vis_clauses = [
@@ -653,6 +707,7 @@ async def get_lead_ids(
     assigned_to: Optional[str] = None,
     is_auto_lead: Optional[bool] = None,
     visibility: Optional[str] = None,
+    area: Optional[str] = None,
     current_user: UserInDB = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db)
 ):
@@ -671,6 +726,7 @@ async def get_lead_ids(
         assigned_to=assigned_to,
         is_auto_lead=is_auto_lead,
         visibility=visibility,
+        area=area,
     )
     if current_user.role != "ADMIN":
         ownership_vis_clauses = [

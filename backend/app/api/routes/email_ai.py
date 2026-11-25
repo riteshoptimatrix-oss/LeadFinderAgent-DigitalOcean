@@ -1166,6 +1166,8 @@ async def get_all_leads_for_email_ai(
     min_rating: Optional[float] = None,
     status: Optional[str] = None,
     is_auto_lead: Optional[bool] = None,
+    area: Optional[str] = None,
+    job_id: Optional[str] = None,
     current_user=Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
@@ -1234,6 +1236,25 @@ async def get_all_leads_for_email_ai(
             "$or": [
                 {"is_auto_lead": {"$ne": True}},
                 {"is_auto_lead": {"$exists": False}},
+            ]
+        })
+
+    if area:
+        and_conds.append({
+            "$or": [
+                {"auto_scraped_area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
+                {"area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
+                {"search_area": {"$regex": f"^{re.escape(area)}$", "$options": "i"}},
+                {"address": {"$regex": re.escape(area), "$options": "i"}},
+            ]
+        })
+
+    if job_id:
+        and_conds.append({
+            "$or": [
+                {"source_job_id": job_id},
+                {"job_id": job_id},
+                {"search_job_id": job_id},
             ]
         })
 

@@ -31,12 +31,13 @@ import { toast } from 'sonner';
 
 type ConnectionStatus = 'NOT_CONFIGURED' | 'TESTING' | 'CONNECTED' | 'AUTH_FAILED' | 'CONNECTION_FAILED';
 
-const AUTH_METHOD_OPTIONS = [
-  { value: 'app_password', label: 'App Password (Recommended for 2FA)' },
-  { value: 'oauth2', label: 'OAuth2 Modern Auth' },
-  { value: 'smtp_auth', label: 'SMTP Username & Password' },
-  { value: 'proton_bridge', label: 'Proton Mail Bridge (Localhost)' },
-];
+const AUTH_METHOD_LABELS: Record<string, string> = {
+  app_password: 'App Password (Recommended for 2FA)',
+  oauth2: 'OAuth2 Modern Auth',
+  smtp_auth: 'SMTP Username & Password',
+  proton_bridge: 'Proton Mail Bridge (Localhost)',
+  unsupported: 'SMTP / IMAP Not Supported',
+};
 
 export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedChanges: (val: boolean) => void }) {
   const queryClient = useQueryClient();
@@ -499,6 +500,14 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
 
   const providerInfo = detectedProvider?.provider;
   const isUnsupportedProvider = detectedProvider?.provider_id === 'tuta' || providerInfo?.smtp?.supported === false;
+  const supportedAuthMethods =
+    providerInfo?.auth_methods && providerInfo.auth_methods.length > 0
+      ? providerInfo.auth_methods
+      : ['smtp_auth', 'app_password', 'oauth2'];
+  const authMethodOptions = supportedAuthMethods.map((method) => ({
+    value: method,
+    label: AUTH_METHOD_LABELS[method] || method,
+  }));
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -609,7 +618,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
                         disabled={isUnsupportedProvider}
                         className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm text-slate-900 outline-none transition-all focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:bg-slate-50"
                       >
-                        {AUTH_METHOD_OPTIONS.map((opt) => (
+                        {authMethodOptions.map((opt) => (
                           <option key={opt.value} value={opt.value}>
                             {opt.label}
                           </option>

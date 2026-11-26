@@ -1,14 +1,19 @@
 import asyncio
-import smtplib
-import ssl
-import socket
-import re
-import random
-import traceback
-from datetime import datetime, timezone, timedelta
+import base64
+import email.utils
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from pathlib import Path
+import random
+import re
+import smtplib
+import socket
+import ssl
+import traceback
+from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, List, Optional
+import uuid
 from bson import ObjectId
 
 from app.core.logger import logger
@@ -22,6 +27,8 @@ from app.services.email_ai.tracking_utils import (
 )
 from app.services.ws_manager import ws_manager
 from app.services.worker_manager import shutdown_event
+
+_UPLOAD_DIR = Path(__file__).resolve().parents[3] / "uploads"
 
 # Terminal states that mark a queue job as finished (no further retries/processing).
 TERMINAL_STATUSES = ("Delivered", "Failed", "Skipped", "Cancelled")
@@ -301,28 +308,46 @@ class EmailAIQueueWorker:
             uid_str = str(job.get("user_id") or campaign.get("user_id") or "").strip()
 
             # Check if lead has already replied, unsubscribed, or bounced (automated suppression)
-            existing_suppression = await self.db["email_tracking"].find_one({
+            # 1. Unsubscribed or Hard Bounced: Suppress globally for this user
+            global_suppression = await self.db["email_tracking"].find_one({
                 "user_id": uid_str,
                 "$or": [
                     {"lead_id": str(lead_id)},
                     {"recipient_email": target_email.strip().lower()},
                 ],
-                "$and": [{
-                    "$or": [
-                        {"replied": True},
-                        {"followups_paused": True},
-                        {"unsubscribed": True},
-                        {"bounced": True},
-                    ]
-                }],
+                "$or": [
+                    {"unsubscribed": True},
+                    {"bounced": True},
+                ],
             })
-            if existing_suppression:
-                if existing_suppression.get("unsubscribed"):
-                    skip_reason = "Lead unsubscribed; email suppressed."
-                elif existing_suppression.get("bounced"):
-                    skip_reason = "Lead previously bounced; email suppressed."
-                else:
-                    skip_reason = "Lead already replied; automated follow-up paused."
+            if global_suppression:
+                skip_reason = (
+                    "Lead unsubscribed; email suppressed."
+                    if global_suppression.get("unsubscribed")
+                    else "Lead previously bounced; email suppressed."
+                )
+                await self._finalize_job(
+                    job_id, campaign_id, lead_id, start_time, "Skipped",
+                    skip_reason, email=target_email
+                )
+                return
+
+            # 2. Replied / Followups Paused: ONLY suppress follow-ups for this specific campaign!
+            # New campaigns, manual dispatches, or verification tests are never blocked by past replies.
+            campaign_suppression = await self.db["email_tracking"].find_one({
+                "user_id": uid_str,
+                "campaign_id": campaign_id,
+                "$or": [
+                    {"lead_id": str(lead_id)},
+                    {"recipient_email": target_email.strip().lower()},
+                ],
+                "$or": [
+                    {"replied": True},
+                    {"followups_paused": True},
+                ],
+            })
+            if campaign_suppression:
+                skip_reason = "Lead already replied to this campaign; automated follow-up paused."
                 await self._finalize_job(
                     job_id, campaign_id, lead_id, start_time, "Skipped",
                     skip_reason, email=target_email
@@ -596,23 +621,120 @@ class EmailAIQueueWorker:
         from_email = (smtp_profile.get("from_email") or smtp_profile.get("email") or username).strip()
         from_name = (smtp_profile.get("from_name") or smtp_profile.get("name") or "").strip()
 
-        msg = MIMEMultipart('alternative')
+        # 1. Clean plain-text fallback so spam filters don't penalize missing text part
+        if not text and html:
+            clean_text = re.sub(r'<style\b[^>]*>[\s\S]*?</style>', '', html, flags=re.I)
+            clean_text = re.sub(r'<script\b[^>]*>[\s\S]*?</script>', '', clean_text, flags=re.I)
+            clean_text = re.sub(r'<br\s*/?>', '\n', clean_text, flags=re.I)
+            clean_text = re.sub(r'</p>', '\n\n', clean_text, flags=re.I)
+            clean_text = re.sub(r'<[^>]+>', '', clean_text)
+            clean_text = re.sub(r'\n{3,}', '\n\n', clean_text).strip()
+            text = clean_text or "Please enable HTML view to view this message."
+
+        # 2. Extract & prepare inline CID images (supports local uploads & base64 data URIs)
+        inline_images: List[Dict[str, Any]] = []
+        processed_html = html or ""
+
+        # 2a. Base64 data URIs: convert to native inline MIMEImage attachments
+        def _b64_repl(match):
+            prefix, subtype, b64_str, suffix = match.group(1), match.group(2).lower(), match.group(3), match.group(4)
+            if subtype == "jpg":
+                subtype = "jpeg"
+            try:
+                img_bytes = base64.b64decode(b64_str)
+                cid = f"img_{uuid.uuid4().hex[:10]}"
+                inline_images.append({
+                    "cid": cid,
+                    "bytes": img_bytes,
+                    "subtype": subtype,
+                    "filename": f"inline_{len(inline_images)}.{subtype}"
+                })
+                return f"{prefix}cid:{cid}{suffix}"
+            except Exception as b64_err:
+                logger.warning(f"[EmailAI-SMTP] Failed to decode base64 inline image: {b64_err}")
+                return match.group(0)
+
+        if processed_html and "data:image/" in processed_html:
+            processed_html = re.sub(
+                r'(<img\b[^>]*\bsrc=["\'])data:image/([a-zA-Z0-9_\-+]+);base64,([A-Za-z0-9+/=]+)(["\'])',
+                _b64_repl,
+                processed_html,
+                flags=re.IGNORECASE
+            )
+
+        # 2b. Local uploads (/api/v1/uploads/images/<fname> or /uploads/images/<fname>)
+        def _upload_repl(match):
+            prefix, fname, suffix = match.group(1), match.group(2), match.group(3)
+            clean_fname = fname.split("?")[0].split("#")[0].strip()
+            target_path = _UPLOAD_DIR / "images" / clean_fname
+            if target_path.exists():
+                try:
+                    with open(target_path, "rb") as f:
+                        img_bytes = f.read()
+                    ext = target_path.suffix.lower().lstrip(".")
+                    if ext == "jpg":
+                        ext = "jpeg"
+                    cid = f"img_{uuid.uuid4().hex[:10]}"
+                    inline_images.append({
+                        "cid": cid,
+                        "bytes": img_bytes,
+                        "subtype": ext,
+                        "filename": clean_fname
+                    })
+                    return f"{prefix}cid:{cid}{suffix}"
+                except Exception as read_err:
+                    logger.warning(f"[EmailAI-SMTP] Failed to read local uploaded image {clean_fname}: {read_err}")
+            return match.group(0)
+
+        if processed_html and "uploads/images/" in processed_html:
+            processed_html = re.sub(
+                r'(<img\b[^>]*\bsrc=["\'])[^"\']*/(?:api/v1/)?uploads/images/([^"\'\s>]+)(["\'])',
+                _upload_repl,
+                processed_html,
+                flags=re.IGNORECASE
+            )
+
+        # 3. Assemble MIME structure:
+        # If inline images exist:
+        #   multipart/related
+        #     -> multipart/alternative
+        #          -> text/plain
+        #          -> text/html (referencing cid:<id>)
+        #     -> image/* (Content-ID: <id>)
+        alt_part = MIMEMultipart('alternative')
+        if text:
+            alt_part.attach(MIMEText(text, 'plain', 'utf-8'))
+        if processed_html:
+            alt_part.attach(MIMEText(processed_html, 'html', 'utf-8'))
+
+        if inline_images:
+            msg = MIMEMultipart('related')
+            msg.attach(alt_part)
+            for img_info in inline_images:
+                try:
+                    mime_img = MIMEImage(img_info['bytes'], _subtype=img_info['subtype'])
+                    mime_img.add_header('Content-ID', f"<{img_info['cid']}>")
+                    mime_img.add_header('Content-Disposition', 'inline', filename=img_info.get('filename', 'image'))
+                    msg.attach(mime_img)
+                except Exception as img_att_err:
+                    logger.warning(f"[EmailAI-SMTP] Failed to attach inline image CID {img_info['cid']}: {img_att_err}")
+        else:
+            msg = alt_part
+
         msg['Subject'] = subject
         if from_name:
             msg['From'] = f"{from_name} <{from_email}>"
         else:
             msg['From'] = from_email
         msg['To'] = to_email
+        msg['Date'] = email.utils.formatdate(localtime=True)
+        msg['MIME-Version'] = '1.0'
+        msg['Reply-To'] = from_email
         if message_id:
             msg['Message-ID'] = message_id
         if unsub_url:
             msg['List-Unsubscribe'] = f"<{unsub_url}>"
             msg['List-Unsubscribe-Post'] = "List-Unsubscribe=One-Click"
-
-        if text:
-            msg.attach(MIMEText(text, 'plain', 'utf-8'))
-        if html:
-            msg.attach(MIMEText(html, 'html', 'utf-8'))
 
         # Clean bare envelope sender address
         envelope_sender = from_email

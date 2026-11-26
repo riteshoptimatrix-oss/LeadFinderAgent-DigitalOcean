@@ -510,6 +510,174 @@ async def duplicate_template(
     created = await db["email_ai_templates"].find_one({"_id": result.inserted_id})
     return serialize_doc(created)
 
+class TemplateTestSendRequest(BaseModel):
+    template_id: Optional[str] = None
+    subject: Optional[str] = None
+    body_html: Optional[str] = None
+    body_text: Optional[str] = None
+    to_email: str
+    smtp_id: Optional[str] = None
+
+@router.post("/templates/test-send")
+async def send_template_test_email(
+    payload: TemplateTestSendRequest,
+    current_user: UserInDB = Depends(require_email_automation_access),
+    db=Depends(get_db)
+):
+    """Dispatch a live test email rendered from a template (or current draft) to verify visual rendering and inbox delivery."""
+    from app.services.email_ai.smtp_worker import EmailAIQueueWorker
+    from app.services.email_ai.tracking_utils import (
+        apply_email_tracking,
+        build_message_id,
+        generate_tracking_id,
+        get_tracking_base_url,
+    )
+    import uuid
+
+    to_email = payload.to_email.strip().lower()
+    if not re.match(r'^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$', to_email):
+        raise HTTPException(status_code=400, detail="Invalid recipient email address")
+
+    uid_str = str(current_user.id)
+
+    # 1. Resolve content: load template or use draft
+    subject = payload.subject or ""
+    body_html = payload.body_html or ""
+    body_text = payload.body_text or ""
+    template_name = "Draft Template"
+
+    if payload.template_id and ObjectId.is_valid(payload.template_id):
+        tmpl = await db["email_ai_templates"].find_one({"_id": ObjectId(payload.template_id)})
+        if tmpl:
+            template_name = tmpl.get("name", "Template")
+            subject = subject or tmpl.get("subject", "")
+            body_html = body_html or tmpl.get("body_html", "")
+            body_text = body_text or tmpl.get("body_text", "")
+
+    if not subject:
+        subject = f"Test Email: {template_name}"
+    if not body_html and not body_text:
+        body_html = "<p>This is a test email preview from LeadFinder AI.</p>"
+
+    # Sample variables substitution
+    sample_lead = {
+        "name": "Jane Doe",
+        "first_name": "Jane",
+        "last_name": "Doe",
+        "email": to_email,
+        "business_name": "Acme Innovations",
+        "company": "Acme Innovations",
+        "phone": "+1 555-0199",
+        "city": "San Francisco",
+        "state": "CA",
+        "country": "United States",
+        "website": "https://example.com",
+    }
+    for k, v in sample_lead.items():
+        subject = subject.replace(f"{{{{{k}}}}}", str(v))
+        if body_html:
+            body_html = body_html.replace(f"{{{{{k}}}}}", str(v))
+        if body_text:
+            body_text = body_text.replace(f"{{{{{k}}}}}", str(v))
+
+    # 2. Resolve SMTP Profile
+    smtp_profile = None
+    if payload.smtp_id and ObjectId.is_valid(payload.smtp_id):
+        smtp_profile = await db["email_ai_smtp"].find_one({"_id": ObjectId(payload.smtp_id), "is_active": True})
+    
+    if not smtp_profile:
+        smtp_profile = await db["email_ai_smtp"].find_one(
+            {"user_id": uid_str, "is_active": True},
+            sort=[("is_default", -1), ("updated_at", -1)]
+        )
+
+    if not smtp_profile or not smtp_profile.get("password"):
+        from app.services.smtp_service import get_user_smtp_config
+        cfg = await get_user_smtp_config(db, uid_str, decrypt_pwd=False)
+        raw_settings = await db["settings"].find_one({"user_id": uid_str})
+        enc_pwd = raw_settings.get("smtp_pass") if raw_settings else ""
+        if cfg and cfg.get("has_password") and enc_pwd:
+            smtp_profile = {
+                "host": cfg.get("smtp_host", "smtp.gmail.com"),
+                "port": cfg.get("smtp_port", 587),
+                "username": cfg.get("smtp_user"),
+                "password": enc_pwd,
+                "encryption": cfg.get("smtp_encryption", "TLS"),
+                "from_email": cfg.get("smtp_from_email") or cfg.get("smtp_user"),
+                "from_name": cfg.get("smtp_sender_name", ""),
+                "timeout": 15,
+            }
+
+    if not smtp_profile or not smtp_profile.get("password"):
+        raise HTTPException(
+            status_code=400,
+            detail="No active SMTP configuration found. Please configure your SMTP App Password in Settings > Email Automation."
+        )
+
+    # 3. Apply tracking & generate Message-ID
+    tracking_id = generate_tracking_id(uid_str, "template_test", to_email, uuid.uuid4().hex)
+    message_id = build_message_id(tracking_id)
+    public_base = get_tracking_base_url()
+    tracked_html = apply_email_tracking(body_html, tracking_id, open_tracking=True, click_tracking=False, base_url=public_base)
+
+    # 4. Dispatch via worker in executor
+    worker = EmailAIQueueWorker(db)
+    loop = asyncio.get_running_loop()
+    try:
+        await loop.run_in_executor(
+            None,
+            worker._send_email_sync,
+            smtp_profile,
+            to_email,
+            subject,
+            tracked_html,
+            body_text,
+            message_id,
+        )
+    except Exception as exc:
+        err_msg = str(exc)
+        logger.error(f"[EmailAI-TemplateTest] Dispatch failed to {to_email}: {err_msg}")
+        raise HTTPException(status_code=400, detail=f"SMTP dispatch failed: {err_msg}")
+
+    # Record in tracking collection
+    now = datetime.now(timezone.utc)
+    track_doc = {
+        "tracking_id": tracking_id,
+        "message_id": message_id,
+        "user_id": uid_str,
+        "campaign_id": "template_test",
+        "campaign_name": f"Test: {template_name}",
+        "lead_id": "test",
+        "lead_name": to_email,
+        "recipient_email": to_email,
+        "subject": subject,
+        "status": "SENT",
+        "error_message": None,
+        "is_test": True,
+        "sent_at": now,
+        "opened": False,
+        "opened_at": None,
+        "open_count": 0,
+        "clicked": False,
+        "clicked_at": None,
+        "click_count": 0,
+        "clicked_urls": [],
+        "replied": False,
+        "replied_at": None,
+        "followups_paused": False,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db["email_tracking"].insert_one(track_doc)
+
+    return {
+        "status": "success",
+        "message": f"Test email successfully sent to {to_email}!",
+        "tracking_id": tracking_id,
+        "recipient": to_email,
+        "subject": subject,
+    }
+
 # ==========================================
 # Campaigns
 # ==========================================

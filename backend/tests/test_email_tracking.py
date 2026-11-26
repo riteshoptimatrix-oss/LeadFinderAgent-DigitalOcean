@@ -290,3 +290,85 @@ def test_tracking_routes_end_to_end():
     assert r_daily.status_code == 200
     assert r_daily.json()["totals"]["sent"] == 1
     assert r_daily.json()["totals"]["opened"] == 1
+
+
+def test_smtp_worker_mime_building_and_inline_cid():
+    """Verify that _send_email_sync constructs RFC-compliant multipart/related MIME with CID for images."""
+    import base64
+    from unittest.mock import MagicMock, patch
+    from app.services.email_ai.smtp_worker import EmailAIQueueWorker
+
+    worker = EmailAIQueueWorker(db=None)
+
+    # 1x1 png base64
+    sample_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+    html_with_b64 = f'<p>Hello world</p><p><img src="data:image/png;base64,{sample_b64}" alt="test" /></p>'
+
+    smtp_profile = {
+        "host": "smtp.example.com",
+        "port": 587,
+        "username": "user@example.com",
+        "password": "app_password_1234",
+        "encryption": "TLS",
+        "from_email": "sender@example.com",
+        "from_name": "Sender Team",
+    }
+
+    sent_payload = {}
+
+    def mock_sendmail(sender, recipients, raw_msg):
+        sent_payload["sender"] = sender
+        sent_payload["recipients"] = recipients
+        sent_payload["raw"] = raw_msg
+
+    mock_smtp = MagicMock()
+    mock_smtp.sendmail.side_effect = mock_sendmail
+
+    with patch("smtplib.SMTP", return_value=mock_smtp):
+        success = worker._send_email_sync(
+            smtp_profile=smtp_profile,
+            to_email="recipient@example.com",
+            subject="Test Subject with Image",
+            html=html_with_b64,
+            text="",  # Text is empty, should auto-generate
+            message_id="<test-msg-123@example.com>",
+        )
+
+    assert success is True
+    raw_text = sent_payload.get("raw", "")
+
+    # Headers verification
+    assert "Subject: Test Subject with Image" in raw_text
+    assert "From: Sender Team <sender@example.com>" in raw_text
+    assert "To: recipient@example.com" in raw_text
+    assert "Date:" in raw_text
+    assert "MIME-Version: 1.0" in raw_text
+    assert "Message-ID: <test-msg-123@example.com>" in raw_text
+
+    # Multipart structure verification
+    assert "multipart/related" in raw_text
+    assert "multipart/alternative" in raw_text
+    assert "text/plain" in raw_text
+
+    # Verify decoded MIME parts
+    import email
+    parsed_msg = email.message_from_string(raw_text)
+    assert parsed_msg.is_multipart()
+
+    # Find plain text part and verify decoded content
+    plain_part = None
+    html_part = None
+    for part in parsed_msg.walk():
+        if part.get_content_type() == "text/plain":
+            plain_part = part
+        elif part.get_content_type() == "text/html":
+            html_part = part
+    assert plain_part is not None
+    assert "Hello world" in plain_part.get_payload(decode=True).decode()
+
+    # Inline image verification (CID replacement in HTML)
+    assert html_part is not None
+    assert "cid:img_" in html_part.get_payload(decode=True).decode()
+    assert "Content-ID: <img_" in raw_text
+    assert "image/png" in raw_text
+

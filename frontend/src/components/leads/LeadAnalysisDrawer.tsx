@@ -519,7 +519,7 @@ export default function LeadAnalysisDrawer({
                   ) : (
                     <p className="text-xs text-slate-600 leading-relaxed bg-slate-50/70 p-3.5 rounded-xl border border-slate-100">
                       {ai.summary ||
-                        `${displayName} is an established regional business with active commercial operations. The business demonstrates solid market presence with an overall digital quality index of ${aiScore || 75}%. Outreach via direct calling and email automation is recommended.`}
+                        `${displayName} is an established regional business with active commercial operations. The business demonstrates solid market presence with an overall digital quality index of ${aiScore || 75}%. Outreach via direct calling and Mail Sender is recommended.`}
                     </p>
                   )}
                 </div>

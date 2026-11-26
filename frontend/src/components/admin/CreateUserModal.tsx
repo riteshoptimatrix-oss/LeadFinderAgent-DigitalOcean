@@ -324,7 +324,7 @@ export default function CreateUserModal({ isOpen, onClose, onSuccess }: CreateUs
               )}
             </div>
 
-            {/* Email Automation Feature Access */}
+            {/* Mail Sender Feature Access */}
             <div className="sm:col-span-2 pt-2 border-t border-slate-100 space-y-3">
               <div className="flex items-center justify-between p-3.5 rounded-2xl bg-orange-50/70 border border-orange-200/80">
                 <div className="flex items-center gap-3">
@@ -332,8 +332,8 @@ export default function CreateUserModal({ isOpen, onClose, onSuccess }: CreateUs
                     <Mail className="w-4 h-4" />
                   </div>
                   <div>
-                    <span className="text-xs font-bold text-slate-900 block">Email Automation Access</span>
-                    <span className="text-[11px] text-slate-500">Allow this user to access Email Automation and SMTP settings.</span>
+                    <span className="text-xs font-bold text-slate-900 block">Mail Sender Access</span>
+                    <span className="text-[11px] text-slate-500">Allow this user to access Mail Sender and SMTP settings.</span>
                   </div>
                 </div>
                 <button

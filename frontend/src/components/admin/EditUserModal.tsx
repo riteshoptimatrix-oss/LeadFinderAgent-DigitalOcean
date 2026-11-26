@@ -476,7 +476,7 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
               )}
             </div>
 
-            {/* Email Automation Feature Access Section */}
+            {/* Mail Sender Feature Access Section */}
             <div className="sm:col-span-2 pt-3 border-t border-slate-100 space-y-3">
               <div className="flex items-center justify-between p-3.5 rounded-2xl bg-orange-50/70 border border-orange-200/80">
                 <div className="flex items-center gap-3">
@@ -485,7 +485,7 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-slate-900">Email Automation Access</span>
+                      <span className="text-xs font-bold text-slate-900">Mail Sender Access</span>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         formData.email_automation_access
                           ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
@@ -495,7 +495,7 @@ export default function EditUserModal({ user, isOpen, onClose, onSuccess }: Edit
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-500">
-                      When enabled, this user sees Email Automation in sidebar navigation and can configure SMTP in Settings.
+                      When enabled, this user sees Mail Sender in sidebar navigation and can configure SMTP in Settings.
                     </p>
                   </div>
                 </div>

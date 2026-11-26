@@ -311,7 +311,7 @@ export default function EmailAIPage() {
         </div>
         <h2 className="text-xl font-bold text-slate-900 mb-2">Access Restricted</h2>
         <p className="text-sm text-slate-500 max-w-md mb-6 leading-relaxed">
-          Email Automation has been disabled for your account by your administrator. Please contact your system administrator to enable access.
+          Mail Sender has been disabled for your account by your administrator. Please contact your system administrator to enable access.
         </p>
         <button
           onClick={() => router.push('/dashboard')}
@@ -331,8 +331,8 @@ export default function EmailAIPage() {
       {/* Page Header */}
       <div className="flex-none mb-5">
         <PageHeader
-          breadcrumbs={[{ label: 'Outbound AI', href: '#' }, { label: 'Email Automation' }]}
-          title="Email Automation"
+          breadcrumbs={[{ label: 'Outbound AI', href: '#' }, { label: 'Mail Sender' }]}
+          title="Mail Sender"
           description="Cold email engine with AI-personalized copy, SMTP rotation, and real-time dispatch tracking."
         />
       </div>

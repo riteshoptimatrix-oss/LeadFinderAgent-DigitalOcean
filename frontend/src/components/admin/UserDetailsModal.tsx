@@ -287,7 +287,7 @@ export default function UserDetailsModal({ userId, isOpen, onClose, onImpersonat
                       }`} />
                     <div>
                       <span className={`text-[10px] block font-bold uppercase tracking-wider ${user.email_automation_access ? 'text-orange-700' : 'text-slate-500'
-                        }`}>Email Automation Access</span>
+                        }`}>Mail Sender Access</span>
                       <span className={`font-bold ${user.email_automation_access ? 'text-slate-900' : 'text-slate-600'
                         }`}>
                         {user.email_automation_access ? 'Enabled' : 'Disabled'}

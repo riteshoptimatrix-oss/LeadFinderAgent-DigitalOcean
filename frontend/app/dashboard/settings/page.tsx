@@ -63,7 +63,7 @@ const TABS: SettingTab[] = [
   { id: 'search', label: 'Search Engine', icon: Search, group: 'Workspace', desc: 'Google & scraping limits' },
   { id: 'ai', label: 'AI Intelligence', icon: BrainCircuit, group: 'Workspace', desc: 'Opti Matrix models & scoring' },
   { id: 'crm', label: 'CRM & Pipeline', icon: Users, group: 'Workspace', desc: 'Webhooks & lead sync' },
-  { id: 'email', label: 'Email Automation', icon: Mail, group: 'Integrations', desc: 'SMTP & tracking rules' },
+  { id: 'email', label: 'Mail Sender', icon: Mail, group: 'Integrations', desc: 'SMTP & tracking rules' },
   { id: 'whatsapp', label: 'WhatsApp Gateway', icon: MessageSquare, group: 'Integrations', desc: 'Cloud API credentials' }
 ];
 

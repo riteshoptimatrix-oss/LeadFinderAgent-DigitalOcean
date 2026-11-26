@@ -557,7 +557,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
       {/* Section Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold text-slate-900">Email Automation</h2>
+          <h2 className="text-xl font-bold text-slate-900">Mail Sender</h2>
           <p className="text-sm text-slate-500 mt-1">
             Intelligent email provider auto-detection, setup guide, and SMTP/IMAP configuration for Email AI campaigns.
           </p>

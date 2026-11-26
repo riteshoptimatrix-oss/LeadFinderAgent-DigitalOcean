@@ -68,7 +68,7 @@ export default function HomePage() {
     },
     {
       icon: Mail,
-      title: 'Email Automation',
+      title: 'Mail Sender',
       description:
         'Send personalized cold-email sequences at scale with AI-written drafts, smart follow-ups, and detailed deliverability tracking.',
       color: 'bg-rose-500/10 text-rose-500 border border-rose-500/20',

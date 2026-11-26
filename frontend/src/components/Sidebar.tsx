@@ -202,7 +202,7 @@ export default function Sidebar() {
           }
         },
         ...(hasEmailAccess ? [{
-          name: 'Email Automation',
+          name: 'Mail Sender',
           href: '/dashboard/email-ai',
           icon: Mail,
           badgeBox: {

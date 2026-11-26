@@ -1030,6 +1030,17 @@ async def get_campaign_emails(
         if lid:
             logs_map[lid] = log
 
+    # Map tracking by lead_id or recipient_email
+    tracking_docs = await db["email_tracking"].find({"campaign_id": campaign_id}).to_list(1000)
+    tracking_map = {}
+    for td in tracking_docs:
+        t_lid = str(td.get("lead_id") or "")
+        t_em = (td.get("recipient_email") or "").lower().strip()
+        if t_lid:
+            tracking_map[t_lid] = td
+        if t_em:
+            tracking_map[t_em] = td
+
     # 4. Build consolidated email records
     email_records = []
     for lid in lead_ids_ordered:
@@ -1054,6 +1065,20 @@ async def get_campaign_emails(
             norm_status = "Sending"
         else:
             norm_status = "Pending"
+
+        # Check engagement from tracking records
+        tracked = tracking_map.get(lid) or tracking_map.get(str(lead_doc.get("email") or "").lower().strip())
+        if tracked:
+            if tracked.get("replied") or str(tracked.get("status")).upper() == "REPLIED":
+                norm_status = "Replied"
+            elif tracked.get("opened") or str(tracked.get("status")).upper() == "OPENED":
+                norm_status = "Opened"
+            elif tracked.get("clicked"):
+                norm_status = "Clicked"
+            elif tracked.get("bounced"):
+                norm_status = "Bounced"
+            elif tracked.get("unsubscribed"):
+                norm_status = "Unsubscribed"
 
         # Determine error explanation
         error_msg = (

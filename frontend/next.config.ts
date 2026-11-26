@@ -18,6 +18,27 @@ const nextConfig: NextConfig = {
   // Trailing slash configuration
   trailingSlash: false,
 
+  async rewrites() {
+    return [
+      {
+        source: '/open/:tracking_id',
+        destination: 'http://127.0.0.1:8000/api/v1/tracking/open/:tracking_id',
+      },
+      {
+        source: '/pixel/:tracking_id',
+        destination: 'http://127.0.0.1:8000/api/v1/tracking/open/:tracking_id',
+      },
+      {
+        source: '/track',
+        destination: 'http://127.0.0.1:8000/api/v1/tracking/track',
+      },
+      {
+        source: '/track.php',
+        destination: 'http://127.0.0.1:8000/api/v1/tracking/track.php',
+      },
+    ];
+  },
+
   webpack: (config, { dev, isServer }) => {
     if (dev && !isServer) {
       config.output = {

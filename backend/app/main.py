@@ -586,7 +586,7 @@ async def favicon():
 @app.get("/robots.txt")
 async def robots_txt():
     """Handle robots.txt requests."""
-    content = "User-agent: *\nDisallow: /api/\nDisallow: /admin/\nAllow: /\n\nSitemap: /sitemap.xml"
+    content = "User-agent: *\nAllow: /\n\nSitemap: /sitemap.xml"
     return Response(content=content, media_type="text/plain")
 
 @app.get("/sitemap.xml") 

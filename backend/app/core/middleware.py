@@ -8,12 +8,25 @@ from app.core.logger import logger
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
+        path = request.url.path
+
+        # Don't add restrictive CSP or framing on public tracking pixels, webhooks, or open redirects
+        if path.startswith(("/open", "/track", "/api/v1/tracking/open", "/api/v1/tracking/click", "/api/v1/tracking/pixel", "/api/v1/tracking/unsubscribe", "/pixel")):
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            if "Content-Security-Policy" in response.headers:
+                del response.headers["Content-Security-Policy"]
+            if "X-Frame-Options" in response.headers:
+                del response.headers["X-Frame-Options"]
+            return response
+
         # Helmet-like Secure Headers
         response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src * data: blob:; connect-src 'self' ws: wss:"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response

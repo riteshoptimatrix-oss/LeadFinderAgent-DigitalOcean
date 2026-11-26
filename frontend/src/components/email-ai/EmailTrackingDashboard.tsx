@@ -205,7 +205,7 @@ export default function EmailTrackingDashboard() {
       const res = await api.get(`/tracking/events?${params.toString()}`);
       return res.data;
     },
-    refetchInterval: 15000,
+    refetchInterval: 3000,
   });
 
   const { data: dailyReport, isLoading: dailyLoading } = useQuery<DailyReportResponse>({
@@ -313,8 +313,13 @@ export default function EmailTrackingDashboard() {
                 evType === 'email_sent'
               ) {
                 queryClient.invalidateQueries({ queryKey: ['email-tracking-stats'] });
+                queryClient.refetchQueries({ queryKey: ['email-tracking-stats'] });
                 queryClient.invalidateQueries({ queryKey: ['email-tracking-events'] });
+                queryClient.refetchQueries({ queryKey: ['email-tracking-events'] });
                 queryClient.invalidateQueries({ queryKey: ['email-tracking-daily-report'] });
+              }
+              if (evType === 'email_opened') {
+                toast.info(`Email open detected: ${msg.email || msg.lead_name || 'Recipient'} viewed your email!`);
               }
               if (evType === 'email_replied') {
                 toast.success(msg.message || `${msg.lead_name || 'A lead'} has replied to your email!`, {
@@ -348,6 +353,12 @@ export default function EmailTrackingDashboard() {
     }, [queryClient]);
 
   const items = useMemo(() => eventsData?.data || [], [eventsData]);
+
+  // Keep modal detail synchronized in real-time when tracking events arrive
+  const activeItem = useMemo(() => {
+    if (!selectedItem) return null;
+    return items.find((i) => i._id === selectedItem._id) || selectedItem;
+  }, [items, selectedItem]);
   const dailyRows = useMemo(() => dailyReport?.rows || [], [dailyReport]);
   const maxDailySent = useMemo(
     () => Math.max(1, ...dailyRows.map((r) => Math.max(r.sent, r.opened, r.clicked))),
@@ -825,17 +836,17 @@ export default function EmailTrackingDashboard() {
       )}
 
                           {/* Email Tracking Detail & Event Timeline Modal */}
-                          {selectedItem && (
+                          {activeItem && (
                             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4">
                                 <div className="bg-white rounded-2xl border border-slate-200 shadow-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 space-y-5">
                                   <div className="flex items-start justify-between gap-4">
                                     <div>
-                                      <h3 className="text-base font-bold text-slate-900">{selectedItem.lead_name}</h3>
+                                      <h3 className="text-base font-bold text-slate-900">{activeItem.lead_name}</h3>
                                       <p className="text-xs text-slate-500">
-                                        {selectedItem.recipient_email} · {selectedItem.campaign_name}
+                                        {activeItem.recipient_email} · {activeItem.campaign_name}
                                       </p>
                                       <p className="text-xs text-slate-700 font-medium mt-1">
-                                        Subject: {selectedItem.subject || '(No subject)'}
+                                        Subject: {activeItem.subject || '(No subject)'}
                                       </p>
                                     </div>
                                     <button
@@ -847,33 +858,33 @@ export default function EmailTrackingDashboard() {
                                   </div>
 
                                       {/* Client Metadata */}
-                                      {(selectedItem.last_ip || selectedItem.last_user_agent) && (
+                                      {(activeItem.last_ip || activeItem.last_user_agent) && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-slate-50 rounded-xl p-3.5 border border-slate-200 text-xs">
                 <div className="flex items-center gap-2 text-slate-600">
                   <Globe className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span className="truncate">Last IP: {selectedItem.last_ip || '—'}</span>
+                  <span className="truncate">Last IP: {activeItem.last_ip || '—'}</span>
                 </div>
                 <div className="flex items-center gap-2 text-slate-600">
                   <Monitor className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                  <span className="truncate" title={selectedItem.last_user_agent || ''}>
-                    UA: {selectedItem.last_user_agent || '—'}
+                  <span className="truncate" title={activeItem.last_user_agent || ''}>
+                    UA: {activeItem.last_user_agent || '—'}
                   </span>
                 </div>
               </div>
             )}
 
             {/* Reply Snippet if Replied */}
-            {selectedItem.replied && (() => {
-              const parsed = parseReplyText(selectedItem.reply_snippet);
+            {activeItem.replied && (() => {
+              const parsed = parseReplyText(activeItem.reply_snippet);
               return (
                 <div className="bg-purple-50/70 rounded-xl p-4 border border-purple-200 space-y-3">
                   <div className="flex items-center justify-between border-b border-purple-200/60 pb-2 flex-wrap gap-2">
                     <div>
                       <div className="text-xs font-bold text-purple-900">
-                        Reply: {selectedItem.reply_subject || '(No Subject)'}
+                        Reply: {activeItem.reply_subject || '(No Subject)'}
                       </div>
                       <div className="text-[11px] text-purple-600">
-                        From {selectedItem.reply_from || selectedItem.recipient_email} · {formatDateTime(selectedItem.replied_at)}
+                        From {activeItem.reply_from || activeItem.recipient_email} · {formatDateTime(activeItem.replied_at)}
                       </div>
                     </div>
                     <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-300">
@@ -905,13 +916,13 @@ export default function EmailTrackingDashboard() {
             })()}
 
             {/* Clicked URLs */}
-            {selectedItem.clicked_urls && selectedItem.clicked_urls.length > 0 && (
+            {activeItem.clicked_urls && activeItem.clicked_urls.length > 0 && (
               <div className="space-y-2">
                 <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                  Clicked Links ({selectedItem.clicked_urls.length})
+                  Clicked Links ({activeItem.clicked_urls.length})
                 </div>
                 <div className="space-y-1.5 max-h-36 overflow-y-auto">
-                  {selectedItem.clicked_urls.map((c, idx) => (
+                  {activeItem.clicked_urls.map((c, idx) => (
                     <div
                       key={`${c.url}-${idx}`}
                       className="flex items-center justify-between gap-2 text-xs bg-slate-50 px-3 py-2 rounded-lg border border-slate-200"
@@ -927,9 +938,9 @@ export default function EmailTrackingDashboard() {
             {/* Event History Timeline */}
             <div className="space-y-2">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-400">Event History</div>
-              {selectedItem.event_history && selectedItem.event_history.length > 0 ? (
+              {activeItem.event_history && activeItem.event_history.length > 0 ? (
                 <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                  {[...selectedItem.event_history].reverse().map((ev, idx) => (
+                  {[...activeItem.event_history].reverse().map((ev, idx) => (
                     <div
                       key={`${ev.type}-${ev.timestamp}-${idx}`}
                       className="flex items-start justify-between gap-3 text-xs bg-slate-50 px-3 py-2.5 rounded-xl border border-slate-200"
@@ -951,14 +962,14 @@ export default function EmailTrackingDashboard() {
                 </div>
               ) : (
                 <div className="text-xs text-slate-400 bg-slate-50 p-3 rounded-xl border border-slate-200">
-                  Sent at {formatDateTime(selectedItem.sent_at)}
-                  {selectedItem.opened && ` · Opened ${selectedItem.open_count}×`}
-                  {selectedItem.clicked && ` · Clicked ${selectedItem.click_count}×`}
+                  Sent at {formatDateTime(activeItem.sent_at)}
+                  {activeItem.opened && ` · Opened ${activeItem.open_count}×`}
+                  {activeItem.clicked && ` · Clicked ${activeItem.click_count}×`}
                 </div>
               )}
             </div>
 
-            {selectedItem.followups_paused && (
+            {activeItem.followups_paused && (
               <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
                 <PauseCircle className="w-4 h-4 shrink-0" />
                 <span>Automated follow-ups for this lead are paused.</span>

@@ -124,6 +124,22 @@ async def require_email_automation_access(
     return current_user
 
 
+EMAIL_TESTING_ALLOWED_EMAIL = "khushi.optimatrix@gmail.com"
+
+
+async def require_email_testing_access(
+    current_user: UserInDB = Depends(require_email_automation_access),
+) -> UserInDB:
+    """Exclusive access guard for Email Testing (restricted to khushi.optimatrix@gmail.com)."""
+    user_email = str(getattr(current_user, "email", "") or "").strip().lower()
+    if user_email != EMAIL_TESTING_ALLOWED_EMAIL:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied: Email Testing is exclusively enabled for authorized user.",
+        )
+    return current_user
+
+
 async def require_whatsapp_automation_access(
     current_user: UserInDB = Depends(get_current_user),
 ) -> UserInDB:

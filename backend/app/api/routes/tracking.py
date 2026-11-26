@@ -11,20 +11,27 @@ Authenticated dashboard endpoints (scoped to user):
   POST /api/v1/tracking/check-replies
 """
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import uuid
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, EmailStr
 
-from app.api.dependencies import require_email_automation_access
+from app.api.dependencies import require_email_automation_access, require_email_testing_access
+from app.core.config import settings as app_settings
 from app.core.logger import logger
 from app.core.websocket import manager
 from app.db.database import get_db
 from app.models.user import UserInDB
 from app.services.email_ai.tracking_utils import (
     TRANSPARENT_1X1_GIF,
+    apply_email_tracking,
+    build_message_id,
+    generate_tracking_id,
     is_safe_redirect_url,
 )
 from app.services.ws_manager import ws_manager
@@ -320,3 +327,190 @@ async def trigger_reply_check(
     worker = EmailReplyWorker(db)
     summary = await worker.check_user_replies(str(current_user.id))
     return summary
+
+
+# ==========================================
+# Exclusive Email Testing Endpoints (khushi.optimatrix@gmail.com only)
+# ==========================================
+
+class EmailTestSendRequest(BaseModel):
+    to_email: EmailStr
+
+
+def _compute_verification_status(doc: Dict[str, Any]) -> str:
+    if doc.get("opened") or doc.get("clicked") or doc.get("replied"):
+        return "Success"
+    if str(doc.get("status") or "").upper() == "FAILED":
+        return "Failed"
+    return "Pending"
+
+
+def _serialize_test_record(d: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "_id": str(d["_id"]),
+        "tracking_id": d.get("tracking_id"),
+        "message_id": d.get("message_id"),
+        "to_email": d.get("recipient_email"),
+        "subject": d.get("subject"),
+        "status": d.get("status", "SENT"),
+        "verification_status": _compute_verification_status(d),
+        "error": d.get("error_message"),
+        "sent_at": d["sent_at"].isoformat() if hasattr(d.get("sent_at"), "isoformat") else d.get("sent_at"),
+        "opened": bool(d.get("opened", False)),
+        "opened_at": d["opened_at"].isoformat() if hasattr(d.get("opened_at"), "isoformat") else d.get("opened_at"),
+        "open_count": int(d.get("open_count", 0)),
+        "clicked": bool(d.get("clicked", False)),
+        "clicked_at": d["clicked_at"].isoformat() if hasattr(d.get("clicked_at"), "isoformat") else d.get("clicked_at"),
+        "click_count": int(d.get("click_count", 0)),
+        "replied": bool(d.get("replied", False)),
+        "replied_at": d["replied_at"].isoformat() if hasattr(d.get("replied_at"), "isoformat") else d.get("replied_at"),
+        "reply_subject": d.get("reply_subject"),
+        "reply_snippet": d.get("reply_snippet"),
+    }
+
+
+@router.post("/test-email")
+async def send_tracking_test_email(
+    payload: EmailTestSendRequest,
+    current_user: UserInDB = Depends(require_email_testing_access),
+    db=Depends(get_db),
+):
+    """Send a tracked test email using the user's configured SMTP profile to verify tracking."""
+    from app.services.email_ai.smtp_worker import EmailAIQueueWorker
+    from app.services.smtp_service import get_user_smtp_config
+
+    uid_str = str(current_user.id)
+    to_email = str(payload.to_email).strip().lower()
+
+    # Resolve SMTP profile (reuse existing Email AI + Settings fallback logic)
+    smtp_profile = await db["email_ai_smtp"].find_one(
+        {"user_id": uid_str, "is_active": True},
+        sort=[("is_default", -1), ("updated_at", -1)],
+    )
+    if not smtp_profile or not smtp_profile.get("password"):
+        cfg = await get_user_smtp_config(db, uid_str, decrypt_pwd=False)
+        raw_settings = await db["settings"].find_one({"user_id": uid_str})
+        enc_pwd = raw_settings.get("smtp_pass") if raw_settings else ""
+        if cfg and cfg.get("has_password") and enc_pwd:
+            smtp_profile = {
+                "host": cfg.get("smtp_host", "smtp.gmail.com"),
+                "port": cfg.get("smtp_port", 587),
+                "username": cfg.get("smtp_user"),
+                "password": enc_pwd,
+                "encryption": cfg.get("smtp_encryption", "TLS"),
+                "from_email": cfg.get("smtp_from_email") or cfg.get("smtp_user"),
+                "from_name": cfg.get("smtp_sender_name", ""),
+                "timeout": 15,
+            }
+
+    if not smtp_profile or not smtp_profile.get("password"):
+        raise HTTPException(
+            status_code=400,
+            detail="No active SMTP configuration found. Please save your SMTP credentials in Settings > Email Automation.",
+        )
+
+    tracking_id = generate_tracking_id(uid_str, "email_testing", to_email, uuid.uuid4().hex)
+    message_id = build_message_id(tracking_id)
+    now = datetime.now(timezone.utc)
+    verify_url = (app_settings.FRONTEND_BASE_URL or "http://localhost:3000").strip().rstrip("/")
+    subject = "Email Tracking Verification Test"
+    raw_html = (
+        "<html><body style='font-family:Arial,sans-serif;color:#1e293b;line-height:1.6;'>"
+        "<h2 style='margin-bottom:8px;'>Email Tracking Verification</h2>"
+        "<p>This is an automated test email sent from LeadFinderAgent to verify open, link-click, and reply tracking.</p>"
+        f"<p><a href='{verify_url}' style='display:inline-block;padding:10px 18px;background:#2563eb;color:#ffffff;"
+        "text-decoration:none;border-radius:8px;font-weight:bold;'>Verify Link Click Tracking</a></p>"
+        "<p style='font-size:12px;color:#64748b;'>You can also reply to this email to verify IMAP reply detection.</p>"
+        "</body></html>"
+    )
+    text_body = (
+        "Email Tracking Verification\n\n"
+        "This is a test email from LeadFinderAgent to verify open, click, and reply tracking.\n"
+        f"Verify link: {verify_url}\n"
+    )
+    tracked_html = apply_email_tracking(raw_html, tracking_id, open_tracking=True, click_tracking=True)
+
+    worker = EmailAIQueueWorker(db)
+    loop = asyncio.get_running_loop()
+    send_error: Optional[str] = None
+    try:
+        await loop.run_in_executor(
+            None,
+            worker._send_email_sync,
+            smtp_profile,
+            to_email,
+            subject,
+            tracked_html,
+            text_body,
+            message_id,
+        )
+    except Exception as exc:
+        send_error = str(exc) or "SMTP send failed"
+        logger.error(f"[EmailTesting] Test email send failed for {to_email}: {send_error}")
+
+    doc = {
+        "tracking_id": tracking_id,
+        "message_id": message_id,
+        "user_id": uid_str,
+        "campaign_id": "email_testing",
+        "campaign_name": "Email Testing",
+        "lead_id": "test",
+        "lead_name": to_email,
+        "recipient_email": to_email,
+        "subject": subject,
+        "status": "FAILED" if send_error else "SENT",
+        "error_message": send_error,
+        "is_test": True,
+        "sent_at": now,
+        "opened": False,
+        "opened_at": None,
+        "open_count": 0,
+        "clicked": False,
+        "clicked_at": None,
+        "click_count": 0,
+        "clicked_urls": [],
+        "replied": False,
+        "replied_at": None,
+        "reply_subject": None,
+        "reply_snippet": None,
+        "reply_from": None,
+        "followups_paused": False,
+        "created_at": now,
+        "updated_at": now,
+    }
+    res = await db["email_tracking"].insert_one(doc)
+    doc["_id"] = res.inserted_id
+    return _serialize_test_record(doc)
+
+
+@router.get("/test-email/history")
+async def get_test_email_history(
+    limit: int = Query(10, ge=1, le=50),
+    current_user: UserInDB = Depends(require_email_testing_access),
+    db=Depends(get_db),
+):
+    """Fetch recent Email Testing verification records for khushi.optimatrix@gmail.com."""
+    docs = (
+        await db["email_tracking"]
+        .find({"$or": _user_match_filter(current_user), "is_test": True})
+        .sort("sent_at", -1)
+        .limit(limit)
+        .to_list(limit)
+    )
+    return {"data": [_serialize_test_record(d) for d in docs]}
+
+
+@router.get("/test-email/{tracking_id}")
+async def get_test_email_status(
+    tracking_id: str,
+    current_user: UserInDB = Depends(require_email_testing_access),
+    db=Depends(get_db),
+):
+    """Fetch verification status (Pending / Success / Failed) for a specific test email."""
+    doc = await db["email_tracking"].find_one({
+        "tracking_id": tracking_id,
+        "$or": _user_match_filter(current_user),
+    })
+    if not doc:
+        raise HTTPException(status_code=404, detail="Test tracking record not found")
+    return _serialize_test_record(doc)

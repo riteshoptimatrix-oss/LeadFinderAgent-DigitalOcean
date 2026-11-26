@@ -27,14 +27,16 @@ import SMTPManager from '@/src/components/email-ai/SMTPManager';
 import EmailErrorCenter from '@/src/components/email-ai/EmailErrorCenter';
 import EmailErrorBoundary from '@/src/components/email-ai/EmailErrorBoundary';
 import EmailTrackingDashboard from '@/src/components/email-ai/EmailTrackingDashboard';
+import EmailTestingPanel from '@/src/components/email-ai/EmailTestingPanel';
 import { PageHeader } from '@/src/components/common/PageHeader';
 import { cn } from '@/src/lib/utils';
-import { Eye } from 'lucide-react';
+import { Eye, FlaskConical } from 'lucide-react';
 
 export type Tab =
   | 'dashboard'
   | 'live'
   | 'tracking'
+  | 'testing'
   | 'leads'
   | 'templates'
   | 'campaigns'
@@ -46,6 +48,7 @@ const VALID_TABS: Tab[] = [
   'dashboard',
   'live',
   'tracking',
+  'testing',
   'leads',
   'templates',
   'campaigns',
@@ -101,6 +104,9 @@ export default function EmailAIPage() {
 
   // Strict sequential validation rule
   const validateNavigation = (targetTab: Tab, notify = true): { allowed: boolean; redirectTab?: Tab } => {
+    if (targetTab === 'testing' && (userProfile?.email || '').trim().toLowerCase() !== 'khushi.optimatrix@gmail.com') {
+      return { allowed: false, redirectTab: 'dashboard' };
+    }
     // Non-workflow tabs (Dashboard, History, SMTP, Errors) are always accessible
     if (!WORKFLOW_TAB_IDS.includes(targetTab)) {
       return { allowed: true };
@@ -195,6 +201,7 @@ export default function EmailAIPage() {
     userProfile?.is_superuser === true;
 
   const hasAccess = isAdmin || userProfile?.email_automation_access === true;
+  const canAccessEmailTesting = (userProfile?.email || '').trim().toLowerCase() === 'khushi.optimatrix@gmail.com';
 
   // Fetch SMTP profiles for the status pill
   const { data: smtpProfiles = [] } = useQuery({
@@ -286,13 +293,14 @@ export default function EmailAIPage() {
     { id: 'dashboard' as Tab, label: 'Analytics', icon: BarChart3 },
     { id: 'live' as Tab, label: 'Live Dispatch', icon: Activity, badge: 'Live' },
     { id: 'tracking' as Tab, label: 'Email Tracking', icon: Eye },
+    ...(canAccessEmailTesting ? [{ id: 'testing' as Tab, label: 'Email Testing', icon: FlaskConical }] : []),
     { id: 'leads' as Tab, label: 'Target Leads', icon: ListTodo },
     { id: 'templates' as Tab, label: 'Templates', icon: Sparkles },
     { id: 'campaigns' as Tab, label: 'Campaign Wizard', icon: Rocket },
     { id: 'history' as Tab, label: 'History', icon: History },
     { id: 'smtp' as Tab, label: 'SMTP Senders', icon: Server },
     { id: 'errors' as Tab, label: 'Deliverability', icon: ShieldAlert },
-  ] as const;
+  ];
 
   // Access restricted view
   if (!isProfileLoading && userProfile && !hasAccess) {
@@ -482,6 +490,7 @@ export default function EmailAIPage() {
           {activeTab === 'dashboard' && <EmailAnalyticsDashboard />}
           {activeTab === 'live' && <EmailLiveDashboard />}
           {activeTab === 'tracking' && <EmailTrackingDashboard />}
+          {activeTab === 'testing' && canAccessEmailTesting && <EmailTestingPanel />}
           {activeTab === 'leads' && <EmailLeadsSelection />}
           {activeTab === 'templates' && <EmailTemplateManager />}
           {activeTab === 'campaigns' && <EmailCampaignWizard />}

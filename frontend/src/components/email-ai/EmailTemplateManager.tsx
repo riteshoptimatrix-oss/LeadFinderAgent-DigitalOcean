@@ -268,10 +268,38 @@ export default function EmailTemplateManager() {
   };
 
   const insertBlock = (html: string) => {
+    let newHtml = '';
     if (htmlMode) {
-      setFormData(prev => ({ ...prev, body_html: prev.body_html + html }));
+      newHtml = (formData.body_html || '') + '\n' + html;
+      setFormData(prev => ({ ...prev, body_html: newHtml }));
     } else {
-      execCommand('insertHTML', html);
+      if (editorRef.current) {
+        editorRef.current.focus();
+        let inserted = false;
+        try {
+          inserted = document.execCommand('insertHTML', false, html);
+        } catch {
+          inserted = false;
+        }
+        if (!inserted) {
+          // If execCommand failed (because selection was lost while user was in modal),
+          // append directly to innerHTML so media is guaranteed to be inserted
+          editorRef.current.innerHTML = (editorRef.current.innerHTML || '') + '\n' + html;
+        }
+        newHtml = editorRef.current.innerHTML;
+        setFormData(prev => ({ ...prev, body_html: newHtml }));
+      } else {
+        newHtml = (formData.body_html || '') + '\n' + html;
+        setFormData(prev => ({ ...prev, body_html: newHtml }));
+      }
+    }
+
+    // Instant save to backend so inserted media is persisted immediately
+    if (activeTemplateId) {
+      updateMutation.mutate({
+        id: activeTemplateId,
+        data: { ...formData, body_html: newHtml }
+      });
     }
   };
 

@@ -88,8 +88,14 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
         self.max_size_bytes = max_size_mb * 1024 * 1024
 
     async def dispatch(self, request: Request, call_next):
+        # Allow larger payload for media upload endpoint (up to 70MB)
+        if request.url.path.startswith(("/api/v1/media/upload", "/media/upload")):
+            max_bytes = 70 * 1024 * 1024
+        else:
+            max_bytes = self.max_size_bytes
+
         content_length = request.headers.get("content-length")
-        if content_length and int(content_length) > self.max_size_bytes:
+        if content_length and int(content_length) > max_bytes:
             from starlette.responses import JSONResponse
             return JSONResponse(
                 status_code=413,
@@ -97,7 +103,7 @@ class RequestSizeLimitMiddleware(BaseHTTPMiddleware):
                     "status": "error",
                     "error": {
                         "code": "PAYLOAD_TOO_LARGE",
-                        "message": f"Request body exceeds maximum allowed size of {self.max_size_bytes // (1024 * 1024)}MB"
+                        "message": f"Request body exceeds maximum allowed size of {max_bytes // (1024 * 1024)}MB"
                     }
                 }
             )

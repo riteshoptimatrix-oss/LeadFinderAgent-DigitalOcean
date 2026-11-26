@@ -106,9 +106,7 @@ export default function EmailMediaModal({
     formData.append('file', file);
 
     try {
-      const res = await api.post('/media/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const res = await api.post('/media/upload', formData);
       const data: MediaItem = res.data;
       setImageUrl(data.url);
       if (!imageAlt) setImageAlt(file.name.replace(/\.[^/.]+$/, ''));
@@ -137,9 +135,7 @@ export default function EmailMediaModal({
     formData.append('file', file);
 
     try {
-      const res = await api.post('/media/upload', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
+      const res = await api.post('/media/upload', formData);
       const data: MediaItem = res.data;
       setVideoUrl(data.url);
       if (!videoTitle || videoTitle === 'Watch Video Presentation') {

@@ -18,6 +18,7 @@ from app.services.email_ai.tracking_utils import (
     build_message_id,
     build_unsubscribe_url,
     generate_tracking_id,
+    get_tracking_base_url,
 )
 from app.services.ws_manager import ws_manager
 from app.services.worker_manager import shutdown_event
@@ -335,7 +336,8 @@ class EmailAIQueueWorker:
             # Generate unique tracking ID & Message-ID, and integrate tracking pixel / click URLs / unsubscribe
             tracking_id = generate_tracking_id(uid_str, campaign_id, str(lead_id), str(job_id))
             message_id = build_message_id(tracking_id)
-            unsub_url = build_unsubscribe_url(tracking_id)
+            public_base = get_tracking_base_url()
+            unsub_url = build_unsubscribe_url(tracking_id, base_url=public_base)
             if body_text:
                 body_text = body_text.replace("{{unsub_url}}", unsub_url)
             tracking_cfg = campaign.get("tracking") or {}
@@ -348,6 +350,7 @@ class EmailAIQueueWorker:
                     tracking_id,
                     open_tracking=open_tracking,
                     click_tracking=click_tracking,
+                    base_url=public_base,
                 )
             elif body_text and (open_tracking or click_tracking):
                 import html as html_lib
@@ -357,6 +360,7 @@ class EmailAIQueueWorker:
                     tracking_id,
                     open_tracking=open_tracking,
                     click_tracking=click_tracking,
+                    base_url=public_base,
                 )
 
             logger.info(f"[EmailAI-SmtpWorker] Template rendered for lead {lead_id} (tracking_id={tracking_id})")

@@ -28,27 +28,114 @@ _HREF_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
+# In-memory storage for last detected active public base URL from incoming requests
+_DETECTED_PUBLIC_BASE_URL: Optional[str] = None
+PRODUCTION_DOMAIN_FALLBACK: str = "https://leadfinder.easymsgsender.com"
+
+
+def record_detected_public_base_url(url: Optional[str]) -> None:
+    """Record a known public base URL observed from an active request."""
+    global _DETECTED_PUBLIC_BASE_URL
+    if not url or not isinstance(url, str):
+        return
+    clean = url.strip().rstrip("/")
+    if clean.startswith("http://") or clean.startswith("https://"):
+        try:
+            parsed = urlparse(clean)
+            host = (parsed.hostname or "").lower()
+            if host and host not in ("localhost", "127.0.0.1", "0.0.0.0", "testserver"):
+                _DETECTED_PUBLIC_BASE_URL = clean
+        except Exception:
+            pass
+
+
+def resolve_request_base_url(request: Request) -> str:
+    """Intelligently detect the real external base URL from incoming HTTP Request headers.
+
+    Checks (in priority order):
+    1. Origin header (e.g. https://leadfinder.easymsgsender.com)
+    2. Referer header (e.g. https://leadfinder.easymsgsender.com/dashboard/email-ai)
+    3. X-Forwarded-Proto + X-Forwarded-Host
+    4. Host header (if not localhost)
+    5. Fallback to get_tracking_base_url()
+    """
+    if not request:
+        return get_tracking_base_url()
+
+    # 1. Origin header
+    origin = (request.headers.get("origin") or "").strip().rstrip("/")
+    if origin and "localhost" not in origin and "127.0.0.1" not in origin:
+        record_detected_public_base_url(origin)
+        return origin
+
+    # 2. Referer header
+    referer = (request.headers.get("referer") or "").strip()
+    if referer:
+        try:
+            parsed = urlparse(referer)
+            if parsed.scheme and parsed.netloc and "localhost" not in parsed.netloc and "127.0.0.1" not in parsed.netloc:
+                detected = f"{parsed.scheme}://{parsed.netloc}"
+                record_detected_public_base_url(detected)
+                return detected
+        except Exception:
+            pass
+
+    # 3. X-Forwarded-Proto + X-Forwarded-Host
+    fwd_proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    fwd_host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip()
+    if fwd_host and "localhost" not in fwd_host and "127.0.0.1" not in fwd_host:
+        detected = f"{fwd_proto}://{fwd_host}"
+        record_detected_public_base_url(detected)
+        return detected
+
+    # 4. Host header
+    host_hdr = (request.headers.get("host") or "").split(",")[0].strip()
+    if host_hdr and "localhost" not in host_hdr and "127.0.0.1" not in host_hdr:
+        detected = f"{fwd_proto}://{host_hdr}"
+        record_detected_public_base_url(detected)
+        return detected
+
+    # 5. Fall back to resolved tracking base URL
+    return get_tracking_base_url(str(request.base_url).rstrip("/") if request.base_url else None)
+
 
 def get_tracking_base_url(request_base_url: Optional[str] = None) -> str:
     """Return normalized backend public URL without trailing slash.
 
     Priority:
     1. Explicit non-localhost BACKEND_PUBLIC_URL from config/.env
-    2. request_base_url (from incoming HTTP Request / X-Forwarded-* headers)
-    3. Non-localhost FRONTEND_BASE_URL (when API is reverse-proxied on same domain)
-    4. BACKEND_PUBLIC_URL fallback (http://localhost:8000)
+    2. request_base_url (if not localhost)
+    3. Last detected public base URL observed from authenticated frontend requests
+    4. Non-localhost FRONTEND_BASE_URL (when API is reverse-proxied on same domain)
+    5. Production domain fallback (https://leadfinder.easymsgsender.com)
+    6. BACKEND_PUBLIC_URL fallback (http://localhost:8000 only in local testing)
     """
     configured = (app_settings.BACKEND_PUBLIC_URL or "").strip().rstrip("/")
     if configured and "localhost" not in configured and "127.0.0.1" not in configured:
         return configured
+
     if request_base_url:
         req_clean = request_base_url.strip().rstrip("/")
         if req_clean and "localhost" not in req_clean and "127.0.0.1" not in req_clean:
+            record_detected_public_base_url(req_clean)
             return req_clean
+
+    if _DETECTED_PUBLIC_BASE_URL:
+        return _DETECTED_PUBLIC_BASE_URL
+
     frontend = (app_settings.FRONTEND_BASE_URL or "").strip().rstrip("/")
     if frontend and "localhost" not in frontend and "127.0.0.1" not in frontend:
         return frontend
-    return configured or "http://localhost:8000"
+
+    # If running in production or production domain fallback
+    if getattr(app_settings, "ENVIRONMENT", "").lower() != "development":
+        return PRODUCTION_DOMAIN_FALLBACK
+
+    # In development, prefer explicit request_base_url even if localhost (for testclient / local tests)
+    if request_base_url:
+        return request_base_url.strip().rstrip("/")
+
+    return configured or PRODUCTION_DOMAIN_FALLBACK
 
 
 def get_tracking_domain() -> str:
@@ -141,19 +228,27 @@ def build_pixel_url(tracking_id: str, base_url: Optional[str] = None) -> str:
 
 
 def inject_tracking_pixel(html: str, tracking_id: str, base_url: Optional[str] = None) -> str:
-    """Append an invisible 1x1 tracking pixel to HTML email body if not already present."""
+    """Inject an invisible, proxy-compliant 1x1 tracking pixel into HTML email body."""
     if not html or not tracking_id:
         return html
     pixel_url = build_pixel_url(tracking_id, base_url=base_url)
     if pixel_url in html:
         return html
+    # Standard email-safe 1x1 tracking pixel:
+    # Important: Do NOT use opacity:0, display:none, or visibility:hidden because
+    # Gmail's Image Proxy and spam filters strip/block images with hidden styling.
     pixel_tag = (
-        f'<img src="{pixel_url}" width="1" height="1" border="0" '
-        f'style="width:1px;height:1px;opacity:0;border:0;outline:none;text-decoration:none;" alt="" />'
+        f'<img src="{pixel_url}" width="1" height="1" border="0" alt="" '
+        f'style="display:block;width:1px;min-width:1px;height:1px;min-height:1px;border:0;outline:none;padding:0;margin:0;" />'
     )
+    # Inject immediately after opening <body...> so it loads immediately even on long/clipped messages
+    body_match = re.search(r"<body\b[^>]*>", html, re.IGNORECASE)
+    if body_match:
+        idx = body_match.end()
+        return f"{html[:idx]}\n{pixel_tag}\n{html[idx:]}"
     if "</body>" in html.lower():
-        return re.sub(r"</body>", f"{pixel_tag}</body>", html, count=1, flags=re.IGNORECASE)
-    return f"{html}\n{pixel_tag}"
+        return re.sub(r"</body>", f"{pixel_tag}\n</body>", html, count=1, flags=re.IGNORECASE)
+    return f"{pixel_tag}\n{html}"
 
 
 def apply_email_tracking(

@@ -41,12 +41,16 @@ def test_safe_redirect_url_validation():
 
 
 def test_apply_email_tracking_pixel_and_links():
-    html = '<html><body><p>Hello <a href="https://clientwebsite.com/demo">Demo</a> and <a href="mailto:test@example.com">Mail</a></p></body></html>'
+    html = '<html><body style="margin:0;"><p>Hello <a href="https://clientwebsite.com/demo">Demo</a> and <a href="mailto:test@example.com">Mail</a></p></body></html>'
     tid = "abc123def456"
     out = apply_email_tracking(html, tid, open_tracking=True, click_tracking=True)
     assert f"/api/v1/tracking/open/{tid}" in out
     assert f"/api/v1/tracking/click/{tid}?url=https%3A%2F%2Fclientwebsite.com%2Fdemo" in out
     assert 'href="mailto:test@example.com"' in out
+    # Verify proxy safety: no opacity:0 and pixel placed near top of body
+    assert "opacity:0" not in out
+    assert "display:block" in out
+    assert out.index(f"/api/v1/tracking/open/{tid}") > out.index("<body")
 
 
 def test_extract_body_snippet_strips_quotes():
@@ -227,10 +231,15 @@ def test_tracking_routes_end_to_end():
 
     client = TestClient(app)
 
-    # 1. Open pixel (valid + invalid token)
+    # 1. Open pixel (valid + invalid token, HEAD support, legacy /track alias)
     r_open = client.get(f"/api/v1/tracking/open/{tid}", headers={"User-Agent": "TestMailClient/1.0"})
     assert r_open.status_code == 200
     assert r_open.headers["content-type"] == "image/gif"
+    r_head = client.head(f"/api/v1/tracking/open/{tid}")
+    assert r_head.status_code == 200
+    r_legacy = client.get("/api/v1/tracking/track?t=other_token&e=open")
+    assert r_legacy.status_code == 200
+    assert r_legacy.headers["content-type"] == "image/gif"
     r_open_invalid = client.get("/api/v1/tracking/open/nonexistent")
     assert r_open_invalid.status_code == 200
 

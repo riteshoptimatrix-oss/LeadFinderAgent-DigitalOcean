@@ -36,8 +36,8 @@ class Settings(BaseSettings):
     # Environment
     ENVIRONMENT: str = "development"
     FRONTEND_BASE_URL: str = "http://localhost:3000"
-    BACKEND_PUBLIC_URL: str = "http://localhost:8000"
-    TRACKING_DOMAIN: str = "leadfinder.local"
+    BACKEND_PUBLIC_URL: str = "https://leadfinder.easymsgsender.com"
+    TRACKING_DOMAIN: str = "leadfinder.easymsgsender.com"
 
     # ── SMTP (Email AI fallback / default outbound relay) ──────────────────
     SMTP_SERVER: str = ""

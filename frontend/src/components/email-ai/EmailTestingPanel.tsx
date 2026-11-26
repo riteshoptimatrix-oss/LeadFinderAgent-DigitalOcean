@@ -135,8 +135,11 @@ export default function EmailTestingPanel() {
           const evType = msg?.type || msg?.event_type;
           if (evType === 'email_opened' || evType === 'email_clicked' || evType === 'email_replied') {
             queryClient.invalidateQueries({ queryKey: ['email-testing-history'] });
-            if (activeTrackingId && msg?.tracking_id === activeTrackingId) {
-              queryClient.invalidateQueries({ queryKey: ['email-testing-status', activeTrackingId] });
+            queryClient.invalidateQueries({ queryKey: ['email-testing-status'] });
+            if (evType === 'email_opened') {
+              toast.info(`Email open detected from ${msg?.email || 'recipient'}!`);
+            } else if (evType === 'email_replied') {
+              toast.success(msg?.message || `Reply received from ${msg?.email || 'recipient'}!`);
             }
           }
         } catch {}

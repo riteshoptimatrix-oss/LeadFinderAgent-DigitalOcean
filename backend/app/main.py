@@ -52,7 +52,7 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, Request
 from fastapi.responses import Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -513,6 +513,24 @@ app.include_router(tags.router, prefix=f"{app_settings.API_V1_STR}/tags", tags=[
 app.include_router(templates.router, prefix=f"{app_settings.API_V1_STR}/templates", tags=["templates"])
 app.include_router(campaigns.router, prefix=f"{app_settings.API_V1_STR}/campaigns", tags=["campaigns"])
 app.include_router(tracking.router, prefix=f"{app_settings.API_V1_STR}/tracking", tags=["tracking"])
+
+# Root-level tracking endpoints (supports legacy /track.php and root /open/{id})
+@app.api_route("/track", methods=["GET", "HEAD"])
+@app.api_route("/track.php", methods=["GET", "HEAD"])
+async def root_legacy_track(
+    request: Request,
+    t: Optional[str] = None,
+    e: Optional[str] = "open",
+    u: Optional[str] = None,
+    db=Depends(get_db),
+):
+    from app.api.routes.tracking import track_legacy_endpoint
+    return await track_legacy_endpoint(request=request, t=t, e=e, u=u, db=db)
+
+@app.api_route("/open/{tracking_id}", methods=["GET", "HEAD"])
+async def root_open_pixel(tracking_id: str, request: Request, db=Depends(get_db)):
+    from app.api.routes.tracking import track_email_open
+    return await track_email_open(tracking_id=tracking_id, request=request, db=db)
 app.include_router(dashboard.router, prefix=f"{app_settings.API_V1_STR}/dashboard", tags=["dashboard"])
 app.include_router(system.router, prefix=f"{app_settings.API_V1_STR}/system", tags=["system"])
 app.include_router(email_routes.router, prefix=f"{app_settings.API_V1_STR}/email", tags=["email"])

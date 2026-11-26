@@ -35,15 +35,21 @@ from app.services.email_ai.tracking_utils import (
     generate_tracking_id,
     get_client_ip_from_request,
     is_safe_redirect_url,
+    resolve_request_base_url,
 )
 from app.services.ws_manager import ws_manager
 
 router = APIRouter()
 
 NO_CACHE_HEADERS = {
-    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0, post-check=0, pre-check=0",
     "Pragma": "no-cache",
     "Expires": "0",
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+    "Content-Length": str(len(TRANSPARENT_1X1_GIF)),
+    "Content-Disposition": 'inline; filename="pixel.gif"',
 }
 
 
@@ -80,15 +86,27 @@ async def _broadcast_tracking_event(payload: Dict[str, Any], campaign_id: Option
 # Public Tracking Pixel & Click Redirect
 # ==========================================
 
-@router.get("/open/{tracking_id}")
+@router.api_route("/open/{tracking_id}", methods=["GET", "HEAD"])
+@router.api_route("/pixel/{tracking_id}", methods=["GET", "HEAD"])
 async def track_email_open(tracking_id: str, request: Request, db=Depends(get_db)):
     """Record an estimated email open event (with IP, User-Agent & event history) and return a 1x1 transparent GIF."""
+    if request.method == "HEAD":
+        return Response(content=TRANSPARENT_1X1_GIF, media_type="image/gif", headers=NO_CACHE_HEADERS)
+
     now = datetime.now(timezone.utc)
     ip = get_client_ip_from_request(request)
     ua = (request.headers.get("user-agent") or "")[:512]
     try:
         doc = await db["email_tracking"].find_one({"tracking_id": tracking_id})
+        if not doc and ObjectId.is_valid(tracking_id):
+            doc = await db["email_tracking"].find_one({"_id": ObjectId(tracking_id)})
+
         if doc:
+            curr_status = str(doc.get("status") or "").upper().strip()
+            is_replied = bool(doc.get("replied")) or curr_status == "REPLIED"
+            is_bounced = bool(doc.get("bounced")) or curr_status == "BOUNCED"
+            is_unsub = bool(doc.get("unsubscribed")) or curr_status == "UNSUBSCRIBED"
+
             update_set: Dict[str, Any] = {
                 "opened": True,
                 "last_opened_at": now,
@@ -98,8 +116,12 @@ async def track_email_open(tracking_id: str, request: Request, db=Depends(get_db
             }
             if not doc.get("opened_at"):
                 update_set["opened_at"] = now
-            if doc.get("status") in (None, "SENT"):
+
+            # If not replied, bounced, or unsubscribed, advance status to OPENED
+            if not is_replied and not is_bounced and not is_unsub:
                 update_set["status"] = "OPENED"
+
+            new_open_count = int(doc.get("open_count", 0)) + 1
 
             await db["email_tracking"].update_one(
                 {"_id": doc["_id"]},
@@ -113,6 +135,7 @@ async def track_email_open(tracking_id: str, request: Request, db=Depends(get_db
                                 "timestamp": now.isoformat(),
                                 "ip": ip,
                                 "user_agent": ua,
+                                "details": f"Email opened (open #{new_open_count})",
                             }],
                             "$slice": -100,
                         }
@@ -122,17 +145,46 @@ async def track_email_open(tracking_id: str, request: Request, db=Depends(get_db
 
             campaign_id = doc.get("campaign_id")
             lead_id = doc.get("lead_id")
-            new_open_count = int(doc.get("open_count", 0)) + 1
+
+            # Sync lead document email_status if not already REPLIED
+            if lead_id and ObjectId.is_valid(str(lead_id)):
+                try:
+                    lead_doc = await db["leads"].find_one({"_id": ObjectId(str(lead_id))})
+                    if lead_doc and str(lead_doc.get("email_status") or "").upper() not in ("REPLIED", "BOUNCED", "UNSUBSCRIBED"):
+                        await db["leads"].update_one(
+                            {"_id": ObjectId(str(lead_id))},
+                            {
+                                "$set": {
+                                    "email_status": "OPENED",
+                                    "opened_at": now,
+                                    "updated_at": now,
+                                }
+                            },
+                        )
+                except Exception as lead_err:
+                    logger.warning(f"[EmailTracking] Could not update lead {lead_id}: {lead_err}")
+
+            # Increment campaign opened stat on first open
+            if campaign_id and ObjectId.is_valid(str(campaign_id)) and not doc.get("opened"):
+                try:
+                    await db["email_ai_campaigns"].update_one(
+                        {"_id": ObjectId(str(campaign_id))},
+                        {"$inc": {"stats.opened": 1}},
+                    )
+                except Exception:
+                    pass
 
             await _broadcast_tracking_event(
                 {
                     "type": "email_opened",
                     "event_type": "email_opened",
                     "tracking_id": tracking_id,
-                    "user_id": doc.get("user_id"),
+                    "user_id": str(doc.get("user_id")),
                     "campaign_id": campaign_id,
-                    "lead_id": lead_id,
+                    "lead_id": str(lead_id) if lead_id else None,
                     "email": doc.get("recipient_email"),
+                    "status": "REPLIED" if is_replied else "OPENED",
+                    "opened": True,
                     "open_count": new_open_count,
                     "ip": ip,
                     "opened_at": (doc.get("opened_at") or now).isoformat()
@@ -146,6 +198,26 @@ async def track_email_open(tracking_id: str, request: Request, db=Depends(get_db
         logger.error(f"[EmailTracking] Error recording open for {tracking_id}: {exc}")
 
     return Response(content=TRANSPARENT_1X1_GIF, media_type="image/gif", headers=NO_CACHE_HEADERS)
+
+
+@router.api_route("/track", methods=["GET", "HEAD"])
+@router.api_route("/track.php", methods=["GET", "HEAD"])
+async def track_legacy_endpoint(
+    request: Request,
+    t: Optional[str] = Query(None, description="Tracking token/id"),
+    e: Optional[str] = Query("open", description="Event type: open or click"),
+    u: Optional[str] = Query(None, description="Destination URL if click"),
+    db=Depends(get_db),
+):
+    """Legacy route alias for /track and /track.php from python_app & standard email trackers."""
+    token = (t or "").strip()
+    event_type = (e or "open").strip().lower()
+    if not token:
+        return Response(content=TRANSPARENT_1X1_GIF, media_type="image/gif", headers=NO_CACHE_HEADERS)
+
+    if event_type == "click" and u:
+        return await track_email_click(tracking_id=token, request=request, url=u, db=db)
+    return await track_email_open(tracking_id=token, request=request, db=db)
 
 
 @router.get("/click/{tracking_id}")
@@ -722,9 +794,7 @@ async def send_tracking_test_email(
             detail="No active SMTP configuration found. Please save your SMTP credentials in Settings > Email Automation.",
         )
 
-    fwd_proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
-    fwd_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
-    req_base_url = f"{fwd_proto}://{fwd_host}" if fwd_host else str(request.base_url).rstrip("/")
+    req_base_url = resolve_request_base_url(request)
 
     tracking_id = generate_tracking_id(uid_str, "email_testing", to_email, uuid.uuid4().hex)
     message_id = build_message_id(tracking_id)

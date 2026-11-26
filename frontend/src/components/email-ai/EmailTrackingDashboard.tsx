@@ -672,7 +672,7 @@ export default function EmailTrackingDashboard() {
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
                             <MousePointerClick className="w-3.5 h-3.5" /> Clicked
                           </span>
-                        ) : item.opened ? (
+                        ) : (item.opened || item.status === 'OPENED') ? (
                           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                             <CheckCircle2 className="w-3.5 h-3.5" /> Opened
                           </span>
@@ -684,10 +684,10 @@ export default function EmailTrackingDashboard() {
                       </td>
 
                       <td className="py-3.5 px-4">
-                        {item.opened ? (
+                        {(item.opened || item.open_count > 0 || item.status === 'OPENED') ? (
                           <div>
-                            <div className="font-bold text-emerald-700">{item.open_count}×</div>
-                            <div className="text-[10px] text-slate-400">{formatDateTime(item.opened_at)}</div>
+                            <div className="font-bold text-emerald-700">{item.open_count || 1}×</div>
+                            <div className="text-[10px] text-slate-400">{formatDateTime(item.opened_at || item.last_opened_at)}</div>
                           </div>
                         ) : (
                           <span className="text-slate-400">—</span>

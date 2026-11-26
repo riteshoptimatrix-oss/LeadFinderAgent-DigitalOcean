@@ -644,9 +644,9 @@ export default function EmailCampaignWizard() {
                   <p className="text-slate-500 mt-1">Configure email interaction tracking and attachments.</p>
                 </div>
 
-                <div className="p-4 bg-amber-50 text-amber-800 rounded-xl border border-amber-200 text-sm font-medium flex gap-3 mb-6 max-w-2xl">
-                  <Sparkles className="w-5 h-5 shrink-0" />
-                  <div>These features are currently being prepared and will be fully operational in a future phase. Your configuration is saved in anticipation of the update.</div>
+                <div className="p-4 bg-emerald-50 text-emerald-800 rounded-xl border border-emerald-200 text-sm font-medium flex gap-3 mb-6 max-w-2xl">
+                  <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600" />
+                  <div>Open tracking (pixel), link click tracking, and automatic IMAP reply detection are active and will be embedded automatically into outgoing campaign emails.</div>
                 </div>
                 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">

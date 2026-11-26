@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { Mail, CheckCircle2, XCircle, Clock, Activity, Calendar, Eye, MousePointerClick, Sparkles } from 'lucide-react';
+import { Mail, CheckCircle2, XCircle, Clock, Activity, Calendar, Eye, MousePointerClick, MessageSquareReply, PauseCircle, ArrowRight } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
 export default function EmailAnalyticsDashboard() {
@@ -15,9 +15,19 @@ export default function EmailAnalyticsDashboard() {
     refetchInterval: 4000 // Update every 4s for real-time live telemetry
   });
 
+  const { data: trackingStats } = useQuery({
+    queryKey: ['email-tracking-stats'],
+    queryFn: async () => {
+      const res = await api.get('/tracking/stats');
+      return res.data;
+    },
+    refetchInterval: 10000
+  });
+
   useEffect(() => {
     const handleEmailEvent = () => {
       queryClient.invalidateQueries({ queryKey: ['email-ai-analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['email-tracking-stats'] });
     };
     window.addEventListener('email-ai-live-event', handleEmailEvent);
     return () => window.removeEventListener('email-ai-live-event', handleEmailEvent);
@@ -132,42 +142,81 @@ export default function EmailAnalyticsDashboard() {
         </div>
       </div>
 
-      {/* E-Mail Tracker (Coming Soon) */}
+      {/* E-Mail Tracker (Live) */}
       <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm relative overflow-hidden">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
           <div className="flex items-center gap-3">
             <div className="p-2.5 bg-indigo-50 rounded-xl border border-indigo-100">
               <Mail className="w-5 h-5 text-indigo-600" />
             </div>
             <div>
-              <h3 className="font-bold text-slate-900 text-base">E-Mail Tracker</h3>
-              <p className="text-xs text-slate-400 mt-0.5">Live recipient engagement, opens, and link click telemetry</p>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-slate-900 text-base">E-Mail Tracker</h3>
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-0.5">Real-time recipient engagement, opens, link clicks, and IMAP reply detection</p>
             </div>
           </div>
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-            <Sparkles className="w-3.5 h-3.5" />
-            Coming Soon
-          </span>
+          <button
+            type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('change-tab', { detail: 'tracking' }))}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold bg-slate-900 hover:bg-slate-800 text-white transition-all cursor-pointer shrink-0"
+          >
+            Open Full Email Tracking
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
         </div>
 
-        <div className="py-10 px-6 flex flex-col items-center justify-center border border-dashed border-slate-200 rounded-2xl bg-slate-50/50 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-center mb-4">
-            <Eye className="w-7 h-7 text-indigo-600" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-1.5">
+              <Eye className="w-4 h-4 text-emerald-600" /> Opened (Est.)
+            </div>
+            <div className="text-2xl font-black text-slate-900">
+              {(trackingStats?.total_opened ?? 0).toLocaleString()}
+            </div>
+            <div className="text-[11px] text-emerald-600 font-semibold mt-0.5">
+              {trackingStats?.open_rate ?? 0}% open rate
+            </div>
           </div>
-          <h4 className="text-lg font-bold text-slate-900">E-Mail Tracker is Coming Soon</h4>
-          <p className="text-sm text-slate-500 mt-1.5 max-w-md">
-            We are building real-time email open tracking, link click analytics, and detailed recipient activity logs right here.
-          </p>
-          <div className="flex flex-wrap items-center justify-center gap-2.5 mt-5">
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-white text-slate-600 border border-slate-200 shadow-2xs">
-              <Eye className="w-3.5 h-3.5 text-indigo-500" /> Open Tracking
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-white text-slate-600 border border-slate-200 shadow-2xs">
-              <MousePointerClick className="w-3.5 h-3.5 text-blue-500" /> Click Analytics
-            </span>
-            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-white text-slate-600 border border-slate-200 shadow-2xs">
-              <Activity className="w-3.5 h-3.5 text-emerald-500" /> Engagement Timeline
-            </span>
+
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-1.5">
+              <MousePointerClick className="w-4 h-4 text-blue-600" /> Link Clicks
+            </div>
+            <div className="text-2xl font-black text-slate-900">
+              {(trackingStats?.total_clicked ?? 0).toLocaleString()}
+            </div>
+            <div className="text-[11px] text-blue-600 font-semibold mt-0.5">
+              {trackingStats?.click_rate ?? 0}% click rate
+            </div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-1.5">
+              <MessageSquareReply className="w-4 h-4 text-purple-600" /> Replies
+            </div>
+            <div className="text-2xl font-black text-slate-900">
+              {(trackingStats?.total_replied ?? 0).toLocaleString()}
+            </div>
+            <div className="text-[11px] text-purple-600 font-semibold mt-0.5">
+              {trackingStats?.reply_rate ?? 0}% reply rate
+            </div>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80">
+            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-1.5">
+              <PauseCircle className="w-4 h-4 text-amber-600" /> Follow-ups Paused
+            </div>
+            <div className="text-2xl font-black text-slate-900">
+              {(trackingStats?.followups_paused ?? 0).toLocaleString()}
+            </div>
+            <div className="text-[11px] text-slate-500 mt-0.5">
+              Auto-paused on reply
+            </div>
           </div>
         </div>
       </div>

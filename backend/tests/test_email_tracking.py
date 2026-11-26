@@ -231,10 +231,16 @@ def test_tracking_routes_end_to_end():
 
     client = TestClient(app)
 
-    # 1. Open pixel (valid + invalid token, HEAD support, legacy /track alias)
+    # 1. Open pixel (valid + invalid token, HEAD support, legacy /track alias, and proxy duplicate debouncing)
     r_open = client.get(f"/api/v1/tracking/open/{tid}", headers={"User-Agent": "TestMailClient/1.0"})
     assert r_open.status_code == 200
     assert r_open.headers["content-type"] == "image/gif"
+
+    # Rapid second open from email client / Google Image Proxy should be debounced and not increment open_count
+    r_open_duplicate = client.get(f"/api/v1/tracking/open/{tid}", headers={"User-Agent": "GoogleImageProxy"})
+    assert r_open_duplicate.status_code == 200
+    assert r_open_duplicate.headers["content-type"] == "image/gif"
+
     r_head = client.head(f"/api/v1/tracking/open/{tid}")
     assert r_head.status_code == 200
     r_legacy = client.get("/api/v1/tracking/track?t=other_token&e=open")

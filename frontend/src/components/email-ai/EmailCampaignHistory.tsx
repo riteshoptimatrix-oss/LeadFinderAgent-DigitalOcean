@@ -3,21 +3,21 @@
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
-import { 
-  Search, 
-  Calendar, 
-  Mail, 
-  FileText, 
-  CheckCircle2, 
-  XCircle, 
-  AlertCircle, 
-  Eye, 
-  Download, 
-  X, 
-  Copy, 
-  Check, 
-  Clock, 
-  Building2, 
+import {
+  Search,
+  Calendar,
+  Mail,
+  FileText,
+  CheckCircle2,
+  XCircle,
+  AlertCircle,
+  Eye,
+  Download,
+  X,
+  Copy,
+  Check,
+  Clock,
+  Building2,
   Send,
   RefreshCw,
   Phone,
@@ -54,11 +54,11 @@ interface CampaignEmailsResponse {
 }
 
 // Modal Component for Viewing Sent/Failed Emails in a Campaign
-function CampaignEmailsModal({ 
-  campaign, 
-  onClose 
-}: { 
-  campaign: any; 
+function CampaignEmailsModal({
+  campaign,
+  onClose
+}: {
+  campaign: any;
   onClose: () => void;
 }) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -79,7 +79,7 @@ function CampaignEmailsModal({
     return emails.filter(item => {
       const matchesStatus = statusFilter === 'ALL' || item.status.toLowerCase() === statusFilter.toLowerCase();
       const s = searchTerm.toLowerCase();
-      const matchesSearch = !searchTerm || 
+      const matchesSearch = !searchTerm ||
         item.business_name.toLowerCase().includes(s) ||
         item.email.toLowerCase().includes(s) ||
         (item.city && item.city.toLowerCase().includes(s)) ||
@@ -132,7 +132,7 @@ function CampaignEmailsModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
-      <div 
+      <div
         className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-5xl max-h-[92vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
@@ -146,12 +146,12 @@ function CampaignEmailsModal({
               <span className={cn(
                 "px-2.5 py-0.5 text-xs font-bold rounded-full flex items-center gap-1.5",
                 campaign.status === 'COMPLETED' ? "bg-green-100 text-green-700 border border-green-200" :
-                campaign.status === 'CANCELLED' ? "bg-slate-100 text-slate-700 border border-slate-200" :
-                "bg-red-100 text-red-700 border border-red-200"
+                  campaign.status === 'CANCELLED' ? "bg-slate-100 text-slate-700 border border-slate-200" :
+                    "bg-red-100 text-red-700 border border-red-200"
               )}>
-                {campaign.status === 'COMPLETED' ? <CheckCircle2 className="w-3.5 h-3.5" /> : 
-                 campaign.status === 'CANCELLED' ? <AlertCircle className="w-3.5 h-3.5" /> : 
-                 <XCircle className="w-3.5 h-3.5" />}
+                {campaign.status === 'COMPLETED' ? <CheckCircle2 className="w-3.5 h-3.5" /> :
+                  campaign.status === 'CANCELLED' ? <AlertCircle className="w-3.5 h-3.5" /> :
+                    <XCircle className="w-3.5 h-3.5" />}
                 {campaign.status}
               </span>
             </div>
@@ -275,8 +275,8 @@ function CampaignEmailsModal({
             <div className="py-16 text-center text-slate-500">
               <AlertCircle className="w-10 h-10 text-red-500 mx-auto mb-2" />
               <p className="font-bold text-slate-800">Failed to load emails for this campaign.</p>
-              <button 
-                onClick={() => refetch()} 
+              <button
+                onClick={() => refetch()}
                 className="mt-3 px-4 py-1.5 bg-blue-600 text-white text-xs font-bold rounded-lg shadow-sm hover:bg-blue-700"
               >
                 Retry
@@ -373,14 +373,14 @@ function CampaignEmailsModal({
                             isReplied
                               ? "bg-purple-50 text-purple-700 border-purple-200"
                               : isOpened
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                              : isDelivered
-                              ? "bg-green-50 text-green-700 border-green-200"
-                              : isFailed
-                              ? "bg-red-50 text-red-700 border-red-200"
-                              : isSkipped
-                              ? "bg-slate-100 text-slate-700 border-slate-200"
-                              : "bg-blue-50 text-blue-700 border-blue-200"
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                : isDelivered
+                                  ? "bg-green-50 text-green-700 border-green-200"
+                                  : isFailed
+                                    ? "bg-red-50 text-red-700 border-red-200"
+                                    : isSkipped
+                                      ? "bg-slate-100 text-slate-700 border-slate-200"
+                                      : "bg-blue-50 text-blue-700 border-blue-200"
                           )}>
                             {isReplied && <MessageSquareReply className="w-3 h-3 text-purple-600" />}
                             {isOpened && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
@@ -448,7 +448,7 @@ export default function EmailCampaignHistory() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedCampaign, setSelectedCampaign] = useState<any | null>(null);
-  
+
   const { data, isLoading } = useQuery({
     queryKey: ['email-campaign-history', statusFilter],
     queryFn: async () => {
@@ -458,9 +458,9 @@ export default function EmailCampaignHistory() {
   });
 
   const campaigns = data?.data || [];
-  
-  const filteredCampaigns = campaigns.filter((c: any) => 
-    !search || 
+
+  const filteredCampaigns = campaigns.filter((c: any) =>
+    !search ||
     (c.name && c.name.toLowerCase().includes(search.toLowerCase())) ||
     c._id.includes(search)
   );
@@ -493,16 +493,16 @@ export default function EmailCampaignHistory() {
 
   return (
     <div className="flex flex-col h-[calc(100vh-8rem)] bg-slate-50/50 animate-in fade-in">
-      
+
       {/* Header */}
       <div className="flex-none p-8 bg-white border-b border-slate-200">
         <h1 className="text-3xl font-black text-slate-900 tracking-tight mb-2">Campaign History</h1>
         <p className="text-slate-500 font-medium">View past executions, analytics, and deliverability reports.</p>
-        
+
         <div className="mt-8 flex flex-wrap gap-4 items-center">
           <div className="relative flex-1 max-w-md min-w-[240px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
-            <input 
+            <input
               type="text"
               placeholder="Search by campaign name or ID..."
               value={search}
@@ -510,8 +510,8 @@ export default function EmailCampaignHistory() {
               className="w-full pl-10 pr-4 py-2.5 bg-slate-100 border-none rounded-xl focus:ring-2 focus:ring-blue-500 font-medium"
             />
           </div>
-          
-          <select 
+
+          <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
             className="px-4 py-2.5 bg-white border border-slate-200 rounded-xl font-medium focus:ring-2 focus:ring-blue-500 outline-none shadow-2xs"
@@ -521,8 +521,8 @@ export default function EmailCampaignHistory() {
             <option value="CANCELLED">Cancelled</option>
             <option value="FAILED">Failed</option>
           </select>
-          
-          <button 
+
+          <button
             onClick={handleExportAllHistory}
             className="px-4 py-2.5 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-xl font-bold flex items-center gap-2 ml-auto transition-colors shadow-2xs cursor-pointer"
           >
@@ -535,7 +535,7 @@ export default function EmailCampaignHistory() {
       <div className="flex-1 overflow-auto p-8 custom-scrollbar">
         {isLoading ? (
           <div className="space-y-4">
-            {[1,2,3,4].map(i => (
+            {[1, 2, 3, 4].map(i => (
               <div key={i} className="h-20 bg-white border border-slate-200 rounded-2xl animate-pulse" />
             ))}
           </div>
@@ -562,14 +562,14 @@ export default function EmailCampaignHistory() {
               </thead>
               <tbody>
                 {filteredCampaigns.map((c: any) => (
-                  <tr 
-                    key={c._id} 
+                  <tr
+                    key={c._id}
                     onClick={() => setSelectedCampaign(c)}
                     className="border-b border-slate-100 hover:bg-blue-50/40 transition-colors group cursor-pointer"
                   >
                     <td className="p-4">
                       <div className="font-bold text-slate-900 group-hover:text-blue-600 transition-colors">
-                        {c.name || `Campaign ${c._id.substring(0,8)}`}
+                        {c.name || `Campaign ${c._id.substring(0, 8)}`}
                       </div>
                       <div className="text-xs text-slate-500 font-mono mt-0.5">{c._id}</div>
                     </td>
@@ -577,12 +577,12 @@ export default function EmailCampaignHistory() {
                       <span className={cn(
                         "px-2.5 py-1 text-xs font-bold rounded-md flex items-center w-fit gap-1.5",
                         c.status === 'COMPLETED' ? "bg-green-100 text-green-700" :
-                        c.status === 'CANCELLED' ? "bg-slate-100 text-slate-700" :
-                        "bg-red-100 text-red-700"
+                          c.status === 'CANCELLED' ? "bg-slate-100 text-slate-700" :
+                            "bg-red-100 text-red-700"
                       )}>
-                        {c.status === 'COMPLETED' ? <CheckCircle2 className="w-3.5 h-3.5" /> : 
-                         c.status === 'CANCELLED' ? <AlertCircle className="w-3.5 h-3.5" /> : 
-                         <XCircle className="w-3.5 h-3.5" />}
+                        {c.status === 'COMPLETED' ? <CheckCircle2 className="w-3.5 h-3.5" /> :
+                          c.status === 'CANCELLED' ? <AlertCircle className="w-3.5 h-3.5" /> :
+                            <XCircle className="w-3.5 h-3.5" />}
                         {c.status}
                       </span>
                     </td>
@@ -601,7 +601,7 @@ export default function EmailCampaignHistory() {
                       </div>
                     </td>
                     <td className="p-4 text-right pr-6" onClick={(e) => e.stopPropagation()}>
-                      <button 
+                      <button
                         onClick={() => setSelectedCampaign(c)}
                         className="inline-flex items-center gap-1.5 px-3.5 py-1.5 bg-blue-50 text-blue-700 hover:bg-blue-600 hover:text-white rounded-xl text-xs font-bold transition-all shadow-2xs border border-blue-200/80 cursor-pointer"
                         title="View Sent Emails"
@@ -620,9 +620,9 @@ export default function EmailCampaignHistory() {
 
       {/* Campaign Email Details Modal */}
       {selectedCampaign && (
-        <CampaignEmailsModal 
-          campaign={selectedCampaign} 
-          onClose={() => setSelectedCampaign(null)} 
+        <CampaignEmailsModal
+          campaign={selectedCampaign}
+          onClose={() => setSelectedCampaign(null)}
         />
       )}
     </div>

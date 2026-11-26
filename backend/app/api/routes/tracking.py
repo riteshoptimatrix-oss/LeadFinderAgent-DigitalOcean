@@ -14,6 +14,7 @@ Authenticated dashboard endpoints (scoped to user):
 import asyncio
 from datetime import date, datetime, timedelta, timezone
 import html as html_lib
+import time
 from typing import Any, Dict, List, Optional
 import uuid
 
@@ -86,6 +87,32 @@ async def _broadcast_tracking_event(payload: Dict[str, Any], campaign_id: Option
 # Public Tracking Pixel & Click Redirect
 # ==========================================
 
+# In-memory debounce cache to eliminate duplicate open counts
+# caused by email client / proxy multi-node fetching (e.g. Google Image Proxy,
+# Apple Mail Privacy Protection, or preview/viewport double GETs)
+_RECENT_OPENS_CACHE: Dict[str, float] = {}
+OPEN_DEBOUNCE_SECONDS = 8.0  # 8-second window to coalesce proxy/client multi-fetches into 1 open
+
+
+def _check_and_record_open_debounce(tracking_id: str, threshold: float = OPEN_DEBOUNCE_SECONDS) -> bool:
+    """Return True if tracking_id was already fetched within threshold seconds (duplicate request)."""
+    now_m = time.monotonic()
+
+    # Prune old cache keys periodically
+    if len(_RECENT_OPENS_CACHE) > 5000:
+        cutoff = now_m - 60.0
+        keys_to_delete = [k for k, v in _RECENT_OPENS_CACHE.items() if v < cutoff]
+        for k in keys_to_delete:
+            _RECENT_OPENS_CACHE.pop(k, None)
+
+    last_time = _RECENT_OPENS_CACHE.get(tracking_id)
+    if last_time is not None and (now_m - last_time) < threshold:
+        return True
+
+    _RECENT_OPENS_CACHE[tracking_id] = now_m
+    return False
+
+
 @router.api_route("/open/{tracking_id}", methods=["GET", "HEAD"])
 @router.api_route("/pixel/{tracking_id}", methods=["GET", "HEAD"])
 async def track_email_open(tracking_id: str, request: Request, db=Depends(get_db)):
@@ -93,15 +120,47 @@ async def track_email_open(tracking_id: str, request: Request, db=Depends(get_db
     if request.method == "HEAD":
         return Response(content=TRANSPARENT_1X1_GIF, media_type="image/gif", headers=NO_CACHE_HEADERS)
 
+    clean_tid = (tracking_id or "").strip()
+    if not clean_tid:
+        return Response(content=TRANSPARENT_1X1_GIF, media_type="image/gif", headers=NO_CACHE_HEADERS)
+
+    # 1. Fast in-memory debounce guard against concurrent / rapid proxy double-fetches
+    if _check_and_record_open_debounce(clean_tid):
+        return Response(content=TRANSPARENT_1X1_GIF, media_type="image/gif", headers=NO_CACHE_HEADERS)
+
     now = datetime.now(timezone.utc)
     ip = get_client_ip_from_request(request)
     ua = (request.headers.get("user-agent") or "")[:512]
     try:
-        doc = await db["email_tracking"].find_one({"tracking_id": tracking_id})
-        if not doc and ObjectId.is_valid(tracking_id):
-            doc = await db["email_tracking"].find_one({"_id": ObjectId(tracking_id)})
+        doc = await db["email_tracking"].find_one({"tracking_id": clean_tid})
+        if not doc and ObjectId.is_valid(clean_tid):
+            doc = await db["email_tracking"].find_one({"_id": ObjectId(clean_tid)})
 
         if doc:
+            # Also record alternate ID (e.g. ObjectId string or tracking_id hex) into debounce cache
+            doc_tid = str(doc.get("tracking_id") or "")
+            doc_oid = str(doc.get("_id") or "")
+            if doc_tid and doc_tid != clean_tid:
+                _RECENT_OPENS_CACHE[doc_tid] = time.monotonic()
+            if doc_oid and doc_oid != clean_tid:
+                _RECENT_OPENS_CACHE[doc_oid] = time.monotonic()
+
+            # 2. Database-level timestamp guard (for multi-worker / multi-process environments)
+            last_opened = doc.get("last_opened_at")
+            if last_opened:
+                try:
+                    if isinstance(last_opened, str):
+                        last_opened_dt = datetime.fromisoformat(last_opened.replace("Z", "+00:00"))
+                    else:
+                        last_opened_dt = last_opened
+                    if last_opened_dt.tzinfo is None:
+                        last_opened_dt = last_opened_dt.replace(tzinfo=timezone.utc)
+                    if 0 <= (now - last_opened_dt).total_seconds() < OPEN_DEBOUNCE_SECONDS:
+                        # Duplicate request within debounce window — serve 1x1 GIF without double-counting
+                        return Response(content=TRANSPARENT_1X1_GIF, media_type="image/gif", headers=NO_CACHE_HEADERS)
+                except Exception:
+                    pass
+
             curr_status = str(doc.get("status") or "").upper().strip()
             is_replied = bool(doc.get("replied")) or curr_status == "REPLIED"
             is_bounced = bool(doc.get("bounced")) or curr_status == "BOUNCED"

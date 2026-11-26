@@ -69,7 +69,8 @@ interface TrackingStats {
 function formatDateTime(iso?: string | null): string {
   if (!iso) return '—';
   try {
-    return new Date(iso).toLocaleString(undefined, {
+    const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso) ? iso : `${iso}Z`;
+    return new Date(normalized).toLocaleString(undefined, {
       month: 'short',
       day: 'numeric',
       hour: '2-digit',

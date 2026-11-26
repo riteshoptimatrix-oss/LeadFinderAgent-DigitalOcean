@@ -45,6 +45,16 @@ NO_CACHE_HEADERS = {
 }
 
 
+def _to_utc_iso(val: Any) -> Optional[str]:
+    """Serialize a datetime (naive or aware) as an explicit UTC ISO-8601 string ending with 'Z'."""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        dt = val if val.tzinfo is not None else val.replace(tzinfo=timezone.utc)
+        return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+    return str(val)
+
+
 def _user_match_filter(current_user: UserInDB) -> List[Dict[str, Any]]:
     uid = str(current_user.id)
     filters: List[Dict[str, Any]] = [{"user_id": uid}]
@@ -297,16 +307,16 @@ async def get_tracking_events(
             "recipient_email": d.get("recipient_email"),
             "subject": d.get("subject"),
             "status": d.get("status", "SENT"),
-            "sent_at": d["sent_at"].isoformat() if hasattr(d.get("sent_at"), "isoformat") else d.get("sent_at"),
+            "sent_at": _to_utc_iso(d.get("sent_at")),
             "opened": bool(d.get("opened", False)),
-            "opened_at": d["opened_at"].isoformat() if hasattr(d.get("opened_at"), "isoformat") else d.get("opened_at"),
+            "opened_at": _to_utc_iso(d.get("opened_at")),
             "open_count": int(d.get("open_count", 0)),
             "clicked": bool(d.get("clicked", False)),
-            "clicked_at": d["clicked_at"].isoformat() if hasattr(d.get("clicked_at"), "isoformat") else d.get("clicked_at"),
+            "clicked_at": _to_utc_iso(d.get("clicked_at")),
             "click_count": int(d.get("click_count", 0)),
             "clicked_urls": d.get("clicked_urls", []),
             "replied": bool(d.get("replied", False)),
-            "replied_at": d["replied_at"].isoformat() if hasattr(d.get("replied_at"), "isoformat") else d.get("replied_at"),
+            "replied_at": _to_utc_iso(d.get("replied_at")),
             "reply_subject": d.get("reply_subject"),
             "reply_snippet": d.get("reply_snippet"),
             "reply_from": d.get("reply_from"),
@@ -355,15 +365,15 @@ def _serialize_test_record(d: Dict[str, Any]) -> Dict[str, Any]:
         "status": d.get("status", "SENT"),
         "verification_status": _compute_verification_status(d),
         "error": d.get("error_message"),
-        "sent_at": d["sent_at"].isoformat() if hasattr(d.get("sent_at"), "isoformat") else d.get("sent_at"),
+        "sent_at": _to_utc_iso(d.get("sent_at")),
         "opened": bool(d.get("opened", False)),
-        "opened_at": d["opened_at"].isoformat() if hasattr(d.get("opened_at"), "isoformat") else d.get("opened_at"),
+        "opened_at": _to_utc_iso(d.get("opened_at")),
         "open_count": int(d.get("open_count", 0)),
         "clicked": bool(d.get("clicked", False)),
-        "clicked_at": d["clicked_at"].isoformat() if hasattr(d.get("clicked_at"), "isoformat") else d.get("clicked_at"),
+        "clicked_at": _to_utc_iso(d.get("clicked_at")),
         "click_count": int(d.get("click_count", 0)),
         "replied": bool(d.get("replied", False)),
-        "replied_at": d["replied_at"].isoformat() if hasattr(d.get("replied_at"), "isoformat") else d.get("replied_at"),
+        "replied_at": _to_utc_iso(d.get("replied_at")),
         "reply_subject": d.get("reply_subject"),
         "reply_snippet": d.get("reply_snippet"),
     }
@@ -417,27 +427,23 @@ async def send_tracking_test_email(
     tracking_id = generate_tracking_id(uid_str, "email_testing", to_email, uuid.uuid4().hex)
     message_id = build_message_id(tracking_id)
     now = datetime.now(timezone.utc)
-    verify_url = req_base_url if ("localhost" not in req_base_url and "127.0.0.1" not in req_base_url) else (app_settings.FRONTEND_BASE_URL or "http://localhost:3000").strip().rstrip("/")
     subject = "Email Tracking Verification Test"
     raw_html = (
         "<html><body style='font-family:Arial,sans-serif;color:#1e293b;line-height:1.6;'>"
         "<h2 style='margin-bottom:8px;'>Email Tracking Verification</h2>"
-        "<p>This is an automated test email sent from LeadFinderAgent to verify open, link-click, and reply tracking.</p>"
-        f"<p><a href='{verify_url}' style='display:inline-block;padding:10px 18px;background:#2563eb;color:#ffffff;"
-        "text-decoration:none;border-radius:8px;font-weight:bold;'>Verify Link Click Tracking</a></p>"
-        "<p style='font-size:12px;color:#64748b;'>You can also reply to this email to verify IMAP reply detection.</p>"
+        "<p>This is an automated test email sent from LeadFinderAgent to verify real-time open and reply tracking.</p>"
+        "<p style='font-size:12px;color:#64748b;'>Simply opening this email (with images enabled) or replying to it will automatically update the tracking status.</p>"
         "</body></html>"
     )
     text_body = (
         "Email Tracking Verification\n\n"
-        "This is a test email from LeadFinderAgent to verify open, click, and reply tracking.\n"
-        f"Verify link: {verify_url}\n"
+        "This is an automated test email sent from LeadFinderAgent to verify real-time open and reply tracking.\n"
     )
     tracked_html = apply_email_tracking(
         raw_html,
         tracking_id,
         open_tracking=True,
-        click_tracking=True,
+        click_tracking=False,
         base_url=req_base_url,
     )
 

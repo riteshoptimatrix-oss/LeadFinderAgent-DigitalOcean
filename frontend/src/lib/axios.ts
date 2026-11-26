@@ -23,6 +23,12 @@ const processQueue = (error: any, token: string | null = null) => {
 
 api.interceptors.request.use(
   (config) => {
+    // When sending FormData, delete Content-Type so browser sets multipart boundary automatically
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      if (config.headers) {
+        delete config.headers['Content-Type'];
+      }
+    }
     if (typeof window !== 'undefined') {
       // Don't overwrite if caller explicitly specified an Authorization header (e.g. fresh token on login)
       if (!config.headers.Authorization) {

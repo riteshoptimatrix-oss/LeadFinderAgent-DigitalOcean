@@ -102,18 +102,41 @@ export default function EmailMediaModal({
     }
 
     setIsUploadingImage(true);
-    const formData = new FormData();
-    formData.append('file', file);
 
     try {
-      const res = await api.post('/media/upload', formData);
+      // 1. Try base64 upload first (100% reliable JSON, zero multipart boundary mismatch)
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const base64Data = await base64Promise;
+      const res = await api.post('/media/upload-base64', {
+        filename: file.name,
+        content_base64: base64Data,
+        media_type: 'image',
+      });
       const data: MediaItem = res.data;
       setImageUrl(data.url);
       if (!imageAlt) setImageAlt(file.name.replace(/\.[^/.]+$/, ''));
       queryClient.invalidateQueries({ queryKey: ['email-media-library'] });
       toast.success('Image uploaded successfully!');
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to upload image');
+      // 2. Fallback to multipart FormData upload
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/media/upload', formData);
+        const data: MediaItem = res.data;
+        setImageUrl(data.url);
+        if (!imageAlt) setImageAlt(file.name.replace(/\.[^/.]+$/, ''));
+        queryClient.invalidateQueries({ queryKey: ['email-media-library'] });
+        toast.success('Image uploaded successfully!');
+      } catch (err2: any) {
+        toast.error(err2.response?.data?.detail || err.response?.data?.detail || 'Failed to upload image');
+      }
     } finally {
       setIsUploadingImage(false);
       if (imageInputRef.current) imageInputRef.current.value = '';
@@ -131,11 +154,22 @@ export default function EmailMediaModal({
     }
 
     setIsUploadingVideo(true);
-    const formData = new FormData();
-    formData.append('file', file);
 
     try {
-      const res = await api.post('/media/upload', formData);
+      // 1. Try base64 upload first (reliable JSON)
+      const reader = new FileReader();
+      const base64Promise = new Promise<string>((resolve, reject) => {
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const base64Data = await base64Promise;
+      const res = await api.post('/media/upload-base64', {
+        filename: file.name,
+        content_base64: base64Data,
+        media_type: 'video',
+      });
       const data: MediaItem = res.data;
       setVideoUrl(data.url);
       if (!videoTitle || videoTitle === 'Watch Video Presentation') {
@@ -144,7 +178,21 @@ export default function EmailMediaModal({
       queryClient.invalidateQueries({ queryKey: ['email-media-library'] });
       toast.success('Video uploaded successfully!');
     } catch (err: any) {
-      toast.error(err.response?.data?.detail || 'Failed to upload video');
+      // 2. Fallback to multipart FormData upload
+      try {
+        const formData = new FormData();
+        formData.append('file', file);
+        const res = await api.post('/media/upload', formData);
+        const data: MediaItem = res.data;
+        setVideoUrl(data.url);
+        if (!videoTitle || videoTitle === 'Watch Video Presentation') {
+          setVideoTitle(file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '));
+        }
+        queryClient.invalidateQueries({ queryKey: ['email-media-library'] });
+        toast.success('Video uploaded successfully!');
+      } catch (err2: any) {
+        toast.error(err2.response?.data?.detail || err.response?.data?.detail || 'Failed to upload video');
+      }
     } finally {
       setIsUploadingVideo(false);
       if (videoInputRef.current) videoInputRef.current.value = '';

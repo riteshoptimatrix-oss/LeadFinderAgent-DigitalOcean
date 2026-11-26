@@ -128,3 +128,20 @@ def test_upload_image_and_list_and_delete(test_client):
     # List again -> 1 item left
     list_res2 = client.get("/api/v1/media")
     assert len(list_res2.json()) == 1
+
+
+def test_upload_base64_media(test_client):
+    client, fake_db = test_client
+    import base64
+    raw_bytes = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRfakeimage"
+    b64_str = "data:image/png;base64," + base64.b64encode(raw_bytes).decode("utf-8")
+
+    res = client.post(
+        "/api/v1/media/upload-base64",
+        json={"filename": "logo.png", "content_base64": b64_str, "media_type": "image"},
+    )
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["media_type"] == "image"
+    assert "/api/v1/uploads/images/" in data["url"]
+    assert "logo" in data["filename"]

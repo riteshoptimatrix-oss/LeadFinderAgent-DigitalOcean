@@ -48,6 +48,12 @@ class MediaItemResponse(BaseModel):
     created_at: str
 
 
+class MediaBase64UploadRequest(BaseModel):
+    filename: str
+    content_base64: str
+    media_type: Optional[str] = "image"
+
+
 @router.post("/upload", response_model=MediaItemResponse)
 async def upload_media(
     file: UploadFile = File(...),
@@ -135,6 +141,87 @@ async def upload_media(
         media_type=media_type,
         mime_type=doc["mime_type"],
         size_bytes=total_bytes,
+        url=public_url,
+        created_at=now.isoformat(),
+    )
+
+
+@router.post("/upload-base64", response_model=MediaItemResponse)
+async def upload_media_base64(
+    payload: MediaBase64UploadRequest,
+    current_user: UserInDB = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Upload media as base64-encoded string (JSON payload, bypasses multipart issues)."""
+    import base64
+    raw_b64 = payload.content_base64 or ""
+    if "," in raw_b64:
+        _, raw_b64 = raw_b64.split(",", 1)
+
+    try:
+        file_bytes = base64.b64decode(raw_b64)
+    except Exception as b64_err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid base64 payload: {b64_err}",
+        )
+
+    orig_name = (payload.filename or "uploaded_media").strip()
+    ext = Path(orig_name).suffix.lower()
+
+    if ext in ALLOWED_IMAGE_EXTENSIONS:
+        media_type = "image"
+        subfolder = "images"
+        max_size = MAX_IMAGE_SIZE_BYTES
+    elif ext in ALLOWED_VIDEO_EXTENSIONS:
+        media_type = "video"
+        subfolder = "videos"
+        max_size = MAX_VIDEO_SIZE_BYTES
+    else:
+        media_type = "video" if payload.media_type == "video" else "image"
+        subfolder = "videos" if media_type == "video" else "images"
+        max_size = MAX_VIDEO_SIZE_BYTES if media_type == "video" else MAX_IMAGE_SIZE_BYTES
+        ext = ".mp4" if media_type == "video" else ".png"
+
+    if len(file_bytes) > max_size:
+        max_mb = max_size // (1024 * 1024)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds maximum allowed size of {max_mb}MB for {media_type}s",
+        )
+
+    safe_stem = re.sub(r"[^a-zA-Z0-9_\-]", "_", Path(orig_name).stem)[:30] or "media"
+    unique_filename = f"{uuid.uuid4().hex[:10]}_{safe_stem}{ext}"
+    target_path = UPLOAD_DIR / subfolder / unique_filename
+
+    async with aiofiles.open(target_path, "wb") as out_f:
+        await out_f.write(file_bytes)
+
+    base_url = get_tracking_base_url()
+    public_url = f"{base_url}/api/v1/uploads/{subfolder}/{unique_filename}"
+    now = datetime.now(timezone.utc)
+
+    doc = {
+        "user_id": str(current_user.id),
+        "filename": unique_filename,
+        "original_name": orig_name,
+        "media_type": media_type,
+        "mime_type": f"{media_type}/{ext.lstrip('.')}" if ext else f"{media_type}/*",
+        "size_bytes": len(file_bytes),
+        "url": public_url,
+        "subfolder": subfolder,
+        "created_at": now,
+    }
+
+    result = await db["media_uploads"].insert_one(doc)
+
+    return MediaItemResponse(
+        id=str(result.inserted_id),
+        filename=unique_filename,
+        original_name=orig_name,
+        media_type=media_type,
+        mime_type=doc["mime_type"],
+        size_bytes=len(file_bytes),
         url=public_url,
         created_at=now.isoformat(),
     )

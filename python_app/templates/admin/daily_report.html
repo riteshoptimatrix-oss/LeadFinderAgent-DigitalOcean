@@ -1,0 +1,68 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div class="panel">
+    <div class="panel-body" style="display:flex;justify-content:space-between;align-items:flex-end;flex-wrap:wrap;gap:12px;">
+        <form method="GET" action="/admin/daily_report" class="form-row" style="margin:0;">
+            <div class="form-group-sm"><label>From</label><input type="date" name="from" value="{{ date_from }}"></div>
+            <div class="form-group-sm"><label>To</label><input type="date" name="to" value="{{ date_to }}"></div>
+            <button type="submit" class="btn btn-primary">Apply</button>
+            <a href="/admin/daily_report" class="btn btn-outline">Reset</a>
+        </form>
+        <form method="POST" action="/admin/daily_report" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+            <input type="hidden" name="action" value="check_bounces">
+            <button type="submit" class="btn btn-outline" style="border-color:var(--danger);color:var(--danger);">⚡ Check Bounces Now</button>
+        </form>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px;">
+    <div class="stat-card" style="--accent-color:var(--info)"><div class="label">Sent</div><div class="value">{{ tot_sent }}</div></div>
+    <div class="stat-card" style="--accent-color:var(--success)"><div class="label">Opened</div><div class="value">{{ tot_open }}</div></div>
+    <div class="stat-card" style="--accent-color:var(--green)"><div class="label">Clicked</div><div class="value">{{ tot_click }}</div></div>
+    <div class="stat-card" style="--accent-color:var(--danger)"><div class="label">Bounced</div><div class="value">{{ tot_bounce }}</div></div>
+    <div class="stat-card" style="--accent-color:var(--warning)"><div class="label">Unsubscribed</div><div class="value">{{ tot_unsub }}</div></div>
+</div>
+
+<div class="panel">
+    <div class="panel-header"><h2>📊 Daily Campaign Performance</h2></div>
+    <div class="panel-body"><div class="chart-wrap"><canvas id="dailyChart"></canvas></div></div>
+</div>
+
+<div class="panel">
+    <div class="panel-header"><h2>📋 Day-by-Day Breakdown</h2></div>
+    <table class="data-table">
+        <thead><tr><th>Date</th><th>Sent</th><th>Opened</th><th>Open Rate</th><th>Clicked</th><th>Click Rate</th><th>Bounced</th><th>Unsubscribed</th></tr></thead>
+        <tbody>
+        {% for r in rows_desc %}
+        <tr>
+            <td>{{ r.d }}</td>
+            <td>{{ r.sent }}</td>
+            <td>{{ r.opened }}</td>
+            <td>{{ (r.opened / r.sent * 100)|round(1) ~ '%' if r.sent > 0 else '—' }}</td>
+            <td>{{ r.clicked }}</td>
+            <td>{{ (r.clicked / r.sent * 100)|round(1) ~ '%' if r.sent > 0 else '—' }}</td>
+            <td>{{ r.bounced }}</td>
+            <td>{{ r.unsub }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<script>
+new Chart(document.getElementById('dailyChart').getContext('2d'), {
+    type: 'bar',
+    data: {
+        labels: {{ labels|tojson }},
+        datasets: [
+            { label: 'Sent', data: {{ chart_sent|tojson }}, backgroundColor: 'rgba(59,130,246,.7)' },
+            { label: 'Opened', data: {{ chart_open|tojson }}, backgroundColor: 'rgba(34,197,94,.7)' },
+            { label: 'Clicked', data: {{ chart_click|tojson }}, backgroundColor: 'rgba(37,211,102,.7)' },
+            { label: 'Bounced', data: {{ chart_bounce|tojson }}, backgroundColor: 'rgba(239,68,68,.6)' }
+        ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+});
+</script>
+{% endblock %}

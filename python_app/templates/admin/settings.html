@@ -1,0 +1,68 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+    <div>
+        <div class="panel">
+            <div class="panel-header"><h2>⚙️ Runtime Settings (DB)</h2></div>
+            <table class="data-table">
+                <thead><tr><th>Key</th><th>Value</th><th>Updated</th><th>Edit</th></tr></thead>
+                <tbody>
+                {% for s in settings %}
+                <tr>
+                    <td style="font-family:monospace;color:var(--green);">{{ s.key }}</td>
+                    <td>{{ s.value or '(empty)' }}</td>
+                    <td style="font-size:11px;color:var(--muted);">{{ s.updated_at }}</td>
+                    <td><button type="button" class="btn btn-outline btn-sm" onclick='openEdit({{ s.key|tojson }}, {{ s.value|tojson }})'>✏️</button></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="panel">
+            <div class="panel-header"><h2>⚡ Quick Actions &amp; Diagnostics</h2></div>
+            <div class="panel-body" style="display:flex;flex-direction:column;gap:12px;">
+                <form method="POST"><input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}"><input type="hidden" name="action" value="test_apollo"><button type="submit" class="btn btn-primary">🔍 Run Apollo API Test</button></form>
+                <form method="POST" style="display:flex;gap:8px;"><input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}"><input type="hidden" name="action" value="send_test_email"><input type="email" name="test_email" required placeholder="your_email@gmail.com" style="flex:1;"><button type="submit" class="btn btn-primary">✉️ Send Test Email</button></form>
+                <form method="POST" onsubmit="return confirm('Reset Apollo pagination?')"><input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}"><input type="hidden" name="action" value="reset_apollo_page"><button type="submit" class="btn btn-danger">🔄 Reset Apollo Page</button></form>
+                <form method="POST" onsubmit="return confirm('Clear send date?')"><input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}"><input type="hidden" name="action" value="reset_send_date"><button type="submit" class="btn btn-outline">📤 Clear Send Date</button></form>
+            </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-header"><h2>🔒 config.py Constants (Masked)</h2></div>
+        <table class="data-table">
+            <thead><tr><th>Constant</th><th>Value</th></tr></thead>
+            <tbody>
+            {% for k, v in config_display.items() %}
+            <tr><td style="font-family:monospace;color:var(--green);">{{ k }}</td><td>{{ v }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div id="editModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:999;align-items:center;justify-content:center;">
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;max-width:440px;width:90%;padding:26px;">
+        <h3 style="margin-bottom:14px;">Edit Setting</h3>
+        <form method="POST" action="/admin/settings">
+            <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+            <input type="hidden" name="action" value="save_setting">
+            <input type="text" id="editKey" name="setting_key" readonly style="width:100%;margin-bottom:10px;">
+            <input type="text" id="editVal" name="setting_value" style="width:100%;margin-bottom:14px;">
+            <div style="display:flex;gap:8px;justify-content:flex-end;">
+                <button type="button" class="btn btn-outline" onclick="document.getElementById('editModal').style.display='none'">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+function openEdit(k, v) {
+    document.getElementById('editKey').value = k;
+    document.getElementById('editVal').value = v;
+    document.getElementById('editModal').style.display = 'flex';
+}
+</script>
+{% endblock %}

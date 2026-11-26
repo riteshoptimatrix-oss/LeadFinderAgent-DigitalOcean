@@ -16,6 +16,7 @@ from app.core.security_crypto import decrypt_string
 from app.services.email_ai.tracking_utils import (
     apply_email_tracking,
     build_message_id,
+    build_unsubscribe_url,
     generate_tracking_id,
 )
 from app.services.ws_manager import ws_manager
@@ -298,16 +299,32 @@ class EmailAIQueueWorker:
 
             uid_str = str(job.get("user_id") or campaign.get("user_id") or "").strip()
 
-            # Check if lead has already replied (automated follow-up cancellation)
-            existing_reply = await self.db["email_tracking"].find_one({
+            # Check if lead has already replied, unsubscribed, or bounced (automated suppression)
+            existing_suppression = await self.db["email_tracking"].find_one({
                 "user_id": uid_str,
-                "lead_id": str(lead_id),
-                "$or": [{"replied": True}, {"followups_paused": True}],
+                "$or": [
+                    {"lead_id": str(lead_id)},
+                    {"recipient_email": target_email.strip().lower()},
+                ],
+                "$and": [{
+                    "$or": [
+                        {"replied": True},
+                        {"followups_paused": True},
+                        {"unsubscribed": True},
+                        {"bounced": True},
+                    ]
+                }],
             })
-            if existing_reply:
+            if existing_suppression:
+                if existing_suppression.get("unsubscribed"):
+                    skip_reason = "Lead unsubscribed; email suppressed."
+                elif existing_suppression.get("bounced"):
+                    skip_reason = "Lead previously bounced; email suppressed."
+                else:
+                    skip_reason = "Lead already replied; automated follow-up paused."
                 await self._finalize_job(
                     job_id, campaign_id, lead_id, start_time, "Skipped",
-                    "Lead already replied; automated follow-up paused.", email=target_email
+                    skip_reason, email=target_email
                 )
                 return
 
@@ -315,9 +332,12 @@ class EmailAIQueueWorker:
             body_html = self._replace_variables(template.get("body_html", ""), lead)
             body_text = self._replace_variables(template.get("body_text", ""), lead)
 
-            # Generate unique tracking ID & Message-ID, and integrate tracking pixel / click URLs
+            # Generate unique tracking ID & Message-ID, and integrate tracking pixel / click URLs / unsubscribe
             tracking_id = generate_tracking_id(uid_str, campaign_id, str(lead_id), str(job_id))
             message_id = build_message_id(tracking_id)
+            unsub_url = build_unsubscribe_url(tracking_id)
+            if body_text:
+                body_text = body_text.replace("{{unsub_url}}", unsub_url)
             tracking_cfg = campaign.get("tracking") or {}
             open_tracking = tracking_cfg.get("open_tracking", True)
             click_tracking = tracking_cfg.get("click_tracking", True)
@@ -388,7 +408,17 @@ class EmailAIQueueWorker:
 
             # Run blocking SMTP code in executor
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._send_email_sync, smtp_profile, target_email, subject, body_html, body_text, message_id)
+            await loop.run_in_executor(
+                None,
+                self._send_email_sync,
+                smtp_profile,
+                target_email,
+                subject,
+                body_html,
+                body_text,
+                message_id,
+                unsub_url,
+            )
 
             # Record tracking document & link to queue job
             sent_now = datetime.now(timezone.utc)
@@ -422,6 +452,17 @@ class EmailAIQueueWorker:
                             "reply_snippet": None,
                             "reply_from": None,
                             "reply_message_id": None,
+                            "bounced": False,
+                            "bounced_at": None,
+                            "unsubscribed": False,
+                            "unsubscribed_at": None,
+                            "last_ip": None,
+                            "last_user_agent": None,
+                            "event_history": [{
+                                "type": "sent",
+                                "timestamp": sent_now.isoformat(),
+                                "details": f"Sent to {target_email.strip().lower()}",
+                            }],
                             "followups_paused": False,
                             "created_at": sent_now,
                             "updated_at": sent_now,
@@ -527,7 +568,16 @@ class EmailAIQueueWorker:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
 
-    def _send_email_sync(self, smtp_profile: Dict[str, Any], to_email: str, subject: str, html: str, text: str, message_id: Optional[str] = None) -> bool:
+    def _send_email_sync(
+        self,
+        smtp_profile: Dict[str, Any],
+        to_email: str,
+        subject: str,
+        html: str,
+        text: str,
+        message_id: Optional[str] = None,
+        unsub_url: Optional[str] = None,
+    ) -> bool:
         """Synchronous SMTP execution designed to run in executor. Logs every step.
         Supports intelligent SSL/TLS auto-detection, fallback ports, and resilient handshakes.
         """
@@ -551,6 +601,9 @@ class EmailAIQueueWorker:
         msg['To'] = to_email
         if message_id:
             msg['Message-ID'] = message_id
+        if unsub_url:
+            msg['List-Unsubscribe'] = f"<{unsub_url}>"
+            msg['List-Unsubscribe-Post'] = "List-Unsubscribe=One-Click"
 
         if text:
             msg.attach(MIMEText(text, 'plain', 'utf-8'))

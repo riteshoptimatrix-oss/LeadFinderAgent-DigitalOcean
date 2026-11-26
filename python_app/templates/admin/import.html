@@ -1,0 +1,58 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div style="max-width:900px;margin:0 auto;">
+    {% if error_msg %}<div class="flash flash-error">{{ error_msg }}</div>{% endif %}
+
+    {% if step == 'upload' %}
+    <div class="panel">
+        <div class="panel-header"><h2>📥 Upload CSV, TSV, or Excel (.xlsx)</h2></div>
+        <div class="panel-body">
+            <form method="POST" action="/admin/import" enctype="multipart/form-data">
+                <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+                <input type="hidden" name="action" value="upload_file">
+                <input type="file" name="lead_file" accept=".csv,.tsv,.txt,.xlsx" required style="width:100%;margin-bottom:16px;padding:12px;">
+                <button type="submit" class="btn btn-primary">Upload &amp; Preview Columns →</button>
+            </form>
+        </div>
+    </div>
+    {% elif step == 'map' %}
+    <div class="panel">
+        <div class="panel-header"><h2>🔗 Map Columns &amp; Import</h2></div>
+        <div class="panel-body">
+            <form method="POST" action="/admin/import">
+                <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+                <input type="hidden" name="action" value="execute_import">
+                <input type="hidden" name="tmp_file" value="{{ tmp_file_name }}">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;">
+                    {% for field, label in [('email','Email *'),('first_name','First Name'),('last_name','Last Name'),('company','Company'),('title','Job Title'),('city','City'),('state','State'),('country','Country'),('employees','Employees'),('apollo_id','Apollo ID')] %}
+                    <div>
+                        <label style="display:block;font-size:12px;margin-bottom:4px;">{{ label }}</label>
+                        <select name="map[{{ field }}]" style="width:100%;">
+                            <option value="">-- Ignore --</option>
+                            {% for h in preview_headers %}
+                            <option value="{{ loop.index0 }}" {{ 'selected' if detected_map.get(field) == loop.index0 else '' }}>{{ h }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endfor %}
+                </div>
+                <div style="display:flex;gap:16px;margin-bottom:18px;">
+                    <div><label style="font-size:12px;">On Duplicate: </label><select name="on_duplicate"><option value="skip">Skip</option><option value="update">Update existing</option></select></div>
+                    <div><label style="font-size:12px;">Initial Status: </label><select name="initial_status"><option value="new">New (Ready to send)</option><option value="sent">Sent</option></select></div>
+                </div>
+                <button type="submit" class="btn btn-primary">🚀 Execute Import</button>
+            </form>
+        </div>
+    </div>
+    {% elif step == 'done' %}
+    <div class="panel">
+        <div class="panel-header"><h2>✅ Import Completed</h2></div>
+        <div class="panel-body">
+            <p style="margin-bottom:14px;">Total rows: <strong>{{ import_stats.total }}</strong> | Imported: <strong>{{ import_stats.imported }}</strong> | Updated: <strong>{{ import_stats.updated }}</strong> | Skipped: <strong>{{ import_stats.skipped }}</strong> | Invalid: <strong>{{ import_stats.invalid }}</strong></p>
+            <a href="/admin/leads" class="btn btn-primary">👥 View Leads</a>
+            <a href="/admin/send_bulk" class="btn btn-outline">🚀 Send Bulk Campaign</a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

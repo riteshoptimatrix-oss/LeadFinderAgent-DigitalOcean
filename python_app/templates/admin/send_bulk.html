@@ -1,0 +1,173 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div style="max-width:1100px;margin:0 auto;">
+    <div class="stat-grid">
+        <div class="stat-card" style="--accent-color:var(--green)"><div class="label">Ready to Send (New)</div><div class="value" id="badgePendingCount">{{ count_new }}</div></div>
+        <div class="stat-card" style="--accent-color:var(--info)"><div class="label">Sent Today</div><div class="value">{{ sent_today }}</div><div class="sub">{{ count_sent }} all-time</div></div>
+        <div class="stat-card" style="--accent-color:var(--danger)"><div class="label">Failed</div><div class="value">{{ count_failed }}</div></div>
+    </div>
+
+    <div class="panel" id="configPanel">
+        <div class="panel-header"><h2>🚀 Configure Manual Bulk Campaign</h2></div>
+        <div class="panel-body">
+            {% if count_new == 0 %}
+                <div class="empty-state"><p>No "new" leads waiting to be sent.</p><a href="/admin/import" class="btn btn-primary" style="margin-top:12px;">📥 Import Leads</a></div>
+            {% else %}
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;">
+                    <div>
+                        <label style="display:block;font-size:12px;margin-bottom:5px;">Email Template</label>
+                        <select id="templateSelect" onchange="onTemplateChanged(this.value)" style="width:100%;margin-bottom:12px;">
+                            {% for t in all_templates %}
+                            <option value="{{ t.id }}" {{ 'selected' if t.id == active_template.id else '' }}>{{ t.name }}</option>
+                            {% endfor %}
+                        </select>
+                        <label style="display:block;font-size:12px;margin-bottom:5px;">Email Subject</label>
+                        <input type="text" id="campaignSubject" value="{{ active_template.subject }}" style="width:100%;margin-bottom:12px;">
+                        <label style="display:block;font-size:12px;margin-bottom:5px;">CTA Destination URL</label>
+                        <input type="url" id="campaignCta" value="https://www.easymsgsender.com/pricing.php" style="width:100%;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;margin-bottom:5px;">Batch Send Limit</label>
+                        <select id="batchLimit" style="width:100%;margin-bottom:12px;">
+                            <option value="10">Send 10 leads</option>
+                            <option value="25">Send 25 leads</option>
+                            <option value="50" selected>Send 50 leads</option>
+                            <option value="100">Send 100 leads</option>
+                            <option value="all">Send All ({{ count_new }})</option>
+                        </select>
+                        <label style="display:block;font-size:12px;margin-bottom:5px;">Delay Between Sends (seconds)</label>
+                        <input type="number" id="sendDelay" value="15" min="2" max="120" style="width:100%;margin-bottom:12px;">
+                        <div style="display:flex;gap:8px;margin-top:16px;">
+                            <input type="email" id="testEmailInput" placeholder="test@example.com" style="flex:1;">
+                            <button type="button" class="btn btn-outline" onclick="sendTestPreview()">Send Test</button>
+                        </div>
+                        <div id="testPreviewMsg" style="font-size:12px;margin-top:6px;"></div>
+                    </div>
+                </div>
+                <button type="button" class="btn btn-primary" onclick="startCampaign()">🚀 Start Bulk Campaign</button>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="panel" id="monitorPanel" style="display:none;">
+        <div class="panel-header">
+            <h2>⚡ Live Dispatch Monitor</h2>
+            <div style="display:flex;gap:8px;">
+                <button type="button" id="btnPause" class="btn btn-outline btn-sm" onclick="togglePause()">⏸ Pause</button>
+                <button type="button" class="btn btn-danger btn-sm" onclick="stopCampaign()">⏹ Stop</button>
+            </div>
+        </div>
+        <div class="panel-body">
+            <div style="margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">
+                    <span id="progressText">Processed: 0</span>
+                    <span id="progressPercent">0%</span>
+                </div>
+                <div style="background:var(--dark);height:12px;border-radius:6px;overflow:hidden;">
+                    <div id="progressBar" style="background:var(--green);height:100%;width:0%;transition:width .3s;"></div>
+                </div>
+            </div>
+            <div style="display:flex;gap:20px;font-size:13px;margin-bottom:14px;">
+                <span>Sent: <strong id="statSent">0</strong></span>
+                <span>Failed: <strong id="statFailed">0</strong></span>
+                <span>Remaining: <strong id="statRemaining">{{ count_new }}</strong></span>
+                <span>Next in: <strong id="statCountdown">—</strong></span>
+            </div>
+            <div id="activityConsole" style="background:#060b14;color:#cbd5e1;font-family:monospace;font-size:12px;padding:12px;border-radius:8px;height:240px;overflow-y:auto;"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+const CSRF_TOKEN = {{ session['csrf_token']|tojson }};
+const SELECTED_IDS = {{ selected_get|tojson }};
+const JS_TEMPLATES = {{ js_templates|tojson }};
+let currentTemplateId = {{ active_template.id|default(0) }};
+let isRunning = false, isPaused = false, sessionSent = 0, sessionFailed = 0, sessionTarget = 0, timer = null;
+
+function onTemplateChanged(id) {
+    const tpl = JS_TEMPLATES[String(id)];
+    if (tpl) {
+        currentTemplateId = tpl.id;
+        document.getElementById('campaignSubject').value = tpl.subject;
+    }
+}
+function logMsg(txt, color='#94a3b8') {
+    const c = document.getElementById('activityConsole');
+    const d = document.createElement('div');
+    d.style.color = color;
+    d.innerHTML = `[${new Date().toLocaleTimeString()}] ${txt}`;
+    c.appendChild(d);
+    c.scrollTop = c.scrollHeight;
+}
+function updateProgress() {
+    const tot = sessionSent + sessionFailed;
+    const pct = sessionTarget > 0 ? Math.min(100, Math.round(tot / sessionTarget * 100)) : 0;
+    document.getElementById('progressBar').style.width = pct + '%';
+    document.getElementById('progressPercent').textContent = pct + '%';
+    document.getElementById('progressText').textContent = `Processed: ${tot} of ${sessionTarget}`;
+    document.getElementById('statSent').textContent = sessionSent;
+    document.getElementById('statFailed').textContent = sessionFailed;
+}
+function startCampaign() {
+    const q = parseInt(document.getElementById('badgePendingCount').textContent) || 0;
+    const bv = document.getElementById('batchLimit').value;
+    sessionTarget = (bv === 'all') ? q : Math.min(parseInt(bv), q);
+    sessionSent = 0; sessionFailed = 0; isRunning = true; isPaused = false;
+    document.getElementById('configPanel').style.display = 'none';
+    document.getElementById('monitorPanel').style.display = 'block';
+    logMsg(`Starting campaign for ${sessionTarget} lead(s)...`, '#4ade80');
+    updateProgress();
+    sendNextLead();
+}
+function sendNextLead() {
+    if (!isRunning || isPaused) return;
+    if ((sessionSent + sessionFailed) >= sessionTarget) { isRunning = false; logMsg('Completed!', '#4ade80'); return; }
+    const fd = new FormData();
+    fd.append('action', 'send_single_ajax');
+    fd.append('csrf_token', CSRF_TOKEN);
+    fd.append('template_id', currentTemplateId);
+    fd.append('subject', document.getElementById('campaignSubject').value);
+    fd.append('cta_url', document.getElementById('campaignCta').value);
+    if (SELECTED_IDS) fd.append('selected_ids', SELECTED_IDS);
+    document.getElementById('statCountdown').textContent = 'Sending...';
+    fetch('/admin/send_bulk', { method: 'POST', body: fd })
+    .then(r => r.json())
+    .then(data => {
+        if (data.status === 'completed') { isRunning = false; logMsg('Queue completed!', '#4ade80'); return; }
+        if (data.status === 'success') { sessionSent++; logMsg(`✓ SENT to ${data.email}`, '#4ade80'); }
+        else { sessionFailed++; logMsg(`✗ FAILED ${data.email || ''}: ${data.error}`, '#f87171'); }
+        document.getElementById('statRemaining').textContent = data.remaining;
+        updateProgress();
+        if ((sessionSent + sessionFailed) >= sessionTarget) { isRunning = false; logMsg('Batch complete!', '#4ade80'); return; }
+        let rem = parseInt(document.getElementById('sendDelay').value) || 15;
+        clearInterval(timer);
+        timer = setInterval(() => {
+            if (!isRunning || isPaused) { clearInterval(timer); return; }
+            rem--;
+            document.getElementById('statCountdown').textContent = rem + 's';
+            if (rem <= 0) { clearInterval(timer); sendNextLead(); }
+        }, 1000);
+    });
+}
+function togglePause() {
+    isPaused = !isPaused;
+    document.getElementById('btnPause').textContent = isPaused ? '▶ Resume' : '⏸ Pause';
+    if (!isPaused) sendNextLead();
+}
+function stopCampaign() { isRunning = false; clearInterval(timer); logMsg('Stopped by user.', '#f87171'); }
+function sendTestPreview() {
+    const email = document.getElementById('testEmailInput').value.trim();
+    const fd = new FormData();
+    fd.append('action', 'send_test_preview');
+    fd.append('csrf_token', CSRF_TOKEN);
+    fd.append('template_id', currentTemplateId);
+    fd.append('test_email', email);
+    fd.append('subject', document.getElementById('campaignSubject').value);
+    fd.append('cta_url', document.getElementById('campaignCta').value);
+    fetch('/admin/send_bulk', { method: 'POST', body: fd }).then(r => r.json()).then(res => {
+        document.getElementById('testPreviewMsg').textContent = res.message;
+    });
+}
+</script>
+{% endblock %}

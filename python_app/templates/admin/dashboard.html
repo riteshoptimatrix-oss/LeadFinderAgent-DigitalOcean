@@ -1,0 +1,104 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div style="background:linear-gradient(135deg, rgba(37,211,102,0.12), rgba(18,140,126,0.06));border:1px solid rgba(37,211,102,0.25);border-radius:12px;padding:16px 22px;margin-bottom:24px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;">
+    <div>
+        <h3 style="font-size:16px;color:var(--text-bright);font-weight:700;margin-bottom:4px;">📧 Ready to reach new prospects?</h3>
+        <p style="font-size:13px;color:var(--muted);margin:0;">Import prospects, dispatch campaigns, and monitor live deliverability.</p>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <form method="POST" action="/admin/" style="margin:0;">
+            <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+            <input type="hidden" name="action" value="check_bounces">
+            <button type="submit" class="btn btn-outline" style="border-color:var(--danger);color:var(--danger);font-weight:600;">⚡ Check Bounces Now</button>
+        </form>
+        <a href="/admin/import" class="btn btn-outline" style="border-color:var(--green);color:var(--green);font-weight:600;">📥 Import Leads</a>
+        <a href="/admin/send_bulk" class="btn btn-primary" style="font-weight:600;">🚀 Send Bulk Campaign ({{ total_new }} New)</a>
+    </div>
+</div>
+
+<div class="stat-grid">
+    <div class="stat-card" style="--accent-color:var(--green)"><div class="icon">👥</div><div class="label">Total Leads</div><div class="value">{{ total_leads }}</div><div class="sub">{{ total_new }} awaiting send</div></div>
+    <div class="stat-card" style="--accent-color:var(--info)"><div class="icon">📤</div><div class="label">Emails Sent</div><div class="value">{{ total_sent }}</div><div class="sub">{{ sent_today }} today</div></div>
+    <div class="stat-card" style="--accent-color:var(--success)"><div class="icon">👁️</div><div class="label">Open Rate</div><div class="value">{{ open_rate }}%</div><div class="sub">{{ total_opened }} unique opens</div></div>
+    <div class="stat-card" style="--accent-color:var(--green)"><div class="icon">🖱️</div><div class="label">Click Rate</div><div class="value">{{ click_rate }}%</div><div class="sub">{{ total_clicked }} unique clicks</div></div>
+    <div class="stat-card" style="--accent-color:var(--danger)"><div class="icon">⚠️</div><div class="label">Bounced</div><div class="value">{{ total_bounced }}</div><div class="sub">{{ (total_bounced / total_sent * 100)|round(1) if total_sent > 0 else 0 }}% bounce rate</div></div>
+    <div class="stat-card" style="--accent-color:var(--warning)"><div class="icon">🚫</div><div class="label">Unsubscribed</div><div class="value">{{ total_unsub }}</div><div class="sub">{{ (total_unsub / total_sent * 100)|round(1) if total_sent > 0 else 0 }}% unsub rate</div></div>
+    <div class="stat-card" style="--accent-color:#ef4444"><div class="icon">❌</div><div class="label">Failed Sends</div><div class="value">{{ total_failed }}</div><div class="sub">SMTP delivery errors</div></div>
+    <div class="stat-card" style="--accent-color:#a855f7"><div class="icon">🆕</div><div class="label">New (Queued)</div><div class="value">{{ total_new }}</div><div class="sub">Apollo page: {{ apollo_page or '1' }}</div></div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;margin-bottom:24px;">
+    <div class="panel">
+        <div class="panel-header"><h2>📈 30-Day Trend</h2><span style="font-size:12px;color:var(--muted)">Sent · Opened · Clicked</span></div>
+        <div class="panel-body"><div class="chart-wrap"><canvas id="trendChart"></canvas></div></div>
+    </div>
+    <div class="panel">
+        <div class="panel-header"><h2>🍩 Lead Status</h2></div>
+        <div class="panel-body"><div class="chart-wrap" style="height:220px;"><canvas id="statusChart"></canvas></div></div>
+    </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+    <div class="panel">
+        <div class="panel-header"><h2>⚡ Recent Events</h2><a href="/admin/events" class="btn btn-outline btn-sm">View All</a></div>
+        {% if not recent_events %}
+            <div class="empty-state"><p>No events yet.</p></div>
+        {% else %}
+            <table class="data-table">
+                <thead><tr><th>Type</th><th>Lead</th><th>Time</th></tr></thead>
+                <tbody>
+                {% for ev in recent_events %}
+                <tr>
+                    <td><span class="badge badge-{{ ev.event_type }}">{{ ev.event_type }}</span></td>
+                    <td><div style="font-weight:500;color:var(--text-bright);">{{ ev.first_name }} {{ ev.last_name }}</div><div style="font-size:11px;color:var(--muted);">{{ ev.email }}</div></td>
+                    <td style="font-size:12px;color:var(--muted);">{{ ev.created_at }}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </div>
+    <div class="panel">
+        <div class="panel-header"><h2>🆕 Recently Fetched Leads</h2><a href="/admin/leads" class="btn btn-outline btn-sm">View All</a></div>
+        {% if not recent_leads %}
+            <div class="empty-state"><p>No leads yet.</p></div>
+        {% else %}
+            <table class="data-table">
+                <thead><tr><th>Name</th><th>Company</th><th>Status</th></tr></thead>
+                <tbody>
+                {% for l in recent_leads %}
+                <tr>
+                    <td><div style="font-weight:500;color:var(--text-bright);">{{ l.first_name }} {{ l.last_name }}</div><div style="font-size:11px;color:var(--muted);">{{ l.email }}</div></td>
+                    <td>{{ l.company }}</td>
+                    <td><span class="badge badge-{{ l.status }}">{{ l.status }}</span></td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+new Chart(document.getElementById('trendChart').getContext('2d'), {
+    type: 'line',
+    data: {
+        labels: {{ labels|tojson }},
+        datasets: [
+            { label: 'Sent', data: {{ sent_arr|tojson }}, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', fill: true, tension: 0.4 },
+            { label: 'Opened', data: {{ open_arr|tojson }}, borderColor: '#22c55e', backgroundColor: 'rgba(34,197,94,0.08)', fill: true, tension: 0.4 },
+            { label: 'Clicked', data: {{ click_arr|tojson }}, borderColor: '#25d366', backgroundColor: 'rgba(37,211,102,0.08)', fill: true, tension: 0.4 }
+        ]
+    },
+    options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+});
+new Chart(document.getElementById('statusChart').getContext('2d'), {
+    type: 'doughnut',
+    data: {
+        labels: ['New', 'Sent', 'Bounced', 'Unsubscribed', 'Failed'],
+        datasets: [{ data: [{{ total_new }}, {{ total_sent }}, {{ total_bounced }}, {{ total_unsub }}, {{ total_failed }}], backgroundColor: ['#3b82f6','#22c55e','#ef4444','#f59e0b','#6b7280'] }]
+    },
+    options: { responsive: true, maintainAspectRatio: false, cutout: '65%' }
+});
+</script>
+{% endblock %}

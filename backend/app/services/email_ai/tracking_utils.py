@@ -12,6 +12,8 @@ import uuid
 from typing import Optional
 from urllib.parse import quote, urlparse
 
+from fastapi import Request
+
 from app.core.config import settings as app_settings
 
 # 1x1 transparent GIF (43 bytes)
@@ -113,13 +115,38 @@ def wrap_links_for_click_tracking(html: str, tracking_id: str, base_url: Optiona
     return _HREF_RE.sub(_replace_href, html)
 
 
-def inject_tracking_pixel(html: str, tracking_id: str, base_url: Optional[str] = None) -> str:
-    """Append an invisible 1x1 tracking pixel to HTML email body."""
-    if not html or not tracking_id:
-        return html
+def get_client_ip_from_request(request: Request) -> str:
+    """Extract real client IP from proxy headers or socket connection."""
+    for hdr in ("cf-connecting-ip", "x-forwarded-for", "x-real-ip"):
+        val = request.headers.get(hdr, "")
+        if val:
+            return val.split(",")[0].strip()[:64]
+    if request.client and request.client.host:
+        return str(request.client.host)[:64]
+    return ""
+
+
+def build_unsubscribe_url(tracking_id: str, base_url: Optional[str] = None) -> str:
+    """Build public unsubscribe URL for a tracked email."""
     resolved_base = get_tracking_base_url(base_url)
     api_prefix = (app_settings.API_V1_STR or "/api/v1").rstrip("/")
-    pixel_url = f"{resolved_base}{api_prefix}/tracking/open/{tracking_id}"
+    return f"{resolved_base}{api_prefix}/tracking/unsubscribe/{tracking_id}"
+
+
+def build_pixel_url(tracking_id: str, base_url: Optional[str] = None) -> str:
+    """Build public 1x1 open-tracking pixel URL."""
+    resolved_base = get_tracking_base_url(base_url)
+    api_prefix = (app_settings.API_V1_STR or "/api/v1").rstrip("/")
+    return f"{resolved_base}{api_prefix}/tracking/open/{tracking_id}"
+
+
+def inject_tracking_pixel(html: str, tracking_id: str, base_url: Optional[str] = None) -> str:
+    """Append an invisible 1x1 tracking pixel to HTML email body if not already present."""
+    if not html or not tracking_id:
+        return html
+    pixel_url = build_pixel_url(tracking_id, base_url=base_url)
+    if pixel_url in html:
+        return html
     pixel_tag = (
         f'<img src="{pixel_url}" width="1" height="1" border="0" '
         f'style="width:1px;height:1px;opacity:0;border:0;outline:none;text-decoration:none;" alt="" />'
@@ -136,10 +163,15 @@ def apply_email_tracking(
     click_tracking: bool = True,
     base_url: Optional[str] = None,
 ) -> str:
-    """Apply click-tracking link wrapping and open-tracking pixel to HTML content."""
+    """Apply tracking placeholders, click-tracking link wrapping, and open-tracking pixel to HTML."""
     if not html:
         return html
     result = html
+    if tracking_id:
+        unsub_url = build_unsubscribe_url(tracking_id, base_url=base_url)
+        pixel_url = build_pixel_url(tracking_id, base_url=base_url)
+        result = result.replace("{{unsub_url}}", unsub_url)
+        result = result.replace("{{pixel_url}}", pixel_url if open_tracking else "")
     if click_tracking:
         result = wrap_links_for_click_tracking(result, tracking_id, base_url=base_url)
     if open_tracking:

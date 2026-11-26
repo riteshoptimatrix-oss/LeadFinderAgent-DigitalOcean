@@ -372,7 +372,17 @@ class EmailReplyWorker:
                     "reply_message_id": msg.get("imap_message_id") or "",
                     "followups_paused": True,
                     "updated_at": now,
-                }
+                },
+                "$push": {
+                    "event_history": {
+                        "$each": [{
+                            "type": "reply",
+                            "timestamp": now.isoformat(),
+                            "details": msg.get("subject") or "Reply received",
+                        }],
+                        "$slice": -100,
+                    }
+                },
             },
         )
 

@@ -1,0 +1,57 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+    <div class="stat-card" style="--accent-color:var(--success)"><div class="label">👁 Opens</div><div class="value">{{ type_stats.get('open', 0) }}</div></div>
+    <div class="stat-card" style="--accent-color:var(--info)"><div class="label">🖱 Clicks</div><div class="value">{{ type_stats.get('click', 0) }}</div></div>
+    <div class="stat-card" style="--accent-color:var(--danger)"><div class="label">⚠ Bounces</div><div class="value">{{ type_stats.get('bounce', 0) }}</div></div>
+    <div class="stat-card" style="--accent-color:var(--warning)"><div class="label">🚫 Unsubs</div><div class="value">{{ type_stats.get('unsubscribe', 0) }}</div></div>
+</div>
+
+<div class="panel">
+    <div class="panel-body">
+        <form method="GET" action="/admin/events" class="form-row" style="margin:0;">
+            <div class="form-group-sm" style="flex:2;"><label>Search Lead</label><input type="search" name="q" value="{{ search }}" placeholder="Email, name, company..."></div>
+            <div class="form-group-sm"><label>Type</label>
+                <select name="type">
+                    <option value="">All</option>
+                    {% for t in ['open','click','bounce','unsubscribe'] %}<option value="{{ t }}" {{ 'selected' if ev_type == t else '' }}>{{ t|capitalize }}</option>{% endfor %}
+                </select>
+            </div>
+            <div class="form-group-sm"><label>From</label><input type="date" name="from" value="{{ date_from }}"></div>
+            <div class="form-group-sm"><label>To</label><input type="date" name="to" value="{{ date_to }}"></div>
+            <button type="submit" class="btn btn-primary">🔍 Filter</button>
+            <a href="/admin/events" class="btn btn-outline">Reset</a>
+        </form>
+        <form method="POST" action="/admin/events" style="margin-top:12px;text-align:right;">
+            <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+            <input type="hidden" name="action" value="check_bounces">
+            <button type="submit" class="btn btn-outline btn-sm" style="border-color:var(--danger);color:var(--danger);">⚡ Check Bounces Now</button>
+        </form>
+    </div>
+</div>
+
+<div class="panel">
+    <table class="data-table">
+        <thead><tr><th>#</th><th>Type</th><th>Lead</th><th>Company</th><th>URL</th><th>IP</th><th>Date &amp; Time</th></tr></thead>
+        <tbody>
+        {% for ev in events %}
+        <tr>
+            <td>{{ offset + loop.index }}</td>
+            <td><span class="badge badge-{{ ev.event_type }}">{{ ev.event_type }}</span></td>
+            <td><div>{{ ev.first_name }} {{ ev.last_name }}</div><div style="font-size:11px;color:var(--muted);">{{ ev.email }}</div></td>
+            <td>{{ ev.company }}</td>
+            <td style="font-size:12px;max-width:200px;word-break:break-all;">{{ ev.url or '—' }}</td>
+            <td style="font-size:12px;color:var(--muted);">{{ ev.ip or '—' }}</td>
+            <td style="font-size:12px;color:var(--muted);">{{ ev.created_at }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="pagination">
+    <a class="page-btn {{ 'disabled' if page <= 1 else '' }}" href="/admin/events?page={{ page - 1 }}&q={{ search|urlencode }}&type={{ ev_type|urlencode }}">← Prev</a>
+    <span style="padding:0 10px;font-size:13px;color:var(--muted);">Page {{ page }} of {{ total_pages }} ({{ total }} events)</span>
+    <a class="page-btn {{ 'disabled' if page >= total_pages else '' }}" href="/admin/events?page={{ page + 1 }}&q={{ search|urlencode }}&type={{ ev_type|urlencode }}">Next →</a>
+</div>
+{% endblock %}

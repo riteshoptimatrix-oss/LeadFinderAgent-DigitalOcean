@@ -1,0 +1,40 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div style="max-width:1100px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px;">
+        <div style="display:flex;gap:10px;">
+            <a href="/admin/template_form" class="btn btn-primary">➕ Create New Template</a>
+            <a href="/admin/upload_media" class="btn btn-outline">🖼️ Media Library</a>
+        </div>
+        <span style="font-size:13px;color:var(--muted);">Total Templates: <strong>{{ templates|length }}</strong></span>
+    </div>
+    <div class="panel">
+        <div class="panel-header"><h2>📝 Marketing Templates</h2></div>
+        <table class="data-table">
+            <thead><tr><th>Template Name</th><th>Default Subject</th><th>Status</th><th>Updated</th><th>Actions</th></tr></thead>
+            <tbody>
+            {% for t in templates %}
+            <tr>
+                <td><a href="/admin/template_form?id={{ t.id }}" style="color:var(--text-bright);font-weight:600;text-decoration:none;">{{ t.name }}</a></td>
+                <td>{{ t.subject }}</td>
+                <td>{% if t.is_default %}<span class="badge badge-sent">★ DEFAULT</span>{% else %}<span class="badge" style="border:1px solid var(--border);">Standard</span>{% endif %}</td>
+                <td style="font-size:12px;color:var(--muted);">{{ t.updated_at }}</td>
+                <td style="white-space:nowrap;">
+                    <a href="/admin/template_form?preview_id={{ t.id }}" target="_blank" class="btn btn-outline btn-sm">👁</a>
+                    <a href="/admin/template_form?id={{ t.id }}" class="btn btn-outline btn-sm">✏️</a>
+                    <a href="/admin/send_bulk?template_id={{ t.id }}" class="btn btn-outline btn-sm" style="color:var(--green);">🚀</a>
+                    {% if not t.is_default %}
+                    <form method="POST" action="/admin/templates" style="display:inline;"><input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}"><input type="hidden" name="template_id" value="{{ t.id }}"><input type="hidden" name="action" value="set_default"><button type="submit" class="btn btn-outline btn-sm">★</button></form>
+                    {% endif %}
+                    <form method="POST" action="/admin/templates" style="display:inline;"><input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}"><input type="hidden" name="template_id" value="{{ t.id }}"><input type="hidden" name="action" value="duplicate"><button type="submit" class="btn btn-outline btn-sm">📋</button></form>
+                    {% if not t.is_default %}
+                    <form method="POST" action="/admin/templates" style="display:inline;" onsubmit="return confirm('Delete this template?')"><input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}"><input type="hidden" name="template_id" value="{{ t.id }}"><input type="hidden" name="action" value="delete"><button type="submit" class="btn btn-danger btn-sm">🗑</button></form>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

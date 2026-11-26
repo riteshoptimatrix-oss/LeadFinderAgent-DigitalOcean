@@ -12,13 +12,14 @@ Authenticated dashboard endpoints (scoped to user):
 """
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+import html as html_lib
 from typing import Any, Dict, List, Optional
 import uuid
 
 from bson import ObjectId
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel, EmailStr
 
 from app.api.dependencies import require_email_automation_access, require_email_testing_access
@@ -32,6 +33,7 @@ from app.services.email_ai.tracking_utils import (
     apply_email_tracking,
     build_message_id,
     generate_tracking_id,
+    get_client_ip_from_request,
     is_safe_redirect_url,
 )
 from app.services.ws_manager import ws_manager
@@ -79,15 +81,19 @@ async def _broadcast_tracking_event(payload: Dict[str, Any], campaign_id: Option
 # ==========================================
 
 @router.get("/open/{tracking_id}")
-async def track_email_open(tracking_id: str, db=Depends(get_db)):
-    """Record an estimated email open event and return a 1x1 transparent GIF."""
+async def track_email_open(tracking_id: str, request: Request, db=Depends(get_db)):
+    """Record an estimated email open event (with IP, User-Agent & event history) and return a 1x1 transparent GIF."""
     now = datetime.now(timezone.utc)
+    ip = get_client_ip_from_request(request)
+    ua = (request.headers.get("user-agent") or "")[:512]
     try:
         doc = await db["email_tracking"].find_one({"tracking_id": tracking_id})
         if doc:
             update_set: Dict[str, Any] = {
                 "opened": True,
                 "last_opened_at": now,
+                "last_ip": ip or doc.get("last_ip"),
+                "last_user_agent": ua or doc.get("last_user_agent"),
                 "updated_at": now,
             }
             if not doc.get("opened_at"):
@@ -97,7 +103,21 @@ async def track_email_open(tracking_id: str, db=Depends(get_db)):
 
             await db["email_tracking"].update_one(
                 {"_id": doc["_id"]},
-                {"$set": update_set, "$inc": {"open_count": 1}},
+                {
+                    "$set": update_set,
+                    "$inc": {"open_count": 1},
+                    "$push": {
+                        "event_history": {
+                            "$each": [{
+                                "type": "open",
+                                "timestamp": now.isoformat(),
+                                "ip": ip,
+                                "user_agent": ua,
+                            }],
+                            "$slice": -100,
+                        }
+                    },
+                },
             )
 
             campaign_id = doc.get("campaign_id")
@@ -114,6 +134,7 @@ async def track_email_open(tracking_id: str, db=Depends(get_db)):
                     "lead_id": lead_id,
                     "email": doc.get("recipient_email"),
                     "open_count": new_open_count,
+                    "ip": ip,
                     "opened_at": (doc.get("opened_at") or now).isoformat()
                     if hasattr(doc.get("opened_at") or now, "isoformat")
                     else str(doc.get("opened_at") or now),
@@ -130,20 +151,25 @@ async def track_email_open(tracking_id: str, db=Depends(get_db)):
 @router.get("/click/{tracking_id}")
 async def track_email_click(
     tracking_id: str,
+    request: Request,
     url: str = Query(..., description="Destination URL to redirect to"),
     db=Depends(get_db),
 ):
-    """Validate destination URL, record click interaction, and redirect."""
+    """Validate destination URL, record click interaction with IP/UA, and redirect."""
     if not is_safe_redirect_url(url):
         raise HTTPException(status_code=400, detail="Invalid or unsafe redirect URL")
 
     now = datetime.now(timezone.utc)
+    ip = get_client_ip_from_request(request)
+    ua = (request.headers.get("user-agent") or "")[:512]
     try:
         doc = await db["email_tracking"].find_one({"tracking_id": tracking_id})
         if doc:
             update_set: Dict[str, Any] = {
                 "clicked": True,
                 "last_clicked_at": now,
+                "last_ip": ip or doc.get("last_ip"),
+                "last_user_agent": ua or doc.get("last_user_agent"),
                 "updated_at": now,
             }
             if not doc.get("clicked_at"):
@@ -158,9 +184,19 @@ async def track_email_click(
                     "$inc": {"click_count": 1},
                     "$push": {
                         "clicked_urls": {
-                            "$each": [{"url": url, "clicked_at": now.isoformat()}],
+                            "$each": [{"url": url, "clicked_at": now.isoformat(), "ip": ip, "user_agent": ua}],
                             "$slice": -50,
-                        }
+                        },
+                        "event_history": {
+                            "$each": [{
+                                "type": "click",
+                                "timestamp": now.isoformat(),
+                                "url": url,
+                                "ip": ip,
+                                "user_agent": ua,
+                            }],
+                            "$slice": -100,
+                        },
                     },
                 },
             )
@@ -179,6 +215,7 @@ async def track_email_click(
                     "lead_id": lead_id,
                     "email": doc.get("recipient_email"),
                     "url": url,
+                    "ip": ip,
                     "click_count": new_click_count,
                     "timestamp": now.isoformat(),
                 },
@@ -188,6 +225,119 @@ async def track_email_click(
         logger.error(f"[EmailTracking] Error recording click for {tracking_id}: {exc}")
 
     return RedirectResponse(url=url, status_code=302)
+
+
+def _render_unsubscribe_html(title: str, heading: str, message: str, show_button: bool = False, action_url: str = "") -> str:
+    button_html = ""
+    if show_button and action_url:
+        safe_action = html_lib.escape(action_url, quote=True)
+        button_html = (
+            f'<form method="POST" action="{safe_action}" style="margin-top:20px;">'
+            '<button type="submit" style="background:#0f172a;color:#fff;border:none;padding:12px 24px;'
+            'border-radius:10px;font-weight:700;font-size:14px;cursor:pointer;">Confirm Unsubscribe</button>'
+            "</form>"
+        )
+    return (
+        "<!DOCTYPE html><html lang='en'><head><meta charset='UTF-8'>"
+        "<meta name='viewport' content='width=device-width,initial-scale=1.0'>"
+        f"<title>{html_lib.escape(title)}</title></head>"
+        "<body style='margin:0;padding:40px 16px;background:#f8fafc;font-family:system-ui,-apple-system,sans-serif;color:#0f172a;'>"
+        "<div style='max-width:480px;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:32px;text-align:center;'>"
+        f"<h1 style='margin:0 0 12px;font-size:20px;'>{html_lib.escape(heading)}</h1>"
+        f"<p style='margin:0;font-size:14px;line-height:1.6;color:#475569;'>{message}</p>"
+        f"{button_html}"
+        "</div></body></html>"
+    )
+
+
+@router.get("/unsubscribe/{tracking_id}", response_class=HTMLResponse)
+async def unsubscribe_page(tracking_id: str, request: Request, db=Depends(get_db)):
+    """Render public unsubscribe confirmation page for a tracked email."""
+    doc = await db["email_tracking"].find_one({"tracking_id": tracking_id})
+    if not doc:
+        return HTMLResponse(
+            _render_unsubscribe_html("Invalid Link", "Invalid Unsubscribe Link", "This unsubscribe link is invalid or has expired."),
+            status_code=404,
+        )
+    email_safe = html_lib.escape(str(doc.get("recipient_email") or ""))
+    if doc.get("unsubscribed"):
+        return HTMLResponse(
+            _render_unsubscribe_html("Already Unsubscribed", "Already Unsubscribed", f"<strong>{email_safe}</strong> is already unsubscribed from future emails.")
+        )
+    return HTMLResponse(
+        _render_unsubscribe_html(
+            "Unsubscribe",
+            "Unsubscribe from Emails",
+            f"Click below to unsubscribe <strong>{email_safe}</strong> from future campaign emails.",
+            show_button=True,
+            action_url=str(request.url),
+        )
+    )
+
+
+@router.post("/unsubscribe/{tracking_id}", response_class=HTMLResponse)
+async def unsubscribe_confirm(tracking_id: str, request: Request, db=Depends(get_db)):
+    """Process unsubscribe confirmation or RFC 8058 One-Click unsubscribe."""
+    now = datetime.now(timezone.utc)
+    ip = get_client_ip_from_request(request)
+    ua = (request.headers.get("user-agent") or "")[:512]
+
+    doc = await db["email_tracking"].find_one({"tracking_id": tracking_id})
+    if not doc:
+        return HTMLResponse(
+            _render_unsubscribe_html("Invalid Link", "Invalid Unsubscribe Link", "This unsubscribe link is invalid or has expired."),
+            status_code=404,
+        )
+
+    email_addr = str(doc.get("recipient_email") or "").lower()
+    if not doc.get("unsubscribed"):
+        await db["email_tracking"].update_one(
+            {"_id": doc["_id"]},
+            {
+                "$set": {
+                    "unsubscribed": True,
+                    "unsubscribed_at": now,
+                    "status": "UNSUBSCRIBED",
+                    "followups_paused": True,
+                    "last_ip": ip or doc.get("last_ip"),
+                    "last_user_agent": ua or doc.get("last_user_agent"),
+                    "updated_at": now,
+                },
+                "$push": {
+                    "event_history": {
+                        "$each": [{
+                            "type": "unsubscribe",
+                            "timestamp": now.isoformat(),
+                            "ip": ip,
+                            "user_agent": ua,
+                        }],
+                        "$slice": -100,
+                    }
+                },
+            },
+        )
+        await _broadcast_tracking_event(
+            {
+                "type": "email_unsubscribed",
+                "event_type": "email_unsubscribed",
+                "tracking_id": tracking_id,
+                "user_id": doc.get("user_id"),
+                "campaign_id": doc.get("campaign_id"),
+                "lead_id": doc.get("lead_id"),
+                "email": email_addr,
+                "timestamp": now.isoformat(),
+            },
+            campaign_id=doc.get("campaign_id"),
+        )
+
+    email_safe = html_lib.escape(email_addr)
+    return HTMLResponse(
+        _render_unsubscribe_html(
+            "Unsubscribed",
+            "Unsubscribed Successfully",
+            f"<strong>{email_safe}</strong> has been unsubscribed and will no longer receive campaign emails.",
+        )
+    )
 
 
 # ==========================================
@@ -207,25 +357,43 @@ async def get_tracking_stats(
     if campaign_id:
         query["campaign_id"] = campaign_id
 
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
     total_sent = await db["email_tracking"].count_documents(query)
     total_opened = await db["email_tracking"].count_documents({**query, "opened": True})
     total_clicked = await db["email_tracking"].count_documents({**query, "clicked": True})
     total_replied = await db["email_tracking"].count_documents({**query, "replied": True})
+    total_bounced = await db["email_tracking"].count_documents({**query, "bounced": True})
+    total_unsubscribed = await db["email_tracking"].count_documents({**query, "unsubscribed": True})
     followups_paused = await db["email_tracking"].count_documents({**query, "followups_paused": True})
+
+    sent_today = await db["email_tracking"].count_documents({**query, "sent_at": {"$gte": today_start}})
+    opened_today = await db["email_tracking"].count_documents({**query, "opened": True, "opened_at": {"$gte": today_start}})
+    clicked_today = await db["email_tracking"].count_documents({**query, "clicked": True, "clicked_at": {"$gte": today_start}})
 
     open_rate = round((total_opened / total_sent) * 100, 1) if total_sent > 0 else 0.0
     click_rate = round((total_clicked / total_sent) * 100, 1) if total_sent > 0 else 0.0
     reply_rate = round((total_replied / total_sent) * 100, 1) if total_sent > 0 else 0.0
+    bounce_rate = round((total_bounced / total_sent) * 100, 1) if total_sent > 0 else 0.0
+    unsubscribe_rate = round((total_unsubscribed / total_sent) * 100, 1) if total_sent > 0 else 0.0
 
     return {
         "total_sent": total_sent,
         "total_opened": total_opened,
         "total_clicked": total_clicked,
         "total_replied": total_replied,
+        "total_bounced": total_bounced,
+        "total_unsubscribed": total_unsubscribed,
         "followups_paused": followups_paused,
+        "sent_today": sent_today,
+        "opened_today": opened_today,
+        "clicked_today": clicked_today,
         "open_rate": open_rate,
         "click_rate": click_rate,
         "reply_rate": reply_rate,
+        "bounce_rate": bounce_rate,
+        "unsubscribe_rate": unsubscribe_rate,
     }
 
 
@@ -234,12 +402,14 @@ async def get_tracking_events(
     campaign_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db),
 ):
-    """Return paginated email tracking records enriched with lead & campaign metadata."""
+    """Return paginated email tracking records enriched with lead, campaign, and event history."""
     query: Dict[str, Any] = {}
     if str(current_user.role).upper() not in ("ADMIN", "SUPERADMIN"):
         query["$or"] = _user_match_filter(current_user)
@@ -253,8 +423,30 @@ async def get_tracking_events(
             query["clicked"] = True
         elif s_upper == "REPLIED":
             query["replied"] = True
+        elif s_upper == "BOUNCED":
+            query["bounced"] = True
+        elif s_upper == "UNSUBSCRIBED":
+            query["unsubscribed"] = True
         elif s_upper == "SENT":
             query["status"] = "SENT"
+
+    if date_from or date_to:
+        date_filter: Dict[str, Any] = {}
+        if date_from:
+            try:
+                dt_from = datetime.fromisoformat(date_from).replace(tzinfo=timezone.utc)
+                date_filter["$gte"] = dt_from
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                dt_to = datetime.fromisoformat(date_to).replace(tzinfo=timezone.utc) + timedelta(days=1)
+                date_filter["$lt"] = dt_to
+            except ValueError:
+                pass
+        if date_filter:
+            query["sent_at"] = date_filter
+
     if search:
         s_clean = search.strip()
         if s_clean:
@@ -310,9 +502,11 @@ async def get_tracking_events(
             "sent_at": _to_utc_iso(d.get("sent_at")),
             "opened": bool(d.get("opened", False)),
             "opened_at": _to_utc_iso(d.get("opened_at")),
+            "last_opened_at": _to_utc_iso(d.get("last_opened_at")),
             "open_count": int(d.get("open_count", 0)),
             "clicked": bool(d.get("clicked", False)),
             "clicked_at": _to_utc_iso(d.get("clicked_at")),
+            "last_clicked_at": _to_utc_iso(d.get("last_clicked_at")),
             "click_count": int(d.get("click_count", 0)),
             "clicked_urls": d.get("clicked_urls", []),
             "replied": bool(d.get("replied", False)),
@@ -320,10 +514,105 @@ async def get_tracking_events(
             "reply_subject": d.get("reply_subject"),
             "reply_snippet": d.get("reply_snippet"),
             "reply_from": d.get("reply_from"),
+            "bounced": bool(d.get("bounced", False)),
+            "bounced_at": _to_utc_iso(d.get("bounced_at")),
+            "unsubscribed": bool(d.get("unsubscribed", False)),
+            "unsubscribed_at": _to_utc_iso(d.get("unsubscribed_at")),
+            "last_ip": d.get("last_ip"),
+            "last_user_agent": d.get("last_user_agent"),
+            "event_history": d.get("event_history", []),
             "followups_paused": bool(d.get("followups_paused", False)),
         })
 
     return {"data": items, "total": total, "skip": skip, "limit": limit}
+
+
+@router.get("/daily-report")
+async def get_daily_tracking_report(
+    campaign_id: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    current_user: UserInDB = Depends(require_email_automation_access),
+    db=Depends(get_db),
+):
+    """Return day-by-day sent, opened, clicked, replied, bounced, and unsubscribed counts."""
+    today = datetime.now(timezone.utc).date()
+    try:
+        start_d = date.fromisoformat(date_from) if date_from else (today - timedelta(days=29))
+    except ValueError:
+        start_d = today - timedelta(days=29)
+    try:
+        end_d = date.fromisoformat(date_to) if date_to else today
+    except ValueError:
+        end_d = today
+    if start_d > end_d:
+        start_d, end_d = end_d, start_d
+    if (end_d - start_d).days > 90:
+        start_d = end_d - timedelta(days=90)
+
+    start_dt = datetime.combine(start_d, datetime.min.time(), tzinfo=timezone.utc)
+    end_dt = datetime.combine(end_d + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
+
+    query: Dict[str, Any] = {"sent_at": {"$gte": start_dt, "$lt": end_dt}}
+    if str(current_user.role).upper() not in ("ADMIN", "SUPERADMIN"):
+        query["$or"] = _user_match_filter(current_user)
+    if campaign_id:
+        query["campaign_id"] = campaign_id
+
+    docs = await db["email_tracking"].find(
+        query,
+        {"sent_at": 1, "opened": 1, "clicked": 1, "replied": 1, "bounced": 1, "unsubscribed": 1},
+    ).to_list(10000)
+
+    day_map: Dict[str, Dict[str, int]] = {}
+    for d in docs:
+        sa = d.get("sent_at")
+        if not isinstance(sa, datetime):
+            continue
+        day_key = sa.astimezone(timezone.utc).date().isoformat() if sa.tzinfo else sa.date().isoformat()
+        bucket = day_map.setdefault(day_key, {"sent": 0, "opened": 0, "clicked": 0, "replied": 0, "bounced": 0, "unsubscribed": 0})
+        bucket["sent"] += 1
+        if d.get("opened"):
+            bucket["opened"] += 1
+        if d.get("clicked"):
+            bucket["clicked"] += 1
+        if d.get("replied"):
+            bucket["replied"] += 1
+        if d.get("bounced"):
+            bucket["bounced"] += 1
+        if d.get("unsubscribed"):
+            bucket["unsubscribed"] += 1
+
+    rows: List[Dict[str, Any]] = []
+    cur = start_d
+    while cur <= end_d:
+        ds = cur.isoformat()
+        b = day_map.get(ds, {})
+        rows.append({
+            "date": ds,
+            "label": cur.strftime("%d %b"),
+            "sent": b.get("sent", 0),
+            "opened": b.get("opened", 0),
+            "clicked": b.get("clicked", 0),
+            "replied": b.get("replied", 0),
+            "bounced": b.get("bounced", 0),
+            "unsubscribed": b.get("unsubscribed", 0),
+        })
+        cur += timedelta(days=1)
+
+    return {
+        "date_from": start_d.isoformat(),
+        "date_to": end_d.isoformat(),
+        "rows": rows,
+        "totals": {
+            "sent": sum(r["sent"] for r in rows),
+            "opened": sum(r["opened"] for r in rows),
+            "clicked": sum(r["clicked"] for r in rows),
+            "replied": sum(r["replied"] for r in rows),
+            "bounced": sum(r["bounced"] for r in rows),
+            "unsubscribed": sum(r["unsubscribed"] for r in rows),
+        },
+    }
 
 
 @router.post("/check-replies")
@@ -336,6 +625,19 @@ async def trigger_reply_check(
 
     worker = EmailReplyWorker(db)
     summary = await worker.check_user_replies(str(current_user.id))
+    return summary
+
+
+@router.post("/check-bounces")
+async def trigger_bounce_check(
+    current_user: UserInDB = Depends(require_email_automation_access),
+    db=Depends(get_db),
+):
+    """Manually trigger an immediate IMAP bounce DSN check for the authenticated user."""
+    from app.services.email_ai.bounce_detector import EmailBounceDetector
+
+    detector = EmailBounceDetector(db)
+    summary = await detector.check_user_bounces(str(current_user.id))
     return summary
 
 

@@ -1,0 +1,125 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <a href="/admin/lead_form" class="btn btn-primary">➕ Add Lead Manually</a>
+        <a href="/admin/import" class="btn btn-outline">📥 Import (CSV / Excel)</a>
+        <a href="/admin/send_bulk" class="btn btn-outline" style="border-color:var(--green);color:var(--green);">🚀 Send Bulk Campaign</a>
+        <form method="POST" action="/admin/leads" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+            <input type="hidden" name="action" value="check_bounces">
+            <button type="submit" class="btn btn-outline" style="border-color:var(--warning);color:var(--warning);">⚡ Check Bounces</button>
+        </form>
+    </div>
+    <a href="/admin/leads?export=csv&q={{ search|urlencode }}&status={{ status|urlencode }}&from={{ date_from|urlencode }}&to={{ date_to|urlencode }}" class="btn btn-outline btn-sm">⬇ Export CSV</a>
+</div>
+
+<div class="panel" style="margin-bottom:16px;">
+    <div class="panel-body">
+        <form method="GET" action="/admin/leads" class="form-row" style="margin:0;">
+            <div class="form-group-sm" style="flex:2;min-width:180px;">
+                <label>Search</label>
+                <input type="search" name="q" value="{{ search }}" placeholder="Name, email, company...">
+            </div>
+            <div class="form-group-sm">
+                <label>Status</label>
+                <select name="status">
+                    <option value="">All Statuses</option>
+                    {% for s in ['new','sent','bounced','unsubscribed','failed'] %}
+                    <option value="{{ s }}" {{ 'selected' if status == s else '' }}>{{ s|capitalize }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group-sm"><label>From</label><input type="date" name="from" value="{{ date_from }}"></div>
+            <div class="form-group-sm"><label>To</label><input type="date" name="to" value="{{ date_to }}"></div>
+            <button type="submit" class="btn btn-primary">🔍 Filter</button>
+            <a href="/admin/leads" class="btn btn-outline">Reset</a>
+        </form>
+    </div>
+</div>
+
+<form method="POST" action="/admin/leads" id="bulkForm">
+    <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+    <div id="bulkActionBar" style="display:none;background:var(--card);border:1px solid var(--green);border-radius:10px;padding:10px 16px;margin-bottom:14px;justify-content:space-between;align-items:center;">
+        <span><strong id="selectedCountDisplay">0</strong> lead(s) selected</span>
+        <div style="display:flex;gap:8px;">
+            <button type="button" class="btn btn-primary btn-sm" onclick="sendSelectedBulk()">🚀 Send Selected</button>
+            <button type="submit" name="action" value="bulk_mark_new" class="btn btn-outline btn-sm">Reset to New</button>
+            <button type="submit" name="action" value="bulk_delete" class="btn btn-danger btn-sm" onclick="return confirm('Delete selected leads?')">🗑 Delete</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        {% if not leads %}
+            <div class="empty-state"><p>No leads found.</p></div>
+        {% else %}
+        <div style="overflow-x:auto;">
+            <table class="data-table">
+                <thead><tr>
+                    <th><input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAll(this)"></th>
+                    <th>#</th><th>Lead</th><th>Company</th><th>Status</th><th>Opens</th><th>Clicks</th><th>Sent At</th><th>Actions</th>
+                </tr></thead>
+                <tbody>
+                {% for l in leads %}
+                <tr>
+                    <td><input type="checkbox" name="selected_ids" value="{{ l.id }}" class="lead-checkbox" onchange="onSelectChange()"></td>
+                    <td>{{ offset + loop.index }}</td>
+                    <td>
+                        <div style="font-weight:600;color:var(--text-bright);">{{ l.first_name }} {{ l.last_name }}</div>
+                        <div style="font-size:11px;color:var(--muted);">{{ l.email }}</div>
+                    </td>
+                    <td>{{ l.company }}</td>
+                    <td><span class="badge badge-{{ l.status }}">{{ l.status }}</span></td>
+                    <td>{{ l.opens }}</td>
+                    <td>{{ l.clicks }}</td>
+                    <td style="font-size:12px;color:var(--muted);">{{ l.sent_at or '—' }}</td>
+                    <td style="white-space:nowrap;">
+                        <a href="/admin/lead_form?id={{ l.id }}" class="btn btn-outline btn-sm">✏️</a>
+                        <button type="submit" form="singleSend_{{ l.id }}" class="btn btn-primary btn-sm" title="Send 1:1 Email">📧</button>
+                        <button type="submit" form="deleteLead_{{ l.id }}" class="btn btn-danger btn-sm" onclick="return confirm('Delete this lead?')">🗑</button>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% endif %}
+    </div>
+</form>
+
+{% for l in leads %}
+<form id="singleSend_{{ l.id }}" method="POST" action="/admin/leads" style="display:none;">
+    <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+    <input type="hidden" name="lead_id" value="{{ l.id }}">
+    <input type="hidden" name="action" value="send_single">
+</form>
+<form id="deleteLead_{{ l.id }}" method="POST" action="/admin/leads" style="display:none;">
+    <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+    <input type="hidden" name="lead_id" value="{{ l.id }}">
+    <input type="hidden" name="action" value="delete">
+</form>
+{% endfor %}
+
+<div class="pagination">
+    <a class="page-btn {{ 'disabled' if page <= 1 else '' }}" href="/admin/leads?page={{ page - 1 }}&q={{ search|urlencode }}&status={{ status|urlencode }}">← Prev</a>
+    <span style="padding:0 10px;font-size:13px;color:var(--muted);">Page {{ page }} of {{ total_pages }} ({{ total }} total)</span>
+    <a class="page-btn {{ 'disabled' if page >= total_pages else '' }}" href="/admin/leads?page={{ page + 1 }}&q={{ search|urlencode }}&status={{ status|urlencode }}">Next →</a>
+</div>
+
+<script>
+function toggleSelectAll(master) {
+    document.querySelectorAll('.lead-checkbox').forEach(cb => cb.checked = master.checked);
+    onSelectChange();
+}
+function onSelectChange() {
+    const checked = document.querySelectorAll('.lead-checkbox:checked');
+    const bar = document.getElementById('bulkActionBar');
+    document.getElementById('selectedCountDisplay').textContent = checked.length;
+    bar.style.display = checked.length > 0 ? 'flex' : 'none';
+}
+function sendSelectedBulk() {
+    const ids = Array.from(document.querySelectorAll('.lead-checkbox:checked')).map(c => c.value).join(',');
+    if (ids) window.location.href = '/admin/send_bulk?selected=' + encodeURIComponent(ids);
+}
+</script>
+{% endblock %}

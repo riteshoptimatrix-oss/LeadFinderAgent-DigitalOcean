@@ -1,0 +1,41 @@
+{% extends "admin/base.html" %}
+{% block content %}
+<div style="max-width:1150px;margin:0 auto;">
+    <div style="display:flex;justify-content:space-between;margin-bottom:16px;">
+        <a href="/admin/templates" class="btn btn-outline btn-sm">← Back to Templates</a>
+        {% if is_edit %}<a href="/admin/send_bulk?template_id={{ tpl.id }}" class="btn btn-primary btn-sm">🚀 Use in Bulk Campaign →</a>{% endif %}
+    </div>
+    <form method="POST" action="/admin/template_form{{ '?id=' ~ tpl.id if is_edit else '' }}">
+        <input type="hidden" name="csrf_token" value="{{ session['csrf_token'] }}">
+        <input type="hidden" name="action" value="save_template">
+        <input type="hidden" name="id" value="{{ tpl.id }}">
+        <div class="panel">
+            <div class="panel-header">
+                <h2>{{ '✏️ Edit Template' if is_edit else '➕ Create Template' }}</h2>
+                <label style="font-size:13px;cursor:pointer;"><input type="checkbox" name="is_default" value="1" {{ 'checked' if tpl.is_default else '' }}> ★ Set as Default</label>
+            </div>
+            <div class="panel-body">
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+                    <div><label style="display:block;font-size:12px;margin-bottom:5px;">Template Name *</label><input type="text" name="name" required value="{{ tpl.name }}" style="width:100%;"></div>
+                    <div><label style="display:block;font-size:12px;margin-bottom:5px;">Subject Line *</label><input type="text" name="subject" required value="{{ tpl.subject }}" style="width:100%;"></div>
+                </div>
+                <div style="margin-bottom:10px;display:flex;gap:6px;flex-wrap:wrap;">
+                    {% for tag in ['{{first_name}}','{{company}}','{{cta_url}}','{{unsub_url}}','{{pixel_url}}'] %}
+                    <button type="button" class="btn btn-outline btn-sm" onclick="insertTag('{{ tag }}')">+ {{ tag }}</button>
+                    {% endfor %}
+                </div>
+                <textarea id="bodyHtml" name="body_html" rows="18" required style="width:100%;font-family:monospace;font-size:12px;">{{ tpl.body_html }}</textarea>
+                <div style="margin-top:14px;"><button type="submit" class="btn btn-primary">💾 Save Template</button></div>
+            </div>
+        </div>
+    </form>
+</div>
+<script>
+function insertTag(tag) {
+    const ta = document.getElementById('bodyHtml');
+    const s = ta.selectionStart, e = ta.selectionEnd;
+    ta.value = ta.value.substring(0, s) + tag + ta.value.substring(e);
+    ta.focus();
+}
+</script>
+{% endblock %}

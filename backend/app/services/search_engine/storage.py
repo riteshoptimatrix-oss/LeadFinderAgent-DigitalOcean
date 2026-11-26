@@ -1,5 +1,6 @@
 import hashlib
 import re
+from pymongo.errors import DuplicateKeyError
 from app.db.database import get_db, db_instance
 from app.utils.text_cleaning import clean_business_or_lead_name
 from datetime import datetime, timezone
@@ -237,6 +238,11 @@ class Storage:
             insert_res = await db["leads"].insert_one(lead_doc)
             if not getattr(insert_res, "acknowledged", False):
                 return "ERROR"
+
+            # Attach persisted identity back onto raw_data so downstream WS broadcasts match DB records
+            raw_data["_id"] = str(insert_res.inserted_id)
+            if data.get("url") and not raw_data.get("google_maps_url"):
+                raw_data["google_maps_url"] = data.get("url")
             
             logger.info(
                 f"PHONES_SAVED: job={job_id} business={name} lead_id={insert_res.inserted_id} "
@@ -249,6 +255,9 @@ class Storage:
             
             return "INSERTED"
             
+        except DuplicateKeyError:
+            logger.info(f"[STORAGE] DuplicateKeyError on insert for {raw_data.get('name')}; treating as DUPLICATE.")
+            return "DUPLICATE"
         except Exception as e:
             logger.error(f"[STORAGE] Failed to save lead: {e}")
             return "ERROR"

@@ -26,12 +26,15 @@ import EmailLiveDashboard from '@/src/components/email-ai/EmailLiveDashboard';
 import SMTPManager from '@/src/components/email-ai/SMTPManager';
 import EmailErrorCenter from '@/src/components/email-ai/EmailErrorCenter';
 import EmailErrorBoundary from '@/src/components/email-ai/EmailErrorBoundary';
+import EmailTrackingDashboard from '@/src/components/email-ai/EmailTrackingDashboard';
 import { PageHeader } from '@/src/components/common/PageHeader';
 import { cn } from '@/src/lib/utils';
+import { Eye } from 'lucide-react';
 
 export type Tab =
   | 'dashboard'
   | 'live'
+  | 'tracking'
   | 'leads'
   | 'templates'
   | 'campaigns'
@@ -42,6 +45,7 @@ export type Tab =
 const VALID_TABS: Tab[] = [
   'dashboard',
   'live',
+  'tracking',
   'leads',
   'templates',
   'campaigns',
@@ -281,6 +285,7 @@ export default function EmailAIPage() {
   const tabs = [
     { id: 'dashboard' as Tab, label: 'Analytics', icon: BarChart3 },
     { id: 'live' as Tab, label: 'Live Dispatch', icon: Activity, badge: 'Live' },
+    { id: 'tracking' as Tab, label: 'Email Tracking', icon: Eye },
     { id: 'leads' as Tab, label: 'Target Leads', icon: ListTodo },
     { id: 'templates' as Tab, label: 'Templates', icon: Sparkles },
     { id: 'campaigns' as Tab, label: 'Campaign Wizard', icon: Rocket },
@@ -476,6 +481,7 @@ export default function EmailAIPage() {
         <EmailErrorBoundary>
           {activeTab === 'dashboard' && <EmailAnalyticsDashboard />}
           {activeTab === 'live' && <EmailLiveDashboard />}
+          {activeTab === 'tracking' && <EmailTrackingDashboard />}
           {activeTab === 'leads' && <EmailLeadsSelection />}
           {activeTab === 'templates' && <EmailTemplateManager />}
           {activeTab === 'campaigns' && <EmailCampaignWizard />}

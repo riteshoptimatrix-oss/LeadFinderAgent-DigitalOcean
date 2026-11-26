@@ -45,6 +45,7 @@ class PlaywrightEngine:
         self.context: BrowserContext = None
         self.page: Page = None
         self._worker_pages = []
+        self._popups_checked = False
 
         self._needs_proactor = False
         if sys.platform == "win32":
@@ -183,31 +184,30 @@ class PlaywrightEngine:
         logger.info("[ENGINE] Browser closed.")
 
     async def handle_popups(self):
-        """Handles consent dialogs and sign-in popups.
-
-        Waits briefly for the dialog to render before clicking, because the
-        buttons may not exist in the DOM at the moment of the first check.
-        """
+        """Handles consent dialogs and sign-in popups on initial navigation."""
+        if self._popups_checked and "consent.google" not in (self.page.url or ""):
+            return
         try:
             # Handle Google consent "Accept all" button if it exists
             accept_button = self.page.locator('button:has-text("Accept all"), button:has-text("Agree"), button:has-text("I agree"), button[aria-label*="Accept all"]')
             try:
-                await accept_button.first.wait_for(timeout=3000)
+                await accept_button.first.wait_for(timeout=1200)
                 logger.info("[ENGINE] Found consent dialog, accepting...")
-                await accept_button.first.click(timeout=3000)
-                await asyncio.sleep(1.5)
+                await accept_button.first.click(timeout=2000)
+                await asyncio.sleep(0.5)
             except PlaywrightError:
                 pass
 
             # Handle sign-in popups ("No thanks" or dismiss)
             dismiss_button = self.page.locator('button:has-text("No thanks"), button:has-text("Dismiss"), button:has-text("Skip")')
             try:
-                await dismiss_button.first.wait_for(timeout=2000)
+                await dismiss_button.first.wait_for(timeout=1000)
                 logger.info("[ENGINE] Found sign-in popup, dismissing...")
-                await dismiss_button.first.click(timeout=3000)
-                await asyncio.sleep(1.5)
+                await dismiss_button.first.click(timeout=2000)
+                await asyncio.sleep(0.4)
             except PlaywrightError:
                 pass
+            self._popups_checked = True
         except Exception as e:
             logger.debug(f"[ENGINE] No popups handled or skipped: {e}")
 
@@ -233,48 +233,32 @@ class PlaywrightEngine:
             logger.error("[ENGINE] CRITICAL: Google CAPTCHA or Rate Limit detected.")
             raise Exception("RATE_LIMIT_DETECTED: Google has temporarily blocked this IP address (CAPTCHA).")
 
-    async def _wait_for_feed(self, timeout: float = 30.0) -> bool:
-        """Waits for the results feed to appear using multiple selectors.
-
-        Falls back to checking for place links and the main pane in case Google
-        changes the ``role="feed"`` attribute, then reloads the page once as a
-        last resort before giving up.
-        """
-        feed_selectors = [
-            'div[role="feed"]',
-            'a[href*="/maps/place"]',
-            'h1.DUwDvf',
-            'div[role="main"]',
-        ]
+    async def _wait_for_feed(self, timeout: float = 15.0) -> bool:
+        """Waits for the results feed to appear using multiple selectors."""
         if "/maps/place/" in self.page.url:
             logger.info("[ENGINE] Direct place detail page loaded.")
             return True
 
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
         last_error = None
-
-        while loop.time() < deadline:
-            if "/maps/place/" in self.page.url:
-                logger.info("[ENGINE] Direct place detail page loaded.")
-                return True
-            try:
-                await self.page.wait_for_selector('div[role="feed"], a[href*="/maps/place"], h1.DUwDvf, div[role="main"]', timeout=3000)
-                return True
-            except PlaywrightError as e:
-                last_error = e
-            await asyncio.sleep(0.4)
+        try:
+            await self.page.wait_for_selector(
+                'div[role="feed"], a[href*="/maps/place"], h1.DUwDvf, div[role="main"]',
+                timeout=int(timeout * 1000)
+            )
+            return True
+        except PlaywrightError as e:
+            last_error = e
 
         # Last resort: reload once and wait again for the feed
         logger.warning("[ENGINE] Feed not found on first load, reloading page and retrying...")
         try:
-            await self.page.reload(wait_until="domcontentloaded", timeout=30000)
+            await self.page.reload(wait_until="domcontentloaded", timeout=25000)
         except PlaywrightError as e:
             last_error = e
+        self._popups_checked = False
         await self.handle_popups()
-        await asyncio.sleep(2.0)
         try:
-            await self.page.wait_for_selector('div[role="feed"], a[href*="/maps/place"]', timeout=20000)
+            await self.page.wait_for_selector('div[role="feed"], a[href*="/maps/place"], h1.DUwDvf', timeout=15000)
             return True
         except PlaywrightError as e:
             last_error = e
@@ -307,7 +291,6 @@ class PlaywrightEngine:
                 await self.page.goto(url, wait_until="domcontentloaded", timeout=30000)
 
         await self.handle_popups()
-        await asyncio.sleep(0.5)
         await self.check_rate_limits()
 
         if not await self._wait_for_feed():
@@ -344,67 +327,62 @@ class PlaywrightEngine:
 
     async def _scroll_feed(self, feed_locator) -> bool:
         """
-        Scrolls the Google Maps results feed using several independent strategies and
-        returns True if the scroll position demonstrably moved (or could not be
-        measured — callers treat an unknown state as "moved" to avoid false exhaustion).
+        Scrolls the Google Maps results feed using fast JS evaluation first,
+        falling back to mouse wheel / keyboard only if scroll position didn't move.
         """
         before = await self._snapshot_scroll_state()
 
-        # Strategy 1: scrollIntoView on the last place link (most reliable in Maps)
+        # Fast combined JS scroll: scrollIntoView on last card + scroll feed & ancestors
         try:
             await self.page.evaluate(
                 '''() => {
+                    const feed = document.querySelector('div[role="feed"]');
                     const cards = document.querySelectorAll('div[role="feed"] a[href*="/maps/place"]');
                     if (cards.length > 0) {
                         cards[cards.length - 1].scrollIntoView({ behavior: "instant", block: "end" });
                     }
-                }'''
-            )
-            await asyncio.sleep(0.15)
-        except PlaywrightError:
-            pass
-
-        # Strategy 2: JS scroll on the feed element and every scrollable ancestor
-        try:
-            await feed_locator.evaluate(
-                '''(el) => {
-                    el.scrollTop = el.scrollHeight;
-                    let parent = el.parentElement;
-                    while (parent) {
-                        if (parent.scrollHeight > parent.clientHeight) {
-                            parent.scrollTop = parent.scrollHeight;
+                    if (feed) {
+                        feed.scrollTop = feed.scrollHeight;
+                        let parent = feed.parentElement;
+                        while (parent) {
+                            if (parent.scrollHeight > parent.clientHeight) {
+                                parent.scrollTop = parent.scrollHeight;
+                            }
+                            parent = parent.parentElement;
                         }
-                        parent = parent.parentElement;
                     }
                 }'''
             )
         except PlaywrightError:
             pass
 
-        # Strategy 3: hover the feed and send a mouse wheel so Google's own
-        # lazy-loading triggers on the correct container
+        after = await self._snapshot_scroll_state()
+        if self._did_scroll_move(before, after):
+            return True
+
+        # Fallback: hover + mouse wheel + keyboard End/PageDown
         try:
-            await feed_locator.hover(timeout=2000)
+            await feed_locator.hover(timeout=1000)
             await self.page.mouse.wheel(0, 5000)
         except PlaywrightError:
             pass
 
-        # Strategy 4: keyboard End / PageDown on the last card
         try:
             last_card = self.page.locator('div[role="feed"] > div:has(a[href*="/maps/place"])').last
             if await last_card.count() > 0:
-                await last_card.focus(timeout=2000)
+                await last_card.focus(timeout=1000)
                 await self.page.keyboard.press("End")
-                await self.page.keyboard.press("PageDown")
                 await self.page.keyboard.press("PageDown")
         except PlaywrightError:
             pass
 
-        after = await self._snapshot_scroll_state()
-        if before is None or after is None:
-            # Could not measure — do not treat as "unmoved" (avoids false exhaustion).
-            return True
+        after_fallback = await self._snapshot_scroll_state()
+        return self._did_scroll_move(before, after_fallback)
 
+    @staticmethod
+    def _did_scroll_move(before: Optional[dict], after: Optional[dict]) -> bool:
+        if before is None or after is None:
+            return True
         for key, value in before.items():
             other = after.get(key)
             if other is None:
@@ -416,7 +394,7 @@ class PlaywrightEngine:
                 continue
         return False
 
-    async def scroll_results(self, limit: int, status_callback: Optional[Callable[[str], None]] = None) -> AsyncGenerator[Tuple[str, str], None]:
+    async def scroll_results(self, limit: int, status_callback: Optional[Callable[[str], None]] = None, seen_urls: Optional[set] = None) -> AsyncGenerator[Tuple[str, str], None]:
         """
         Continuous discovery loop over the Google Maps results feed.
         """
@@ -433,7 +411,7 @@ class PlaywrightEngine:
 
             async def _producer():
                 try:
-                    async for detail_html, current_url in self._scroll_results_internal(limit, safe_status_callback):
+                    async for detail_html, current_url in self._scroll_results_internal(limit, safe_status_callback, seen_urls=seen_urls):
                         caller_loop.call_soon_threadsafe(q.put_nowait, (detail_html, current_url, None))
                     caller_loop.call_soon_threadsafe(q.put_nowait, (None, None, None))
                 except Exception as exc:
@@ -449,10 +427,10 @@ class PlaywrightEngine:
                     break
                 yield detail_html, current_url
         else:
-            async for item in self._scroll_results_internal(limit, status_callback):
+            async for item in self._scroll_results_internal(limit, status_callback, seen_urls=seen_urls):
                 yield item
 
-    async def _scroll_results_internal(self, limit: int, status_callback: Optional[Callable[[str], None]] = None) -> AsyncGenerator[Tuple[str, str], None]:
+    async def _scroll_results_internal(self, limit: int, status_callback: Optional[Callable[[str], None]] = None, seen_urls: Optional[set] = None) -> AsyncGenerator[Tuple[str, str], None]:
         """
         Continuous discovery loop over the Google Maps results feed.
 
@@ -487,27 +465,28 @@ class PlaywrightEngine:
         max_unmoved_cycles = max(1, int(getattr(search_config, "MIN_UNMOVED_CYCLES", 3) or 3))
 
         while True:
-            links = self.page.locator('div[role="feed"] a[href*="/maps/place"]')
-            count = await links.count()
-            new_hrefs = []
+            try:
+                all_hrefs = await self.page.evaluate(
+                    '''() => Array.from(document.querySelectorAll('div[role="feed"] a[href*="/maps/place"]'))
+                        .map(a => a.getAttribute('href'))
+                        .filter(Boolean)'''
+                )
+            except PlaywrightError:
+                all_hrefs = []
 
-            for i in range(count):
-                link = links.nth(i)
-                try:
-                    href = await link.get_attribute("href")
-                except PlaywrightError:
-                    continue
-                if not href or href in processed_links:
+            new_hrefs = []
+            for href in all_hrefs:
+                if href in processed_links or (seen_urls is not None and href in seen_urls):
                     continue
                 processed_links.add(href)
                 new_hrefs.append(href)
 
             new_links_found = len(new_hrefs) > 0
 
-            # Extract details using persistent worker pool (3 concurrent tabs: optimal for 2 vCPU / 4 GB RAM)
+            # Extract details using persistent worker pool (5 concurrent tabs)
             if new_hrefs:
                 # Ensure worker pages are ready in pool
-                desired_workers = 3
+                desired_workers = 5
                 while len(self._worker_pages) < desired_workers:
                     try:
                         wp = await self.context.new_page()
@@ -536,7 +515,7 @@ class PlaywrightEngine:
 
                             # Fast check for detail title or item
                             try:
-                                await wp.wait_for_selector('h1.DUwDvf, h1, [data-item-id]', timeout=2500)
+                                await wp.wait_for_selector('h1.DUwDvf, h1, [data-item-id]', timeout=2000)
                             except PlaywrightError:
                                 pass
 
@@ -547,7 +526,7 @@ class PlaywrightEngine:
                             logger.warning(f"[ENGINE] Failed to extract details for {target_href}: {e}")
                         finally:
                             href_queue.task_done()
-                            await asyncio.sleep(0.12)  # Polite spacing to avoid IP throttle
+                            await asyncio.sleep(0.03)  # Minimal spacing between tab navigations
 
                 # Run worker loops across pooled worker pages
                 active_workers = self._worker_pages[:desired_workers]
@@ -595,7 +574,7 @@ class PlaywrightEngine:
             )
 
             scroll_moved = await self._scroll_feed(feed_locator)
-            await asyncio.sleep(0.35)  # Fast responsive wait for next feed batch
+            await asyncio.sleep(0.25)  # Fast responsive wait for next feed batch
 
             if not scroll_moved:
                 consecutive_unmoved_cycles += 1
@@ -603,7 +582,7 @@ class PlaywrightEngine:
                 consecutive_unmoved_cycles = 0
 
             exhausted = consecutive_empty_cycles >= max_empty_cycles
-            if not exhausted and consecutive_empty_cycles >= 4 and consecutive_unmoved_cycles >= max_unmoved_cycles:
+            if not exhausted and consecutive_empty_cycles >= 3 and consecutive_unmoved_cycles >= 2:
                 # Secondary multi-signal check: several empty cycles combined with a
                 # feed whose scroll position no longer changes.
                 exhausted = True

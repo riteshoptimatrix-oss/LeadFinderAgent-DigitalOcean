@@ -99,7 +99,7 @@ export default function EmailSettings({ setHasUnsavedChanges }: { setHasUnsavedC
   const [testError, setTestError] = useState<string | null>(null);
   const [imapTestResult, setImapTestResult] = useState<{ success: boolean; message: string } | null>(null);
   const [popTestResult, setPopTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [testImap, setTestImap] = useState(false);
+  const [testImap, setTestImap] = useState(true);
   const [testPop, setTestPop] = useState(false);
   const [showImapConfig, setShowImapConfig] = useState(false);
   const [status, setStatus] = useState<ConnectionStatus>('NOT_CONFIGURED');

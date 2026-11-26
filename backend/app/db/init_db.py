@@ -258,6 +258,14 @@ async def init_indexes():
 
         # Technology Detections
         await db["technology_detections"].create_index([("lead_id", pymongo.ASCENDING)])
+
+        # Email Tracking & Reply Detection
+        await _create_index_safe(db["email_tracking"], "tracking_id", unique=True)
+        await _create_index_safe(db["email_tracking"], "message_id")
+        await _create_index_safe(db["email_tracking"], [("user_id", 1), ("sent_at", -1)])
+        await _create_index_safe(db["email_tracking"], [("user_id", 1), ("campaign_id", 1), ("lead_id", 1)])
+        await _create_index_safe(db["email_tracking"], [("user_id", 1), ("recipient_email", 1)])
+        await _create_index_safe(db["processed_imap_messages"], [("user_id", 1), ("imap_message_id", 1)], unique=True)
         await db["technology_detections"].create_index([("technologies.category", pymongo.ASCENDING)])
         await db["technology_detections"].create_index([("technologies.name", pymongo.ASCENDING)])
 

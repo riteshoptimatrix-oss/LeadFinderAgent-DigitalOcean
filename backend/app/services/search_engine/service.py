@@ -212,7 +212,7 @@ class SearchService:
                 def status_callback(stage: str):
                     pass
 
-                async for detail_html, current_url in engine.scroll_results(limit=limit, status_callback=status_callback):
+                async for detail_html, current_url in engine.scroll_results(limit=limit, status_callback=status_callback, seen_urls=seen_urls):
                     self._raise_if_stopped(job_id)
                     if current_url in seen_urls:
                         continue

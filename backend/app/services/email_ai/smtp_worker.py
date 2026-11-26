@@ -13,6 +13,11 @@ from bson import ObjectId
 
 from app.core.logger import logger
 from app.core.security_crypto import decrypt_string
+from app.services.email_ai.tracking_utils import (
+    apply_email_tracking,
+    build_message_id,
+    generate_tracking_id,
+)
 from app.services.ws_manager import ws_manager
 from app.services.worker_manager import shutdown_event
 
@@ -291,14 +296,53 @@ class EmailAIQueueWorker:
                 await self._finalize_job(job_id, campaign_id, lead_id, start_time, "Failed", "Invalid Email Address")
                 return
 
+            uid_str = str(job.get("user_id") or campaign.get("user_id") or "").strip()
+
+            # Check if lead has already replied (automated follow-up cancellation)
+            existing_reply = await self.db["email_tracking"].find_one({
+                "user_id": uid_str,
+                "lead_id": str(lead_id),
+                "$or": [{"replied": True}, {"followups_paused": True}],
+            })
+            if existing_reply:
+                await self._finalize_job(
+                    job_id, campaign_id, lead_id, start_time, "Skipped",
+                    "Lead already replied; automated follow-up paused.", email=target_email
+                )
+                return
+
             subject = self._replace_variables(template.get("subject", ""), lead)
             body_html = self._replace_variables(template.get("body_html", ""), lead)
             body_text = self._replace_variables(template.get("body_text", ""), lead)
-            logger.info(f"[EmailAI-SmtpWorker] Template rendered for lead {lead_id}")
+
+            # Generate unique tracking ID & Message-ID, and integrate tracking pixel / click URLs
+            tracking_id = generate_tracking_id(uid_str, campaign_id, str(lead_id), str(job_id))
+            message_id = build_message_id(tracking_id)
+            tracking_cfg = campaign.get("tracking") or {}
+            open_tracking = tracking_cfg.get("open_tracking", True)
+            click_tracking = tracking_cfg.get("click_tracking", True)
+
+            if body_html:
+                body_html = apply_email_tracking(
+                    body_html,
+                    tracking_id,
+                    open_tracking=open_tracking,
+                    click_tracking=click_tracking,
+                )
+            elif body_text and (open_tracking or click_tracking):
+                import html as html_lib
+                fallback_html = f"<div>{html_lib.escape(body_text).replace(chr(10), '<br/>')}</div>"
+                body_html = apply_email_tracking(
+                    fallback_html,
+                    tracking_id,
+                    open_tracking=open_tracking,
+                    click_tracking=click_tracking,
+                )
+
+            logger.info(f"[EmailAI-SmtpWorker] Template rendered for lead {lead_id} (tracking_id={tracking_id})")
 
             # 3. Get SMTP Profile (Strictly user-scoped isolation)
             smtp_profile = None
-            uid_str = str(job.get("user_id") or campaign.get("user_id") or "").strip()
 
             if job.get("smtp_id") and ObjectId.is_valid(str(job["smtp_id"])):
                 # Must belong to this user
@@ -344,7 +388,53 @@ class EmailAIQueueWorker:
 
             # Run blocking SMTP code in executor
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, self._send_email_sync, smtp_profile, target_email, subject, body_html, body_text)
+            await loop.run_in_executor(None, self._send_email_sync, smtp_profile, target_email, subject, body_html, body_text, message_id)
+
+            # Record tracking document & link to queue job
+            sent_now = datetime.now(timezone.utc)
+            try:
+                await self.db["email_tracking"].update_one(
+                    {"tracking_id": tracking_id},
+                    {
+                        "$setOnInsert": {
+                            "tracking_id": tracking_id,
+                            "message_id": message_id,
+                            "user_id": uid_str,
+                            "campaign_id": campaign_id,
+                            "campaign_name": (campaign.get("info") or {}).get("name") or "Campaign",
+                            "lead_id": str(lead_id),
+                            "lead_name": lead.get("business_name") or lead.get("name") or "Unknown Lead",
+                            "queue_job_id": str(job_id),
+                            "recipient_email": target_email.strip().lower(),
+                            "subject": subject,
+                            "status": "SENT",
+                            "sent_at": sent_now,
+                            "opened": False,
+                            "opened_at": None,
+                            "open_count": 0,
+                            "clicked": False,
+                            "clicked_at": None,
+                            "click_count": 0,
+                            "clicked_urls": [],
+                            "replied": False,
+                            "replied_at": None,
+                            "reply_subject": None,
+                            "reply_snippet": None,
+                            "reply_from": None,
+                            "reply_message_id": None,
+                            "followups_paused": False,
+                            "created_at": sent_now,
+                            "updated_at": sent_now,
+                        }
+                    },
+                    upsert=True,
+                )
+                await self.db["email_ai_queue"].update_one(
+                    {"_id": job_id},
+                    {"$set": {"tracking_id": tracking_id, "message_id": message_id}},
+                )
+            except Exception as track_err:
+                logger.warning(f"[EmailAI-SmtpWorker] Failed to persist tracking record for job {job_id}: {track_err}")
 
             # 5. Success
             await self._finalize_job(job_id, campaign_id, lead_id, start_time, "Delivered", None, email=target_email)
@@ -437,7 +527,7 @@ class EmailAIQueueWorker:
             value = value.replace(tzinfo=timezone.utc)
         return value.astimezone(timezone.utc)
 
-    def _send_email_sync(self, smtp_profile: Dict[str, Any], to_email: str, subject: str, html: str, text: str) -> bool:
+    def _send_email_sync(self, smtp_profile: Dict[str, Any], to_email: str, subject: str, html: str, text: str, message_id: Optional[str] = None) -> bool:
         """Synchronous SMTP execution designed to run in executor. Logs every step.
         Supports intelligent SSL/TLS auto-detection, fallback ports, and resilient handshakes.
         """
@@ -459,6 +549,8 @@ class EmailAIQueueWorker:
         else:
             msg['From'] = from_email
         msg['To'] = to_email
+        if message_id:
+            msg['Message-ID'] = message_id
 
         if text:
             msg.attach(MIMEText(text, 'plain', 'utf-8'))

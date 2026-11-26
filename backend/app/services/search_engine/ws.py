@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import Dict
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -48,7 +49,7 @@ class ConnectionManager:
             "event_type": event_type,
             "message": message,
             "data": data,
-            "timestamp": asyncio.get_event_loop().time()
+            "timestamp": time.time()
         }
         
         json_payload = json.dumps(payload)
@@ -107,7 +108,7 @@ class ConnectionManager:
                 "progress": progress or 0,
                 "message": message
             },
-            "timestamp": asyncio.get_event_loop().time()
+            "timestamp": time.time()
         }
 
         json_payload = json.dumps(payload)

@@ -416,16 +416,20 @@ export default function JobProgressPage() {
             const leadData = payload.lead;
             if (leadData) {
               setLiveLeads(prevLeads => {
+                const leadUrl = leadData.google_maps_url || leadData.url;
+                const leadName = (leadData.name || leadData.business_name || '').trim().toLowerCase();
+                const leadPhone = (leadData.phone || '').replace(/\D/g, '');
                 const exists = prevLeads.some(l => {
-                  const hasIdMatch = l._id && leadData._id && l._id === leadData._id;
-                  const name1 = l.name || l.business_name;
-                  const name2 = leadData.name || leadData.business_name;
-                  const hasNameMatch = name1 && name2 && name1 === name2 && l.address === leadData.address;
-                  const hasUrlMatch = l.url && leadData.url && l.url === leadData.url;
-                  return hasIdMatch || hasNameMatch || hasUrlMatch;
+                  if (l._id && leadData._id && l._id === leadData._id) return true;
+                  const lUrl = l.google_maps_url || l.url;
+                  if (lUrl && leadUrl && lUrl === leadUrl) return true;
+                  const lName = (l.name || l.business_name || '').trim().toLowerCase();
+                  const lPhone = (l.phone || '').replace(/\D/g, '');
+                  if (lName && leadName && lName === leadName && lPhone && leadPhone && lPhone === leadPhone) return true;
+                  return false;
                 });
                 if (exists) return prevLeads;
-                return [{ ...leadData, _id: leadData._id || Math.random().toString() }, ...prevLeads].slice(0, 50);
+                return [leadData, ...prevLeads].slice(0, 50);
               });
             }
           }
@@ -713,12 +717,21 @@ export default function JobProgressPage() {
   // Combined leads list (deduplicating database and live stream so nothing is missed)
   const allLeadsList = useMemo<any[]>(() => {
     const map = new Map<string, any>();
+    const getCanonicalKey = (lead: any) => {
+      const url = lead.google_maps_url || lead.url;
+      if (url) return `url:${url}`;
+      const name = (lead.name || lead.business_name || '').trim().toLowerCase();
+      const phone = (lead.phone || '').replace(/\D/g, '');
+      if (name && phone) return `np:${name}|${phone}`;
+      if (lead._id || lead.id) return `id:${lead._id || lead.id}`;
+      return `na:${name}|${(lead.address || '').trim().toLowerCase()}`;
+    };
     (jobLeadsData?.data || []).forEach((lead: any) => {
-      const key = lead._id || lead.id || lead.google_maps_url || lead.url || ((lead.name || '') + (lead.address || ''));
+      const key = getCanonicalKey(lead);
       if (key) map.set(key, lead);
     });
     liveLeads.forEach((lead: any) => {
-      const key = lead._id || lead.id || lead.google_maps_url || lead.url || ((lead.name || '') + (lead.address || ''));
+      const key = getCanonicalKey(lead);
       if (key) map.set(key, { ...(map.get(key) || {}), ...lead });
     });
     return Array.from(map.values());

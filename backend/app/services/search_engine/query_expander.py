@@ -433,7 +433,7 @@ class QueryExpander:
 
         if base_loc:
             # Include top synonyms in this exact city to ensure small targets (<20) can be met
-            syn_count = 6 if (target_limit <= 20 and not exhaustive) else 15
+            syn_count = 3 if (target_limit <= 20 and not exhaustive) else 15
             for syn in synonyms[:syn_count]:
                 add_query(f"{syn} in {base_loc}")
                 add_query(f"{syn} near {base_loc}")

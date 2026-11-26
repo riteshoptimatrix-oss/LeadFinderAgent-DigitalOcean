@@ -76,6 +76,7 @@ from app.services.email.email_worker import email_worker_instance
 from app.services.whatsapp.enhanced_wa_worker import EnhancedWAQueueWorker
 from app.services.whatsapp_ai.cloud_worker import WAAICloudWorker
 from app.services.email_ai.smtp_worker import EmailAIQueueWorker
+from app.services.email_ai.reply_worker import EmailReplyWorker
 from app.services.ai.ai_worker import AIQueueWorker
 from app.services.advanced_analysis_worker import AdvancedAnalysisWorker
 from app.services.ai_analysis_worker import ai_analysis_worker_instance
@@ -93,6 +94,7 @@ email_worker = None
 wa_worker = None
 wa_ai_cloud_worker = None
 email_ai_worker = None
+email_reply_worker = None
 ai_worker = None
 
 advanced_analysis_worker = None
@@ -260,6 +262,9 @@ async def lifespan(app: FastAPI):
 
         email_ai_worker = EmailAIQueueWorker(db)
         supervisor.register("email_ai_queue", email_ai_worker, factory=lambda d=db: EmailAIQueueWorker(d))
+
+        email_reply_worker = EmailReplyWorker(db, poll_interval_seconds=300)
+        supervisor.register("email_reply_worker", email_reply_worker, factory=lambda d=db: EmailReplyWorker(d, poll_interval_seconds=300))
 
         ai_worker = AIQueueWorker(db, batch_size=5, concurrency=3)
         supervisor.register("ai_queue", ai_worker, factory=lambda d=db: AIQueueWorker(d, batch_size=5, concurrency=3))

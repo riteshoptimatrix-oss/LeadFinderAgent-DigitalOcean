@@ -30,8 +30,8 @@ import { Country, State, City } from 'country-state-city';
 const searchSchema = z.object({
   keyword: z.string().min(2, 'Keyword must be at least 2 characters'),
   country: z.string().min(2, 'Country is required'),
-  state: z.string().min(1, 'State is required'),
-  city: z.string().min(1, 'City is required'),
+  state: z.string().optional(),
+  city: z.string().optional(),
   area: z.string().optional(),
   provider: z.string().min(1, 'Provider is required'),
   target_cap: z.string().optional(),

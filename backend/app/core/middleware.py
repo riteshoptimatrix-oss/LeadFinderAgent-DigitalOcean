@@ -10,8 +10,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
         path = request.url.path
 
-        # Don't add restrictive CSP or framing on public tracking pixels, webhooks, or open redirects
-        if path.startswith(("/open", "/track", "/api/v1/tracking/open", "/api/v1/tracking/click", "/api/v1/tracking/pixel", "/api/v1/tracking/unsubscribe", "/pixel")):
+        # Don't add restrictive CSP or framing on public tracking pixels, webhooks, uploads, or open redirects
+        if path.startswith(("/open", "/track", "/api/v1/tracking/open", "/api/v1/tracking/click", "/api/v1/tracking/pixel", "/api/v1/tracking/unsubscribe", "/pixel", "/api/v1/uploads", "/uploads")):
             response.headers["Access-Control-Allow-Origin"] = "*"
             response.headers["Access-Control-Allow-Methods"] = "GET, HEAD, OPTIONS"
             response.headers["Access-Control-Allow-Headers"] = "*"

@@ -32,3 +32,9 @@ backend/wa_sessions/
 
 # Generated PDF reports
 backend/reports/pdf/
+
+# Uploaded media files
+backend/uploads/images/*
+!backend/uploads/images/.gitkeep
+backend/uploads/videos/*
+!backend/uploads/videos/.gitkeep

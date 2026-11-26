@@ -552,11 +552,12 @@ from app.api.routes import admin_activity, admin_users
 app.include_router(admin_users.router, prefix=f"{app_settings.API_V1_STR}/admin/users", tags=["admin-users"])
 app.include_router(admin_users.router, prefix="/api/admin/users", tags=["admin-users"])
 app.include_router(admin_activity.router, prefix=f"{app_settings.API_V1_STR}/admin", tags=["admin"])
-from app.api.routes import crm, whatsapp_ai, email_ai, email_ai_analytics, ai_content, auto_leadfinder, easyadserver
+from app.api.routes import crm, whatsapp_ai, email_ai, email_ai_analytics, ai_content, auto_leadfinder, easyadserver, media as media_routes
 app.include_router(crm.router, prefix=f"{app_settings.API_V1_STR}/crm", tags=["crm"])
 app.include_router(whatsapp_ai.router, prefix=f"{app_settings.API_V1_STR}/whatsapp-ai", tags=["whatsapp-ai"])
 app.include_router(email_ai.router, prefix=f"{app_settings.API_V1_STR}/email-ai", tags=["email-ai"])
 app.include_router(email_ai_analytics.router, prefix=f"{app_settings.API_V1_STR}/email-ai", tags=["email-ai-analytics"])
+app.include_router(media_routes.router, prefix=f"{app_settings.API_V1_STR}/media", tags=["media"])
 app.include_router(ai_content.router, prefix=f"{app_settings.API_V1_STR}/ai-content", tags=["ai-content"])
 app.include_router(ai_content.router, prefix="/api/ai-content", tags=["ai-content"])
 app.include_router(auto_leadfinder.router, prefix=f"{app_settings.API_V1_STR}/auto-leadfinder", tags=["auto-leadfinder"])
@@ -571,6 +572,17 @@ app.include_router(websockets.router, prefix="", tags=["websockets"])
 # the browser through the nginx /api/v1/ proxy (which carries the Upgrade /
 # Connection headers). The root-prefixed paths above remain for direct access.
 app.include_router(websockets.router, prefix=app_settings.API_V1_STR, tags=["websockets"])
+
+# Static Uploads directory for images, videos, and email template media
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
+_UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
+_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+(_UPLOAD_DIR / "images").mkdir(parents=True, exist_ok=True)
+(_UPLOAD_DIR / "videos").mkdir(parents=True, exist_ok=True)
+
+app.mount(f"{app_settings.API_V1_STR}/uploads", StaticFiles(directory=str(_UPLOAD_DIR)), name="uploads")
+app.mount("/uploads", StaticFiles(directory=str(_UPLOAD_DIR)), name="root_uploads")
 
 @app.get("/")
 async def root():

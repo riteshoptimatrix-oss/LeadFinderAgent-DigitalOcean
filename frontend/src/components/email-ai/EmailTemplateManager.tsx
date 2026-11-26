@@ -13,6 +13,7 @@ import {
 import { toast } from 'sonner';
 import { cn } from '@/src/lib/utils';
 import { useRouter } from 'next/navigation';
+import EmailMediaModal from './EmailMediaModal';
 
 interface Template {
   _id: string;
@@ -75,6 +76,7 @@ export default function EmailTemplateManager() {
   const [selectedLeadsCount, setSelectedLeadsCount] = useState<number>(0);
   const [isLibraryOpen, setIsLibraryOpen] = useState(true);
   const [isPreviewOpen, setIsPreviewOpen] = useState(true);
+  const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
 
   const editorRef = useRef<HTMLDivElement>(null);
 
@@ -619,6 +621,16 @@ export default function EmailTemplateManager() {
                     </div>
                   </div>
 
+                  <button
+                    type="button"
+                    onClick={() => setIsMediaModalOpen(true)}
+                    className="px-3 py-1.5 bg-gradient-to-r from-blue-50 to-indigo-50 hover:from-blue-100 hover:to-indigo-100 text-blue-700 border border-blue-200/80 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer shadow-2xs ml-1"
+                    title="Upload or Insert Images & Videos"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Images / Videos</span>
+                  </button>
+
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -666,9 +678,14 @@ export default function EmailTemplateManager() {
                   <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs font-bold shadow-sm" title="AI Writing coming in future phase">
                     <Sparkles className="w-3 h-3" /> AI Improve
                   </div>
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg text-slate-500 text-xs font-medium" title="Attachments coming in future phase">
-                    <LinkIcon className="w-3 h-3" /> Add Attachment
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setIsMediaModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg text-blue-700 text-xs font-semibold transition-colors cursor-pointer"
+                    title="Upload & Insert Images or Videos"
+                  >
+                    <ImageIcon className="w-3.5 h-3.5 text-blue-600" /> Insert Media
+                  </button>
                 </div>
                 <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
                   <ShieldAlert className="w-3 h-3" /> Spam Score: 0/100 (Safe)
@@ -747,6 +764,13 @@ export default function EmailTemplateManager() {
         )}
 
       </div>
+
+      {/* Image & Video Upload Modal */}
+      <EmailMediaModal
+        isOpen={isMediaModalOpen}
+        onClose={() => setIsMediaModalOpen(false)}
+        onInsertHtml={insertBlock}
+      />
     </div>
   );
 }

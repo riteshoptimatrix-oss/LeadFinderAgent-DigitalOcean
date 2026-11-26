@@ -27,10 +27,26 @@ _HREF_RE = re.compile(
 )
 
 
-def get_tracking_base_url() -> str:
-    """Return normalized backend public URL without trailing slash."""
-    base = (app_settings.BACKEND_PUBLIC_URL or "http://localhost:8000").strip().rstrip("/")
-    return base
+def get_tracking_base_url(request_base_url: Optional[str] = None) -> str:
+    """Return normalized backend public URL without trailing slash.
+
+    Priority:
+    1. Explicit non-localhost BACKEND_PUBLIC_URL from config/.env
+    2. request_base_url (from incoming HTTP Request / X-Forwarded-* headers)
+    3. Non-localhost FRONTEND_BASE_URL (when API is reverse-proxied on same domain)
+    4. BACKEND_PUBLIC_URL fallback (http://localhost:8000)
+    """
+    configured = (app_settings.BACKEND_PUBLIC_URL or "").strip().rstrip("/")
+    if configured and "localhost" not in configured and "127.0.0.1" not in configured:
+        return configured
+    if request_base_url:
+        req_clean = request_base_url.strip().rstrip("/")
+        if req_clean and "localhost" not in req_clean and "127.0.0.1" not in req_clean:
+            return req_clean
+    frontend = (app_settings.FRONTEND_BASE_URL or "").strip().rstrip("/")
+    if frontend and "localhost" not in frontend and "127.0.0.1" not in frontend:
+        return frontend
+    return configured or "http://localhost:8000"
 
 
 def get_tracking_domain() -> str:
@@ -72,13 +88,13 @@ def is_safe_redirect_url(url: str) -> bool:
     return True
 
 
-def wrap_links_for_click_tracking(html: str, tracking_id: str) -> str:
+def wrap_links_for_click_tracking(html: str, tracking_id: str, base_url: Optional[str] = None) -> str:
     """Rewrite http/https <a href="..."> links in HTML to route through click tracking endpoint."""
     if not html or not tracking_id:
         return html
-    base_url = get_tracking_base_url()
+    resolved_base = get_tracking_base_url(base_url)
     api_prefix = (app_settings.API_V1_STR or "/api/v1").rstrip("/")
-    tracking_prefix = f"{base_url}{api_prefix}/tracking/click/{tracking_id}"
+    tracking_prefix = f"{resolved_base}{api_prefix}/tracking/click/{tracking_id}"
 
     def _replace_href(match: re.Match) -> str:
         prefix, quote_char, orig_url = match.group(1), match.group(2), match.group(3).strip()
@@ -97,16 +113,16 @@ def wrap_links_for_click_tracking(html: str, tracking_id: str) -> str:
     return _HREF_RE.sub(_replace_href, html)
 
 
-def inject_tracking_pixel(html: str, tracking_id: str) -> str:
+def inject_tracking_pixel(html: str, tracking_id: str, base_url: Optional[str] = None) -> str:
     """Append an invisible 1x1 tracking pixel to HTML email body."""
     if not html or not tracking_id:
         return html
-    base_url = get_tracking_base_url()
+    resolved_base = get_tracking_base_url(base_url)
     api_prefix = (app_settings.API_V1_STR or "/api/v1").rstrip("/")
-    pixel_url = f"{base_url}{api_prefix}/tracking/open/{tracking_id}"
+    pixel_url = f"{resolved_base}{api_prefix}/tracking/open/{tracking_id}"
     pixel_tag = (
-        f'<img src="{pixel_url}" width="1" height="1" '
-        f'style="display:none;width:1px;height:1px;border:0;" alt="" />'
+        f'<img src="{pixel_url}" width="1" height="1" border="0" '
+        f'style="width:1px;height:1px;opacity:0;border:0;outline:none;text-decoration:none;" alt="" />'
     )
     if "</body>" in html.lower():
         return re.sub(r"</body>", f"{pixel_tag}</body>", html, count=1, flags=re.IGNORECASE)
@@ -118,13 +134,14 @@ def apply_email_tracking(
     tracking_id: str,
     open_tracking: bool = True,
     click_tracking: bool = True,
+    base_url: Optional[str] = None,
 ) -> str:
     """Apply click-tracking link wrapping and open-tracking pixel to HTML content."""
     if not html:
         return html
     result = html
     if click_tracking:
-        result = wrap_links_for_click_tracking(result, tracking_id)
+        result = wrap_links_for_click_tracking(result, tracking_id, base_url=base_url)
     if open_tracking:
-        result = inject_tracking_pixel(result, tracking_id)
+        result = inject_tracking_pixel(result, tracking_id, base_url=base_url)
     return result

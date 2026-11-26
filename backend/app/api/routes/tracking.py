@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 import uuid
 
 from bson import ObjectId
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr
 
@@ -372,6 +372,7 @@ def _serialize_test_record(d: Dict[str, Any]) -> Dict[str, Any]:
 @router.post("/test-email")
 async def send_tracking_test_email(
     payload: EmailTestSendRequest,
+    request: Request,
     current_user: UserInDB = Depends(require_email_testing_access),
     db=Depends(get_db),
 ):
@@ -409,10 +410,14 @@ async def send_tracking_test_email(
             detail="No active SMTP configuration found. Please save your SMTP credentials in Settings > Email Automation.",
         )
 
+    fwd_proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "https").split(",")[0].strip()
+    fwd_host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    req_base_url = f"{fwd_proto}://{fwd_host}" if fwd_host else str(request.base_url).rstrip("/")
+
     tracking_id = generate_tracking_id(uid_str, "email_testing", to_email, uuid.uuid4().hex)
     message_id = build_message_id(tracking_id)
     now = datetime.now(timezone.utc)
-    verify_url = (app_settings.FRONTEND_BASE_URL or "http://localhost:3000").strip().rstrip("/")
+    verify_url = req_base_url if ("localhost" not in req_base_url and "127.0.0.1" not in req_base_url) else (app_settings.FRONTEND_BASE_URL or "http://localhost:3000").strip().rstrip("/")
     subject = "Email Tracking Verification Test"
     raw_html = (
         "<html><body style='font-family:Arial,sans-serif;color:#1e293b;line-height:1.6;'>"
@@ -428,7 +433,13 @@ async def send_tracking_test_email(
         "This is a test email from LeadFinderAgent to verify open, click, and reply tracking.\n"
         f"Verify link: {verify_url}\n"
     )
-    tracked_html = apply_email_tracking(raw_html, tracking_id, open_tracking=True, click_tracking=True)
+    tracked_html = apply_email_tracking(
+        raw_html,
+        tracking_id,
+        open_tracking=True,
+        click_tracking=True,
+        base_url=req_base_url,
+    )
 
     worker = EmailAIQueueWorker(db)
     loop = asyncio.get_running_loop()

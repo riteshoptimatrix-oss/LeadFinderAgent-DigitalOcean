@@ -52,6 +52,7 @@ if sys.platform == 'win32':
     except Exception:
         pass
 
+from typing import Optional, Any, Dict, List
 from fastapi import FastAPI, Depends, Request
 from fastapi.responses import Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware

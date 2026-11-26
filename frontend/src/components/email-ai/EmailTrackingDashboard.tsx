@@ -142,6 +142,32 @@ function formatDateTime(iso?: string | null): string {
   }
 }
 
+function parseReplyText(rawSnippet?: string | null): { replyText: string; quotedText?: string } {
+  if (!rawSnippet) return { replyText: 'No preview text available.' };
+  const trimmed = rawSnippet.trim();
+
+  // Pattern 1: Attribution header with newline
+  const quoteMatch = trimmed.match(/^([\s\S]*?)(?:\r?\n|\s)+(?:(On\s+[A-Za-z]+,\s*\d+[\s\S]*?wrote:|-{3,}\s*Original Message\s*-{3,}|From:\s*[\s\S]+?Sent:)[\s\S]*)$/i);
+  if (quoteMatch && quoteMatch[1]?.trim()) {
+    const quoteIndex = trimmed.indexOf(quoteMatch[2]);
+    return {
+      replyText: quoteMatch[1].trim(),
+      quotedText: quoteIndex !== -1 ? trimmed.slice(quoteIndex).trim() : undefined,
+    };
+  }
+
+  // Pattern 2: Single-line glued attribution
+  const singleLineMatch = trimmed.match(/^([\s\S]+?)\s+(On\s+[A-Za-z0-9, ]+?wrote:.*)$/i);
+  if (singleLineMatch && singleLineMatch[1]?.trim()) {
+    return {
+      replyText: singleLineMatch[1].trim(),
+      quotedText: singleLineMatch[2].trim(),
+    };
+  }
+
+  return { replyText: trimmed };
+}
+
 export default function EmailTrackingDashboard() {
   const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<'events' | 'daily'>('events');
@@ -837,19 +863,46 @@ export default function EmailTrackingDashboard() {
             )}
 
             {/* Reply Snippet if Replied */}
-            {selectedItem.replied && (
-              <div className="bg-purple-50/60 rounded-xl p-4 border border-purple-200 space-y-1.5">
-                <div className="text-xs font-bold text-purple-900">
-                  Reply: {selectedItem.reply_subject || '(No Subject)'}
+            {selectedItem.replied && (() => {
+              const parsed = parseReplyText(selectedItem.reply_snippet);
+              return (
+                <div className="bg-purple-50/70 rounded-xl p-4 border border-purple-200 space-y-3">
+                  <div className="flex items-center justify-between border-b border-purple-200/60 pb-2 flex-wrap gap-2">
+                    <div>
+                      <div className="text-xs font-bold text-purple-900">
+                        Reply: {selectedItem.reply_subject || '(No Subject)'}
+                      </div>
+                      <div className="text-[11px] text-purple-600">
+                        From {selectedItem.reply_from || selectedItem.recipient_email} · {formatDateTime(selectedItem.replied_at)}
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-700 border border-purple-300">
+                      Incoming Reply
+                    </span>
+                  </div>
+
+                  <div>
+                    <div className="text-[11px] font-bold uppercase tracking-wider text-purple-900 mb-1">
+                      Lead's Message:
+                    </div>
+                    <div className="p-3.5 bg-white rounded-xl border border-purple-200 shadow-2xs text-xs font-semibold text-slate-900 whitespace-pre-wrap leading-relaxed">
+                      {parsed.replyText}
+                    </div>
+                  </div>
+
+                  {parsed.quotedText && (
+                    <details className="text-[11px] text-slate-500">
+                      <summary className="cursor-pointer hover:text-slate-700 font-medium select-none">
+                        Show Quoted Email Header
+                      </summary>
+                      <p className="mt-1.5 p-2.5 rounded-lg bg-purple-100/50 text-slate-500 whitespace-pre-wrap font-mono text-[10px] border border-purple-200/60">
+                        {parsed.quotedText}
+                      </p>
+                    </details>
+                  )}
                 </div>
-                <div className="text-[11px] text-purple-600">
-                  From {selectedItem.reply_from || selectedItem.recipient_email} · {formatDateTime(selectedItem.replied_at)}
-                </div>
-                <p className="text-xs text-slate-700 leading-relaxed whitespace-pre-wrap pt-1 border-t border-purple-200/70">
-                  {selectedItem.reply_snippet || 'No preview text available.'}
-                </p>
-              </div>
-            )}
+              );
+            })()}
 
             {/* Clicked URLs */}
             {selectedItem.clicked_urls && selectedItem.clicked_urls.length > 0 && (

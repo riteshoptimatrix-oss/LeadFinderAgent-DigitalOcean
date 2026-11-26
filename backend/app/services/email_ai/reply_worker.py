@@ -49,8 +49,8 @@ def _decode_mime_header(raw_value: Optional[str]) -> str:
     return "".join(parts).strip()
 
 
-def _extract_body_snippet(msg: email.message.Message, max_len: int = 300) -> str:
-    """Extract a clean plain-text preview snippet from an email.message.Message."""
+def _extract_body_snippet(msg: email.message.Message, max_len: int = 1500) -> str:
+    """Extract a clean plain-text reply message from an email, stripping quote headers & history."""
     text_body = ""
     if msg.is_multipart():
         for part in msg.walk():
@@ -70,10 +70,35 @@ def _extract_body_snippet(msg: email.message.Message, max_len: int = 300) -> str
 
     if not text_body:
         return ""
-    # Strip quoted reply lines starting with '>' and collapse whitespace
-    lines = [ln.strip() for ln in text_body.splitlines() if not ln.strip().startswith(">")]
-    cleaned = " ".join(ln for ln in lines if ln)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    # Common email reply separator patterns (Gmail, Outlook, Apple Mail, Yahoo)
+    # Split before the quoted attribution block:
+    # 1. "On <date>, <someone> wrote:"
+    # 2. "---------- Original Message ----------" or "--- Original Message ---"
+    # 3. "From: <someone>\nSent: <date>"
+    # 4. "________________________________"
+    attribution_pattern = re.compile(
+        r'(?:\r?\n)+\s*(?:'
+        r'On\s+[^\n]+?wrote:\s*|'
+        r'-+\s*Original Message\s*-+|'
+        r'_{10,}|'
+        r'From:\s*[^\n]+?\n\s*Sent:\s*'
+        r')',
+        re.IGNORECASE
+    )
+
+    parts = attribution_pattern.split(text_body, maxsplit=1)
+    clean_part = parts[0] if parts else text_body
+
+    # Filter out lines starting with '>' or '|'
+    lines = [ln.rstrip() for ln in clean_part.splitlines() if not ln.strip().startswith((">", "|"))]
+    cleaned = "\n".join(lines).strip()
+
+    # Fallback if empty (e.g. reply was inline in quotes)
+    if not cleaned:
+        fallback_lines = [ln.rstrip() for ln in text_body.splitlines() if not ln.strip().startswith((">", "|"))]
+        cleaned = "\n".join(fallback_lines).strip()
+
     return cleaned[:max_len]
 
 

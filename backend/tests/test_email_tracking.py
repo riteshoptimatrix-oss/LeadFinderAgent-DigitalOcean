@@ -63,6 +63,18 @@ def test_extract_body_snippet_strips_quotes():
     assert "Yes, please share pricing and portfolio." in snippet
     assert "Original email text" not in snippet
 
+    raw2 = (
+        "From: ritesh.personal.1510@gmail.com\r\n"
+        "Subject: Re: Test\r\n"
+        "Content-Type: text/plain; charset=utf-8\r\n\r\n"
+        "Okk\r\n\r\n"
+        "On Thu, 26 Nov, 2026, 11:26 am Default Relay, <test@example.com> wrote:\r\n"
+        "> Hello world\r\n"
+    )
+    msg2 = email.message_from_string(raw2)
+    snippet2 = _extract_body_snippet(msg2)
+    assert snippet2 == "Okk"
+
 
 def test_apply_email_tracking_unsub_placeholder_and_bounce_dsn():
     tid = "deadbeef1234567890"

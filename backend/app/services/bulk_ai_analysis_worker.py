@@ -199,15 +199,24 @@ class BulkAIAnalysisWorker:
                     queue["started_at"] = now
                     started_new = True
 
-                # Mark linked leads as Running so they are not re-enqueued and
-                # their rows reflect an in-flight analysis.
-                for linked_id in job.get("linked_lead_ids") or []:
+                # Batch-mark linked leads as Running so they are not re-enqueued and
+                # their rows reflect an in-flight analysis without N sequential round-trips.
+                linked_ids = job.get("linked_lead_ids") or []
+                if linked_ids:
+                    linked_oids = [to_object_id(str(lid)) for lid in linked_ids]
                     try:
-                        await lead_enrichment_service.mark_analysis_started(
-                            str(linked_id), str(job["_id"]), job.get("website_url")
+                        await db["leads"].update_many(
+                            {"_id": {"$in": linked_oids}},
+                            {"$set": {
+                                "ai_analysis.analysis_status": "Running",
+                                "ai_analysis.status": "Running",
+                                "ai_analysis.job_id": str(job["_id"]),
+                                "ai_analysis.stage": "Analyzing website...",
+                                "updated_at": now,
+                            }},
                         )
                     except Exception as e:
-                        logger.warning(f"BULK_LINKED_START_FAILED: {linked_id}: {e}")
+                        logger.warning(f"BULK_LINKED_START_FAILED: {e}")
 
                 await self._log(
                     queue, "info",
@@ -327,23 +336,28 @@ class BulkAIAnalysisWorker:
             return
 
         now = datetime.now(timezone.utc)
-        for linked_id in linked_ids:
-            if str(linked_id) == str(job.get("lead_id")):
-                continue
-            try:
-                await db["leads"].update_one(
-                    {"_id": to_object_id(linked_id)},
-                    {"$set": {**reuse, "updated_at": now}},
-                )
-                await manager.broadcast({
-                    "type": "LEAD_ANALYSIS_UPDATED",
-                    "lead_id": str(linked_id),
-                    "fields": list(reuse.keys()),
-                    "timestamp": now.isoformat(),
-                })
-                logger.info(f"BULK_LINKED_REUSED: Report reused for linked lead {linked_id} (job {job.get('_id')})")
-            except Exception as e:
-                logger.error(f"BULK_LINKED_REUSE_FAILED: linked lead {linked_id}: {e}")
+        target_oids = [
+            to_object_id(str(lid))
+            for lid in linked_ids
+            if str(lid) != str(job.get("lead_id"))
+        ]
+        if not target_oids:
+            return
+
+        try:
+            await db["leads"].update_many(
+                {"_id": {"$in": target_oids}},
+                {"$set": {**reuse, "updated_at": now}},
+            )
+            await manager.broadcast({
+                "type": "LEAD_ANALYSIS_UPDATED",
+                "lead_ids": [str(oid) for oid in target_oids],
+                "fields": list(reuse.keys()),
+                "timestamp": now.isoformat(),
+            })
+            logger.info(f"BULK_LINKED_REUSED: Report reused for {len(target_oids)} linked lead(s) (job {job.get('_id')})")
+        except Exception as e:
+            logger.error(f"BULK_LINKED_REUSE_FAILED: job {job.get('_id')}: {e}")
 
     # ── Progress accounting ──────────────────────────────────────────────────
 

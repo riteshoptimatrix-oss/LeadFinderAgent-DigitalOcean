@@ -774,16 +774,17 @@ class AIAnalysisWorker:
                 await db["leads"].update_one({"_id": to_object_id(lead_id)}, {"$set": repairs})
                 logger.info(f"Repaired orphan fields for lead {lead_id}: {repairs}")
 
-        await db["ai_analysis_queues"].update_one(
-            {"_id": queue_id_obj, "status": {"$in": list(ACTIVE_QUEUE_STATES)}},
-            {"$set": {
-                "status": AIAnalysisState.STARTED,
-                "running_jobs": 1,
-                "current_lead_index": current_lead_index,
-                "overall_progress": overall_progress,
-                "updated_at": datetime.now(timezone.utc)
-            }}
-        )
+        if not job.get("is_bulk"):
+            await db["ai_analysis_queues"].update_one(
+                {"_id": queue_id_obj, "status": {"$in": list(ACTIVE_QUEUE_STATES)}},
+                {"$set": {
+                    "status": AIAnalysisState.STARTED,
+                    "running_jobs": 1,
+                    "current_lead_index": current_lead_index,
+                    "overall_progress": overall_progress,
+                    "updated_at": datetime.now(timezone.utc)
+                }}
+            )
 
         async def broadcast(event_type: str, stage: str, progress: float,
                               message: str = None, metrics: dict = None,

@@ -308,6 +308,12 @@ async def resolve_lead_docs(
     When lead_ids are given they are used verbatim; otherwise all leads
     matching the provided filters are loaded.
     """
+    lead_projection = {
+        "_id": 1,
+        "name": 1,
+        "website": 1,
+        "ai_analysis.analysis_status": 1,
+    }
     if lead_ids:
         cleaned = [str(l) for l in lead_ids if str(l).strip()]
         if not cleaned:
@@ -319,14 +325,14 @@ async def resolve_lead_docs(
         find_query: Dict[str, Any] = {"_id": {"$in": oids}}
         if user_id:
             find_query["user_id"] = user_id
-        docs = await db["leads"].find(find_query).to_list(length=20000)
+        docs = await db["leads"].find(find_query, lead_projection).to_list(length=20000)
         by_id = {str(d["_id"]): d for d in docs}
         return [by_id[l] for l in cleaned if l in by_id]
 
     query = build_lead_filter(filters)
     if user_id and "user_id" not in query:
         query["user_id"] = user_id
-    docs = await db["leads"].find(query).to_list(length=20000)
+    docs = await db["leads"].find(query, lead_projection).to_list(length=20000)
     return docs
 
 
@@ -626,20 +632,6 @@ async def create_bulk_queue(
             "message": f"Bulk analysis queue created with {len(jobs)} unique website(s) and {duplicate_leads} linked lead(s).",
             "timestamp": now.isoformat(),
         })
-
-        # Streaming "Queued <business> (<website>)" log lines (capped so very
-        # large runs never flood the event stream).
-        for spec in job_specs[:500]:
-            await manager.broadcast_to_job(str(queue_id), {
-                "type": "bulk_log",
-                "event_type": "bulk_log",
-                "queue_id": str(queue_id),
-                "level": "info",
-                "business_name": spec.get("name"),
-                "website": spec["website_url"],
-                "message": f"Queued {spec.get('name') or spec['website_url']} ({spec['website_url']})",
-                "timestamp": now.isoformat(),
-            })
     except Exception as ws_err:
         logger.warning(f"Failed to broadcast bulk queue creation for {queue_id}: {ws_err}")
 

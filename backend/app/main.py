@@ -53,7 +53,7 @@ if sys.platform == 'win32':
         pass
 
 from typing import Optional, Any, Dict, List
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI, Depends, Request, Query
 from fastapi.responses import Response, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -573,16 +573,26 @@ app.include_router(websockets.router, prefix="", tags=["websockets"])
 # Connection headers). The root-prefixed paths above remain for direct access.
 app.include_router(websockets.router, prefix=app_settings.API_V1_STR, tags=["websockets"])
 
-# Static Uploads directory for images, videos, and email template media
-from fastapi.staticfiles import StaticFiles
+# Secure Uploads directory for images, videos, and email template media
 from pathlib import Path
+from app.api.routes.media import _serve_secure_media
+
 _UPLOAD_DIR = Path(__file__).resolve().parent.parent / "uploads"
 _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 (_UPLOAD_DIR / "images").mkdir(parents=True, exist_ok=True)
 (_UPLOAD_DIR / "videos").mkdir(parents=True, exist_ok=True)
 
-app.mount(f"{app_settings.API_V1_STR}/uploads", StaticFiles(directory=str(_UPLOAD_DIR)), name="uploads")
-app.mount("/uploads", StaticFiles(directory=str(_UPLOAD_DIR)), name="root_uploads")
+@app.get(f"{app_settings.API_V1_STR}/uploads/{{subfolder}}/{{filename}}")
+@app.get("/uploads/{{subfolder}}/{{filename}}")
+async def secure_uploads_fallback(
+    subfolder: str,
+    filename: str,
+    request: Request,
+    exp: Optional[int] = Query(None),
+    sig: Optional[str] = Query(None),
+):
+    """Protected media route that blocks unauthorized direct URL browsing."""
+    return await _serve_secure_media(subfolder, filename, request, exp=exp, sig=sig)
 
 @app.get("/")
 async def root():

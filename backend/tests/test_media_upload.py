@@ -92,7 +92,8 @@ def test_upload_image_and_list_and_delete(test_client):
     data = res.json()
     assert data["media_type"] == "image"
     assert "test_banner" in data["filename"]
-    assert "/api/v1/uploads/images/" in data["url"]
+    assert "/api/v1/media/stream/images/" in data["url"]
+    assert "sig=" in data["url"] and "exp=" in data["url"]
     media_id = data["id"]
 
     # 2. Upload valid MP4 video
@@ -104,7 +105,8 @@ def test_upload_image_and_list_and_delete(test_client):
     assert res_v.status_code == 200, res_v.text
     data_v = res_v.json()
     assert data_v["media_type"] == "video"
-    assert "/api/v1/uploads/videos/" in data_v["url"]
+    assert "/api/v1/media/stream/videos/" in data_v["url"]
+    assert "sig=" in data_v["url"] and "exp=" in data_v["url"]
 
     # 3. List media
     list_res = client.get("/api/v1/media")
@@ -143,5 +145,39 @@ def test_upload_base64_media(test_client):
     assert res.status_code == 200, res.text
     data = res.json()
     assert data["media_type"] == "image"
-    assert "/api/v1/uploads/images/" in data["url"]
+    assert "/api/v1/media/stream/images/" in data["url"]
+    assert "sig=" in data["url"] and "exp=" in data["url"]
     assert "logo" in data["filename"]
+
+
+def test_secure_media_access_controls(test_client):
+    client, fake_db = test_client
+
+    # 1. Upload valid image
+    fake_png = io.BytesIO(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR...")
+    res = client.post(
+        "/api/v1/media/upload",
+        files={"file": ("secure_test.png", fake_png, "image/png")},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    fname = data["filename"]
+    signed_url = data["url"]
+
+    # 2. Extract path & query
+    url_path_with_query = signed_url.split("http://localhost:8000")[-1].split("http://127.0.0.1:8000")[-1]
+
+    # 3. Access WITH valid signature -> 200 OK
+    res_auth = client.get(url_path_with_query)
+    assert res_auth.status_code == 200
+
+    # 4. Direct unauthenticated access WITHOUT signature -> 403 Forbidden!
+    res_unauth = client.get(f"/api/v1/media/stream/images/{fname}")
+    assert res_unauth.status_code == 403
+    assert "Access Denied" in res_unauth.json()["detail"]
+
+    # 5. Access with tampered signature -> 403 Forbidden!
+    res_tampered = client.get(f"/api/v1/media/stream/images/{fname}?exp=9999999999&sig=tampered_fake_signature")
+    assert res_tampered.status_code == 403
+    assert "Access Denied" in res_tampered.json()["detail"]
+

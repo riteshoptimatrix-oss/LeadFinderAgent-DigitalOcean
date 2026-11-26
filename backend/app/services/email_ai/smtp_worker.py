@@ -686,9 +686,9 @@ class EmailAIQueueWorker:
                     logger.warning(f"[EmailAI-SMTP] Failed to read local uploaded image {clean_fname}: {read_err}")
             return match.group(0)
 
-        if processed_html and "uploads/images/" in processed_html:
+        if processed_html and ("uploads/images/" in processed_html or "media/stream/images/" in processed_html):
             processed_html = re.sub(
-                r'(<img\b[^>]*\bsrc=["\'])[^"\']*/(?:api/v1/)?uploads/images/([^"\'\s>]+)(["\'])',
+                r'(<img\b[^>]*\bsrc=["\'])[^"\']*/(?:api/v1/)?(?:uploads|media/stream)/images/([^"\'\s>?]+)(?:\?[^"\'\s>]+)?(["\'])',
                 _upload_repl,
                 processed_html,
                 flags=re.IGNORECASE

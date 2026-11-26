@@ -1,22 +1,29 @@
 """
 Media Upload & Management API Routes
 Allows uploading images and videos for Email Templates and Campaigns,
-serving them publicly with CORS and cache headers for email clients.
+serving them with secure HMAC cryptographic signatures, token validation,
+and preventing unauthorized public URL direct access.
 """
 
 from datetime import datetime, timezone
+import hashlib
+import hmac
 import os
 from pathlib import Path
 import re
+import time
 from typing import Any, Dict, List, Optional
 import uuid
 
 import aiofiles
 from bson import ObjectId
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import FileResponse
+from jose import jwt
 from pydantic import BaseModel
 
 from app.api.dependencies import get_current_user
+from app.core.config import settings
 from app.core.logger import logger
 from app.db.database import get_db
 from app.models.user import UserInDB
@@ -35,6 +42,111 @@ ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".webm", ".mov", ".ogg", ".m4v"}
 
 MAX_IMAGE_SIZE_BYTES = 15 * 1024 * 1024  # 15 MB
 MAX_VIDEO_SIZE_BYTES = 60 * 1024 * 1024  # 60 MB
+
+# Default signature validity: 7 days (604,800 seconds)
+DEFAULT_SIGNATURE_TTL_SECONDS = 7 * 24 * 3600
+
+
+def generate_media_signature(subfolder: str, filename: str, expires_at: int) -> str:
+    """Generate an HMAC-SHA256 signature for secure, tamper-proof media access."""
+    secret = settings.SECRET_KEY.encode("utf-8")
+    message = f"{subfolder}:{filename}:{expires_at}".encode("utf-8")
+    return hmac.new(secret, message, hashlib.sha256).hexdigest()[:32]
+
+
+def verify_media_signature(subfolder: str, filename: str, expires_at: int, token: str) -> bool:
+    """Verify that an HMAC signature matches and the timestamp has not expired."""
+    current_ts = int(time.time())
+    if expires_at < current_ts:
+        return False
+    expected = generate_media_signature(subfolder, filename, expires_at)
+    return hmac.compare_digest(expected, token)
+
+
+def build_secure_media_url(subfolder: str, filename: str, expires_in: int = DEFAULT_SIGNATURE_TTL_SECONDS) -> str:
+    """Build a secure, signed media streaming URL with HMAC signature and expiry."""
+    base_url = get_tracking_base_url()
+    exp = int(time.time()) + expires_in
+    sig = generate_media_signature(subfolder, filename, exp)
+    return f"{base_url}/api/v1/media/stream/{subfolder}/{filename}?exp={exp}&sig={sig}"
+
+
+async def _serve_secure_media(
+    subfolder: str,
+    filename: str,
+    request: Request,
+    exp: Optional[int] = None,
+    sig: Optional[str] = None,
+):
+    """
+    Validates HMAC signature or active JWT token before streaming requested media.
+    Blocks any raw unauthenticated direct URL access (HTTP 403 Forbidden).
+    """
+    if subfolder not in ("images", "videos"):
+        raise HTTPException(status_code=400, detail="Invalid media folder")
+
+    # Path traversal protection
+    clean_filename = Path(filename).name
+    if not clean_filename or ".." in filename:
+        raise HTTPException(status_code=400, detail="Invalid filename")
+
+    target_path = UPLOAD_DIR / subfolder / clean_filename
+    if not target_path.exists() or not target_path.is_file():
+        raise HTTPException(status_code=404, detail="Media file not found")
+
+    # 1. Verify HMAC cryptographic signature
+    is_authorized = False
+    if exp is not None and sig:
+        if verify_media_signature(subfolder, clean_filename, exp, sig):
+            is_authorized = True
+
+    # 2. Check JWT Bearer token from request headers or cookies (for logged-in dashboard users)
+    if not is_authorized:
+        auth_header = request.headers.get("Authorization") or ""
+        token = ""
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif "access_token" in request.cookies:
+            token = request.cookies.get("access_token") or ""
+
+        if token:
+            try:
+                jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+                is_authorized = True
+            except Exception:
+                pass
+
+    if not is_authorized:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access Denied: Direct storage access is prohibited. Valid signature or authentication token required.",
+        )
+
+    ext = target_path.suffix.lower()
+    if ext == ".mp4":
+        mime = "video/mp4"
+    elif ext == ".webm":
+        mime = "video/webm"
+    elif ext in (".jpg", ".jpeg"):
+        mime = "image/jpeg"
+    elif ext == ".png":
+        mime = "image/png"
+    elif ext == ".gif":
+        mime = "image/gif"
+    elif ext == ".webp":
+        mime = "image/webp"
+    else:
+        mime = f"{subfolder}/{ext.lstrip('.')}" if ext else f"{subfolder}/*"
+
+    return FileResponse(
+        path=str(target_path),
+        media_type=mime,
+        filename=clean_filename,
+        headers={
+            "Cache-Control": "private, max-age=86400",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
 
 
 class MediaItemResponse(BaseModel):
@@ -116,8 +228,7 @@ async def upload_media(
             detail="Failed to save uploaded file on server",
         )
 
-    base_url = get_tracking_base_url()
-    public_url = f"{base_url}/api/v1/uploads/{subfolder}/{unique_filename}"
+    secure_url = build_secure_media_url(subfolder, unique_filename)
     now = datetime.now(timezone.utc)
 
     doc = {
@@ -127,7 +238,7 @@ async def upload_media(
         "media_type": media_type,
         "mime_type": file.content_type or (f"{media_type}/{ext.lstrip('.')}" if ext else f"{media_type}/*"),
         "size_bytes": total_bytes,
-        "url": public_url,
+        "url": secure_url,
         "subfolder": subfolder,
         "created_at": now,
     }
@@ -141,7 +252,7 @@ async def upload_media(
         media_type=media_type,
         mime_type=doc["mime_type"],
         size_bytes=total_bytes,
-        url=public_url,
+        url=secure_url,
         created_at=now.isoformat(),
     )
 
@@ -197,8 +308,7 @@ async def upload_media_base64(
     async with aiofiles.open(target_path, "wb") as out_f:
         await out_f.write(file_bytes)
 
-    base_url = get_tracking_base_url()
-    public_url = f"{base_url}/api/v1/uploads/{subfolder}/{unique_filename}"
+    secure_url = build_secure_media_url(subfolder, unique_filename)
     now = datetime.now(timezone.utc)
 
     doc = {
@@ -208,7 +318,7 @@ async def upload_media_base64(
         "media_type": media_type,
         "mime_type": f"{media_type}/{ext.lstrip('.')}" if ext else f"{media_type}/*",
         "size_bytes": len(file_bytes),
-        "url": public_url,
+        "url": secure_url,
         "subfolder": subfolder,
         "created_at": now,
     }
@@ -222,7 +332,7 @@ async def upload_media_base64(
         media_type=media_type,
         mime_type=doc["mime_type"],
         size_bytes=len(file_bytes),
-        url=public_url,
+        url=secure_url,
         created_at=now.isoformat(),
     )
 
@@ -241,13 +351,12 @@ async def list_media(
     cursor = db["media_uploads"].find(query).sort("created_at", -1).limit(100)
     docs = await cursor.to_list(100)
 
-    base_url = get_tracking_base_url()
     results = []
     for d in docs:
         subfolder = d.get("subfolder") or ("images" if d.get("media_type") == "image" else "videos")
         fname = d.get("filename")
-        # Ensure URL always matches the current base_url
-        effective_url = f"{base_url}/api/v1/uploads/{subfolder}/{fname}" if fname else d.get("url", "")
+        # Generate fresh secure signed URL for each listed item
+        effective_url = build_secure_media_url(subfolder, fname) if fname else d.get("url", "")
         results.append(
             MediaItemResponse(
                 id=str(d["_id"]),
@@ -289,3 +398,28 @@ async def delete_media(
 
     await db["media_uploads"].delete_one({"_id": ObjectId(media_id)})
     return {"status": "success", "message": "Media file deleted successfully"}
+
+
+@router.get("/stream/{subfolder}/{filename}")
+async def stream_media(
+    subfolder: str,
+    filename: str,
+    request: Request,
+    exp: Optional[int] = Query(None, description="Signature expiration timestamp"),
+    sig: Optional[str] = Query(None, description="HMAC-SHA256 authorization signature"),
+):
+    """Secure streaming endpoint for uploaded images and videos with signature & token verification."""
+    return await _serve_secure_media(subfolder, filename, request, exp=exp, sig=sig)
+
+
+@router.get("/uploads/{subfolder}/{filename}")
+async def secure_media_legacy(
+    subfolder: str,
+    filename: str,
+    request: Request,
+    exp: Optional[int] = Query(None, description="Signature expiration timestamp"),
+    sig: Optional[str] = Query(None, description="HMAC-SHA256 authorization signature"),
+):
+    """Protected endpoint for uploads path to prevent direct unauthenticated browser access."""
+    return await _serve_secure_media(subfolder, filename, request, exp=exp, sig=sig)
+

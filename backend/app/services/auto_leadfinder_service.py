@@ -1309,26 +1309,98 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
         )
 
         # Option 1: If user enabled automatic dispatch to EasyAdServer upon run completion
+        # Chain: Auto LeadFinder Completed -> Bulk AI Analysis (pending leads) -> EasyAdServer Dispatch
         eas_mode = settings.get("auto_send_eas_mode") or ("after_completion" if settings.get("auto_send_eas") else "disabled")
         if eas_mode == "after_completion" and user_id:
-            try:
-                from app.services.easyadserver_service import dispatch_user_leads_to_easyadserver
-                eas_res = await dispatch_user_leads_to_easyadserver(
-                    db=db,
-                    user_id=user_id,
-                    user_email=clean_email,
-                    skip_already_sent=True
-                )
-                await db["auto_leadfinder_runs"].update_one(
-                    {"_id": run_id},
-                    {"$set": {
-                        "eas_dispatched_at": datetime.now(timezone.utc),
-                        "eas_dispatch_result": eas_res.get("message") or ("Success" if eas_res.get("success") else "Failed")
-                    }}
-                )
-                logger.info(f"[AUTO_LEADFINDER] [{clean_email}] Auto EAS dispatch after scraping run {run_id}: {eas_res.get('message')}")
-            except Exception as eas_err:
-                logger.warning(f"[AUTO_LEADFINDER] [{clean_email}] Auto EAS dispatch failed after run {run_id}: {eas_err}")
+            async def _post_scrape_bulk_ai_and_eas():
+                try:
+                    # 1. Find all non-hidden, unsent leads for this user
+                    uid_conditions: List[Dict[str, Any]] = [
+                        {"user_id": user_id},
+                        {"assigned_to": user_id},
+                        {"assigned_user_email": {"$regex": f"^{re.escape(clean_email)}$", "$options": "i"}},
+                    ]
+                    if ObjectId.is_valid(user_id):
+                        uid_conditions.append({"user_id": ObjectId(user_id)})
+                        uid_conditions.append({"created_by": user_id})
+                        uid_conditions.append({"created_by": ObjectId(user_id)})
+
+                    pending_leads = await db["leads"].find({
+                        "$and": [
+                            {"$or": uid_conditions},
+                            {"visibility": {"$ne": "hidden"}},
+                            {"easyadserver_sent": {"$ne": True}},
+                        ]
+                    }).to_list(length=3000)
+
+                    if pending_leads:
+                        lead_ids = [str(l["_id"]) for l in pending_leads]
+                        try:
+                            from app.services.bulk_ai_analysis_service import create_bulk_queue
+                            queue, report = await create_bulk_queue(
+                                db=db,
+                                user_id=user_id,
+                                name="Auto LeadFinder Post-Scrape Bulk AI Analysis",
+                                lead_ids=lead_ids,
+                                filters=None,
+                                concurrency=3,
+                                reanalyze=False,
+                            )
+                            if queue:
+                                qid_str = str(queue.id)
+                                qid_oid = ObjectId(qid_str) if ObjectId.is_valid(qid_str) else qid_str
+                                await db["auto_leadfinder_runs"].update_one(
+                                    {"_id": run_id},
+                                    {"$set": {"eas_bulk_queue_id": qid_str}},
+                                )
+                                logger.info(
+                                    f"[AUTO_LEADFINDER] [{clean_email}] Started post-scrape Bulk AI Analysis queue {qid_str} "
+                                    f"for {len(report.get('websites', []))} website(s) before EAS dispatch."
+                                )
+                                # Poll until Bulk AI Analysis finishes (safety cap: 90 minutes)
+                                deadline = asyncio.get_event_loop().time() + 5400
+                                while asyncio.get_event_loop().time() < deadline:
+                                    await asyncio.sleep(5)
+                                    q_doc = await db["ai_analysis_queues"].find_one({"_id": qid_oid})
+                                    if not q_doc:
+                                        break
+                                    q_status = str(q_doc.get("status") or "").strip().upper()
+                                    if q_status in ("COMPLETED", "FAILED", "CANCELLED"):
+                                        logger.info(
+                                            f"[AUTO_LEADFINDER] [{clean_email}] Post-scrape Bulk AI Analysis queue {qid_str} "
+                                            f"finished with status '{q_status}'. Proceeding to EAS dispatch."
+                                        )
+                                        break
+                            else:
+                                logger.info(
+                                    f"[AUTO_LEADFINDER] [{clean_email}] No unanalyzed websites found; proceeding directly to EAS dispatch."
+                                )
+                        except Exception as bulk_err:
+                            logger.warning(
+                                f"[AUTO_LEADFINDER] [{clean_email}] Post-scrape Bulk AI Analysis failed/skipped: {bulk_err}. "
+                                f"Proceeding to EAS dispatch."
+                            )
+
+                    # 2. Dispatch eligible leads to EasyAdServer (duplicates automatically skipped)
+                    from app.services.easyadserver_service import dispatch_user_leads_to_easyadserver
+                    eas_res = await dispatch_user_leads_to_easyadserver(
+                        db=db,
+                        user_id=user_id,
+                        user_email=clean_email,
+                        skip_already_sent=True,
+                    )
+                    await db["auto_leadfinder_runs"].update_one(
+                        {"_id": run_id},
+                        {"$set": {
+                            "eas_dispatched_at": datetime.now(timezone.utc),
+                            "eas_dispatch_result": eas_res.get("message") or ("Success" if eas_res.get("success") else "Failed"),
+                        }},
+                    )
+                    logger.info(f"[AUTO_LEADFINDER] [{clean_email}] Auto EAS dispatch after run {run_id}: {eas_res.get('message')}")
+                except Exception as eas_err:
+                    logger.warning(f"[AUTO_LEADFINDER] [{clean_email}] Post-scrape Bulk AI + EAS dispatch failed after run {run_id}: {eas_err}")
+
+            asyncio.create_task(_post_scrape_bulk_ai_and_eas())
 
         logger.info(f"[AUTO_LEADFINDER] [{clean_email}] Systematic run {run_id} completed. Total unique: {total_collected}, Duplicates: {total_duplicates}.")
         return {

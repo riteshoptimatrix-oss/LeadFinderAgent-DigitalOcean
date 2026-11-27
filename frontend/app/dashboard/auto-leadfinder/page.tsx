@@ -778,7 +778,7 @@ export default function AutoLeadFinderPage() {
                       After Auto LeadFinder Completion
                     </span>
                     <span className="text-slate-500 text-[10px] block mt-0.5">
-                      Automatically send eligible leads to EAS once Auto LeadFinder finishes.
+                      Automatically runs Bulk AI Analysis on new leads, then sends eligible leads to EAS.
                     </span>
                   </div>
                 </label>

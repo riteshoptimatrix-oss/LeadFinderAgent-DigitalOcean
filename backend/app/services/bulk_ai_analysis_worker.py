@@ -558,6 +558,7 @@ class BulkAIAnalysisWorker:
             {"_id": queue["_id"], "_bulk_summary_broadcast": {"$ne": True}},
             {
                 "$set": {
+                    "status": AIAnalysisState.COMPLETED.value,
                     "total_time": total_time,
                     "average_time": average_time,
                     "leads_analyzed": leads_analyzed,
@@ -581,7 +582,7 @@ class BulkAIAnalysisWorker:
                 "event_type": "bulk_completed",
                 "queue_id": qid,
                 "stage": "Completed",
-                "status": queue.get("status"),
+                "status": AIAnalysisState.COMPLETED.value,
                 "progress": 100.0,
                 "summary": {
                     "total_leads": int(queue.get("total_leads") or 0) + len(queue.get("skipped_leads") or []),
@@ -592,6 +593,14 @@ class BulkAIAnalysisWorker:
                     "total_time": total_time,
                     "average_time_per_website": average_time,
                 },
+                "timestamp": now.isoformat(),
+            })
+            # Also notify the global analysis-updates channel so dashboard leads page clears active banner immediately
+            await manager.broadcast({
+                "type": "BULK_QUEUE_COMPLETED",
+                "event_type": "BULK_QUEUE_COMPLETED",
+                "queue_id": qid,
+                "status": AIAnalysisState.COMPLETED.value,
                 "timestamp": now.isoformat(),
             })
         except Exception as e:

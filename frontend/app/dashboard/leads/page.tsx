@@ -663,6 +663,27 @@ function LeadsPageContent() {
     router.replace('/dashboard/leads');
   };
 
+  const isQueueActive = useCallback((q: any) => {
+    const status = (q.status || '').toUpperCase();
+    if (['COMPLETED', 'SUCCESS', 'PARTIAL_SUCCESS', 'FAILED', 'CANCELLED', 'SKIPPED'].includes(status)) {
+      return false;
+    }
+    const total = Number(q.total_jobs || 0);
+    const completed = Number(q.completed_jobs || 0);
+    const failed = Number(q.failed_jobs || 0);
+    const skipped = Number(q.skipped_jobs || 0);
+    const done = completed + failed + skipped;
+    const running = Number(q.running_jobs || 0);
+    const pending = Number(q.pending_jobs || 0);
+
+    // If all jobs are processed and none are running/pending, it is done!
+    if (total > 0 && done >= total && running === 0 && pending === 0) {
+      return false;
+    }
+
+    return ['RUNNING', 'PENDING', 'PAUSED'].includes(status) || running > 0 || pending > 0;
+  }, []);
+
   // Check backend for active bulk queues to restore state on navigation/refresh
   const { data: bulkQueuesData } = useQuery({
     queryKey: ['activeBulkQueues'],
@@ -676,29 +697,24 @@ function LeadsPageContent() {
     },
     refetchInterval: (query: any) => {
       const queues = query.state.data || [];
-      const hasActive = queues.some((q: any) =>
-        ['RUNNING', 'PENDING', 'PAUSED'].includes((q.status || '').toUpperCase()) ||
-        (q.running_jobs && q.running_jobs > 0) ||
-        (q.pending_jobs && q.pending_jobs > 0)
-      );
+      const hasActive = queues.some(isQueueActive);
       return hasActive ? 3000 : 30000;
     },
   });
 
   const activeBulkQueue = Array.isArray(bulkQueuesData)
-    ? bulkQueuesData.find((q: any) =>
-      ['RUNNING', 'PENDING', 'PAUSED'].includes((q.status || '').toUpperCase()) ||
-      (q.running_jobs && q.running_jobs > 0) ||
-      (q.pending_jobs && q.pending_jobs > 0)
-    )
+    ? bulkQueuesData.find(isQueueActive)
     : null;
 
-  // Auto-restore bulk queue ID if an active bulk job is running on the backend
+  // Auto-restore or auto-dismiss bulk queue ID when active bulk queue state changes
   useEffect(() => {
     if (activeBulkQueue && !bulkQueueId) {
       setBulkQueueId(activeBulkQueue.id);
       setBulkQueueName(activeBulkQueue.name || 'Bulk AI Website Analysis');
       setBulkMinimized(true);
+    } else if (!activeBulkQueue && bulkQueueId) {
+      setBulkQueueId(null);
+      setBulkMinimized(false);
     }
   }, [activeBulkQueue, bulkQueueId]);
 
@@ -936,6 +952,9 @@ function LeadsPageContent() {
   });
 
   const handleBulkQueueCompletion = async () => {
+    setBulkQueueId(null);
+    setBulkMinimized(false);
+
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ['leads'], refetchType: 'active' }),
       queryClient.invalidateQueries({ queryKey: ['lead'], refetchType: 'active' }),

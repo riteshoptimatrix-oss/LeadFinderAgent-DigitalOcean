@@ -272,8 +272,14 @@ export default function BulkAIAnalysisMonitor({
               }));
             }
           }
+          const isAllJobsDone =
+            (data.total_jobs || 0) > 0 &&
+            ((data.completed_jobs || 0) + (data.failed_jobs || 0) + (data.skipped_jobs || 0)) >= (data.total_jobs || 0) &&
+            (data.running_jobs || 0) === 0 &&
+            (data.pending_jobs || 0) === 0;
+
           if (
-            TERMINAL_BULK_STATUSES.includes(statusUpper) &&
+            (TERMINAL_BULK_STATUSES.includes(statusUpper) || isAllJobsDone) &&
             !summaryRef.current
           ) {
             summaryRef.current = true;
@@ -351,8 +357,14 @@ export default function BulkAIAnalysisMonitor({
             }));
           }
         }
+        const isAllJobsDone =
+          (data.total_jobs || 0) > 0 &&
+          ((data.completed_jobs || 0) + (data.failed_jobs || 0) + (data.skipped_jobs || 0)) >= (data.total_jobs || 0) &&
+          (data.running_jobs || 0) === 0 &&
+          (data.pending_jobs || 0) === 0;
+
         if (
-          TERMINAL_BULK_STATUSES.includes(statusUpper) &&
+          (TERMINAL_BULK_STATUSES.includes(statusUpper) || isAllJobsDone) &&
           !summaryRef.current
         ) {
           summaryRef.current = true;

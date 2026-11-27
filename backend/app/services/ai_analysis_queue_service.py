@@ -156,6 +156,25 @@ class AIAnalysisQueueService:
         queue["failed_jobs"] = failed
         queue["skipped_jobs"] = skipped # Include all non-terminal skips
         queue["jobs"] = jobs
+
+        # If all jobs have finished, ensure queue status is marked COMPLETED
+        total_jobs = len(jobs)
+        if total_jobs > 0 and (completed + failed + skipped) >= total_jobs:
+            if queue.get("status") not in (AIAnalysisState.CANCELLED.value, AIAnalysisState.FAILED.value, "CANCELLED", "FAILED"):
+                queue["status"] = AIAnalysisState.COMPLETED.value
+                try:
+                    await db["ai_analysis_queues"].update_one(
+                        {"_id": queue["_id"]},
+                        {"$set": {
+                            "status": AIAnalysisState.COMPLETED.value,
+                            "running_jobs": 0,
+                            "pending_jobs": 0,
+                            "overall_progress": 100.0,
+                            "_bulk_summary_broadcast": True,
+                        }}
+                    )
+                except Exception:
+                    pass
         
         return queue
 

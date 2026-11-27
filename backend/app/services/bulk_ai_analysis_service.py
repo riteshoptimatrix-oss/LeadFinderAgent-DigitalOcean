@@ -662,6 +662,27 @@ async def recover_bulk_queues(db) -> int:
     now = datetime.now(timezone.utc)
     for queue in bulk_queues:
         qid = str(queue["_id"])
+
+        # Check if there are any remaining unfinished jobs in this queue
+        remaining_jobs = await db["ai_analysis_jobs"].count_documents(
+            {"queue_id": qid, "status": {"$in": [s.value for s in NON_TERMINAL_JOB_STATES]}}
+        )
+        if remaining_jobs == 0:
+            # All jobs are finished! Mark queue COMPLETED to clear lingering active banners
+            await db["ai_analysis_queues"].update_one(
+                {"_id": queue["_id"]},
+                {"$set": {
+                    "status": AIAnalysisState.COMPLETED.value,
+                    "running_jobs": 0,
+                    "pending_jobs": 0,
+                    "overall_progress": 100.0,
+                    "completed_at": queue.get("completed_at") or now,
+                    "updated_at": now,
+                    "_bulk_summary_broadcast": True,
+                }},
+            )
+            continue
+
         result = await db["ai_analysis_jobs"].update_many(
             {"queue_id": qid, "status": {"$in": [s.value for s in ACTIVE_JOB_STATES]}},
             {
@@ -683,23 +704,55 @@ async def recover_bulk_queues(db) -> int:
 
 async def list_bulk_queues(db, user_id: str) -> List[Dict[str, Any]]:
     """List bulk queues for a user (summary only — no full job payloads)."""
+    import asyncio
     queues = await db["ai_analysis_queues"].find(
         {"user_id": user_id, "is_bulk": True}
     ).sort("created_at", -1).to_list(length=50)
 
     summary = []
+    now = datetime.now(timezone.utc)
     for q in queues:
+        status = q.get("status")
+        total = int(q.get("total_jobs") or 0)
+        completed = int(q.get("completed_jobs") or 0)
+        failed = int(q.get("failed_jobs") or 0)
+        skipped = int(q.get("skipped_jobs") or 0)
+        running = int(q.get("running_jobs") or 0)
+        pending = int(q.get("pending_jobs") or 0)
+        done = completed + failed + skipped
+
+        # Self-healing: if all jobs finished, ensure status is marked COMPLETED in database
+        is_done = total > 0 and (done >= total or (running == 0 and pending == 0 and completed > 0))
+        if is_done and status not in ("CANCELLED", "FAILED"):
+            status = "COMPLETED"
+            if q.get("status") != "COMPLETED":
+                try:
+                    asyncio.create_task(db["ai_analysis_queues"].update_one(
+                        {"_id": q["_id"]},
+                        {"$set": {
+                            "status": "COMPLETED",
+                            "running_jobs": 0,
+                            "pending_jobs": 0,
+                            "overall_progress": 100.0,
+                            "completed_at": q.get("completed_at") or now,
+                            "updated_at": now,
+                            "_bulk_summary_broadcast": True,
+                        }}
+                    ))
+                except Exception:
+                    pass
+
         summary.append({
             "id": str(q.get("_id")),
             "name": q.get("name"),
-            "status": q.get("status"),
-            "total_jobs": q.get("total_jobs") or 0,
-            "completed_jobs": q.get("completed_jobs") or 0,
-            "failed_jobs": q.get("failed_jobs") or 0,
-            "skipped_jobs": q.get("skipped_jobs") or 0,
-            "running_jobs": q.get("running_jobs") or 0,
-            "pending_jobs": q.get("pending_jobs") or 0,
-            "overall_progress": q.get("overall_progress") or 0.0,
+            "status": status,
+            "total_jobs": total,
+            "completed_jobs": completed,
+            "failed_jobs": failed,
+            "skipped_jobs": skipped,
+            "running_jobs": 0 if status == "COMPLETED" else running,
+            "pending_jobs": 0 if status == "COMPLETED" else pending,
+            "overall_progress": 100.0 if status == "COMPLETED" else (q.get("overall_progress") or 0.0),
             "total_leads": q.get("total_leads") or 0,
             "duplicate_leads": q.get("duplicate_leads") or 0,
             "leads_analyzed": q.get("leads_analyzed") or 0,

@@ -209,7 +209,7 @@ export default function EmailAIPage() {
     queryKey: ['email-ai-users-list'],
     queryFn: async () => {
       try {
-        const res = await api.get('/users/');
+        const res = await api.get('/leads/assignable-users');
         const raw = Array.isArray(res.data) ? res.data : (res.data?.users || res.data?.data || []);
         return Array.isArray(raw) ? raw : [];
       } catch {

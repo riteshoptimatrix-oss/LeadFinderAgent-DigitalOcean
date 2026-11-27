@@ -95,8 +95,26 @@ export default function EmailTemplateManager() {
   // Automatically prefill custom relay name from selected or active profile
   useEffect(() => {
     if (isTestModalOpen) {
-      const active = smtpProfiles.find((p: any) => (p._id || p.id) === selectedSmtpId) 
-        || smtpProfiles.find((p: any) => p.is_default) 
+      const active = smtpProfiles.find((p: any) => (p._id || p.id) === selectedSmtpId)
+        || smtpProfiles.find((p: any) => p.is_default)
+        || smtpProfiles[0];
+      if (active && (!customRelayName || customRelayName.toLowerCase().startsWith('default relay'))) {
+        const cleanName = active.from_name || active.name;
+        if (cleanName && !cleanName.toLowerCase().startsWith('default relay')) {
+          setCustomRelayName(cleanName);
+        } else if (active.username) {
+          const u = active.username.split('@')[0].replace('.', ' ');
+          setCustomRelayName(u.charAt(0).toUpperCase() + u.slice(1));
+        }
+      }
+    }
+  }, [isTestModalOpen, selectedSmtpId, smtpProfiles]);
+
+  // Automatically prefill custom relay name from selected or active profile
+  useEffect(() => {
+    if (isTestModalOpen) {
+      const active = smtpProfiles.find((p: any) => (p._id || p.id) === selectedSmtpId)
+        || smtpProfiles.find((p: any) => p.is_default)
         || smtpProfiles[0];
       if (active && (!customRelayName || customRelayName.toLowerCase().startsWith('default relay'))) {
         const cleanName = active.from_name || active.name;
@@ -404,7 +422,7 @@ export default function EmailTemplateManager() {
       const savedLeads = localStorage.getItem('email_selected_leads');
       const parsed = savedLeads ? JSON.parse(savedLeads) : [];
       leadCount = Array.isArray(parsed) ? parsed.length : 0;
-    } catch {}
+    } catch { }
 
     if (leadCount === 0) {
       toast.error('Step 1 Required: Please select target leads first.');

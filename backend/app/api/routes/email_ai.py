@@ -49,6 +49,38 @@ def get_user_match_filter(current_user: UserInDB) -> List[Dict[str, Any]]:
     return match_list
 
 
+async def resolve_scoped_user_match(
+    db,
+    current_user: UserInDB,
+    target_user_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    """
+    Strictly scope queries to a single user.
+    If an ADMIN supplies target_user_id, scope strictly to that single user (never combined/global).
+    Otherwise, scope strictly to current_user.
+    """
+    is_admin = str(getattr(current_user, "role", "")).upper() in ["ADMIN", "SUPERADMIN"]
+    if target_user_id and target_user_id.strip() and is_admin:
+        tid = target_user_id.strip()
+        if tid != str(current_user.id) and tid != getattr(current_user, "email", ""):
+            match_list: List[Dict[str, Any]] = [{"user_id": tid}]
+            if ObjectId.is_valid(tid):
+                match_list.append({"user_id": ObjectId(tid)})
+                u = await db["users"].find_one({"_id": ObjectId(tid)}) or await db["admins"].find_one({"_id": ObjectId(tid)})
+            else:
+                u = await db["users"].find_one({"email": tid}) or await db["admins"].find_one({"email": tid})
+            if u:
+                uid_str = str(u["_id"])
+                if {"user_id": uid_str} not in match_list:
+                    match_list.append({"user_id": uid_str})
+                if ObjectId.is_valid(uid_str) and {"user_id": ObjectId(uid_str)} not in match_list:
+                    match_list.append({"user_id": ObjectId(uid_str)})
+                if u.get("email") and {"user_id": u["email"]} not in match_list:
+                    match_list.append({"user_id": u["email"]})
+            return match_list
+    return get_user_match_filter(current_user)
+
+
 async def resolve_effective_smtp_profile(
     db,
     current_user: UserInDB,
@@ -69,26 +101,20 @@ async def resolve_effective_smtp_profile(
     is_admin = str(getattr(current_user, "role", "")).upper() in ["ADMIN", "SUPERADMIN"]
     user_match = get_user_match_filter(current_user)
 
-    # 1. Targeted profile by ID
+    # 1. Targeted profile by ID (strictly user-scoped)
     if smtp_id and ObjectId.is_valid(smtp_id):
         target_oid = ObjectId(smtp_id)
-        cond: Dict[str, Any] = {"_id": target_oid, "is_active": {"$ne": False}}
-        if not is_admin:
-            cond["$or"] = user_match + [{"is_system": True, "user_id": None}]
+        cond: Dict[str, Any] = {
+            "_id": target_oid,
+            "is_active": {"$ne": False},
+            "$or": user_match,
+        }
         found = await db["email_ai_smtp"].find_one(cond)
         if found and found.get("password"):
             return found
 
     # 2. User-scoped active profile in email_ai_smtp
     query_or = list(user_match)
-    if is_admin:
-        query_or.extend([
-            {"user_id": None},
-            {"user_id": {"$exists": False}},
-            {"is_system": True}
-        ])
-    else:
-        query_or.append({"is_system": True, "user_id": None})
 
     active_profile = await db["email_ai_smtp"].find_one(
         {
@@ -158,21 +184,7 @@ async def resolve_effective_smtp_profile(
         env_dict["from_name"] = app_settings.SMTP_FROM_NAME or getattr(current_user, "full_name", "") or "Lead Finder Agent"
         return env_dict
 
-    # 5. Fallback for admin: any active SMTP profile in the database
-    if is_admin:
-        any_profile = await db["email_ai_smtp"].find_one(
-            {"is_active": {"$ne": False}, "password": {"$exists": True, "$ne": ""}},
-            sort=[("is_default", -1), ("updated_at", -1)]
-        )
-        if any_profile and any_profile.get("password"):
-            p_from = (any_profile.get("from_name") or "").strip()
-            p_name = (any_profile.get("name") or "").strip()
-            uname = (any_profile.get("username") or "").split("@")[0].replace(".", " ").title() or getattr(current_user, "full_name", "")
-            if not p_from or p_from.lower().startswith("default relay"):
-                any_profile["from_name"] = uname or "Lead Finder"
-            if not p_name or p_name.lower().startswith("default relay"):
-                any_profile["name"] = f"{uname} Relay" if uname else "Outbound Relay"
-            return any_profile
+    return None
 
     return None
 
@@ -181,23 +193,17 @@ async def resolve_effective_smtp_profile(
 # ==========================================
 @router.get("/smtp", response_model=List[Dict[Any, Any]])
 async def get_smtp_profiles(
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
-    user_match = get_user_match_filter(current_user)
-    # User-wise segregation: Users only see their own SMTP profiles or shared system profiles
-    if str(current_user.role).upper() in ["ADMIN", "SUPERADMIN"]:
-        query = {
-            "is_active": {"$ne": False},
-            "$or": user_match + [{"user_id": None}, {"user_id": {"$exists": False}}]
-        }
-    else:
-        query = {
-            "is_active": {"$ne": False},
-            "$or": user_match + [{"is_system": True, "user_id": None}]
-        }
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
+    query = {
+        "is_active": {"$ne": False},
+        "$or": user_match
+    }
     profiles = await db["email_ai_smtp"].find(query).to_list(100)
-    if not profiles:
+    if not profiles and not target_user_id:
         # Fallback: check if user configured SMTP in Settings
         config = await get_user_smtp_config(db, str(current_user.id), decrypt_pwd=False)
         if config and config.get("has_password"):
@@ -243,9 +249,7 @@ async def delete_smtp_profile(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid SMTP profile id")
         
-    filter_q: Dict[str, Any] = {"_id": oid}
-    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
-        filter_q["$or"] = get_user_match_filter(current_user)
+    filter_q: Dict[str, Any] = {"_id": oid, "$or": get_user_match_filter(current_user)}
 
     res = await db["email_ai_smtp"].update_one(
         filter_q,
@@ -268,9 +272,11 @@ async def update_smtp_profile(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid SMTP profile id")
 
-    filter_q: Dict[str, Any] = {"_id": oid, "is_active": {"$ne": False}}
-    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
-        filter_q["$or"] = get_user_match_filter(current_user)
+    filter_q: Dict[str, Any] = {
+        "_id": oid,
+        "is_active": {"$ne": False},
+        "$or": get_user_match_filter(current_user)
+    }
 
     update_data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
     if not update_data:
@@ -549,13 +555,14 @@ async def test_smtp_direct(
 # ==========================================
 @router.get("/templates", response_model=List[Dict[Any, Any]])
 async def get_templates(
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
-    user_match = get_user_match_filter(current_user)
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
     query = {
         "is_active": {"$ne": False},
-        "$or": user_match + [{"user_id": None}, {"user_id": {"$exists": False}}, {"user_id": "system"}]
+        "$or": user_match + [{"user_id": "system"}]
     }
     templates = await db["email_ai_templates"].find(query).to_list(100)
     return [serialize_doc(t) for t in templates]

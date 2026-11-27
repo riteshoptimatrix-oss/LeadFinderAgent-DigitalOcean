@@ -89,7 +89,7 @@ interface AgentPersona {
 const PERSONAS: AgentPersona[] = [
   {
     id: 'sdr-alex',
-    name: 'Alex Rivera',
+    name: 'Ritesh Gajjar',
     role: 'SDR Lead Qualifier',
     voiceName: 'Nova Neural (US)',
     gender: 'Female',
@@ -154,9 +154,9 @@ interface TestLead {
 const TEST_LEADS: TestLead[] = [
   {
     id: 'lead-1',
-    name: 'David Miller',
+    name: 'Khushi Vyas',
     company: 'Apex Digital Solutions',
-    phone: '+1 (555) 234-8901',
+    phone: '+91 6352710034',
     title: 'VP of Business Development',
     intent: 'High',
     industry: 'SaaS & Cloud Services'
@@ -217,7 +217,7 @@ const MOCK_CAMPAIGNS: CampaignItem[] = [
   {
     id: 'camp-1',
     name: 'Q3 Inbound Demo Request Follow-Up',
-    persona: 'Alex Rivera (SDR)',
+    persona: 'Ritesh Gajjar (SDR)',
     leadsCount: 650,
     completedCount: 524,
     status: 'Running',
@@ -253,7 +253,7 @@ const MOCK_CAMPAIGNS: CampaignItem[] = [
   {
     id: 'camp-4',
     name: 'Post-Webinar Attendees Follow-Up',
-    persona: 'Alex Rivera (SDR)',
+    persona: 'Ritesh Gajjar (SDR)',
     leadsCount: 450,
     completedCount: 0,
     status: 'Scheduled',
@@ -364,7 +364,7 @@ export default function CallingAIPage() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('studio');
   const [selectedPersona, setSelectedPersona] = useState<AgentPersona>(PERSONAS[0]);
   const [selectedLead, setSelectedLead] = useState<TestLead>(TEST_LEADS[0]);
-  
+
   // Call Simulator State
   const [callState, setCallState] = useState<'idle' | 'dialing' | 'ringing' | 'connected' | 'ended'>('idle');
   const [callDuration, setCallDuration] = useState<number>(0);
@@ -1313,8 +1313,8 @@ export default function CallingAIPage() {
                               camp.status === 'Running'
                                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                                 : camp.status === 'Scheduled'
-                                ? 'bg-blue-50 text-blue-700 border border-blue-200'
-                                : 'bg-slate-100 text-slate-600'
+                                  ? 'bg-blue-50 text-blue-700 border border-blue-200'
+                                  : 'bg-slate-100 text-slate-600'
                             )}
                           >
                             {camp.status}

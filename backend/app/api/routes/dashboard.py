@@ -39,9 +39,9 @@ async def get_dashboard_stats(
         today_query = {"$and": [user_filter, today_clause]} if user_filter else today_clause
         today_leads = await db["leads"].count_documents(today_query)
         
-        act_filter = {} if is_admin else {"user_id": str(current_user.id)}
+        act_filter = {"user_id": str(current_user.id)}
         emails_sent = await db["activity_logs"].count_documents({**act_filter, "action": "EMAIL_SENT"})
-        wa_sent = await db["activity_logs"].count_documents({**act_filter, "action": "WA_SENT"})
+        wa_sent = await db["activity_logs"].count_documents({**({} if is_admin else {"user_id": str(current_user.id)}), "action": "WA_SENT"})
         
         camp_filter = {} if is_admin else {"user_id": str(current_user.id)}
         active_campaigns = await db["campaigns"].count_documents({**camp_filter, "status": "RUNNING"})

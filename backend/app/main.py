@@ -464,7 +464,7 @@ async def lifespan(app: FastAPI):
         from app.services.ai_content.gemini_service import gemini_service
         await gemini_service.close()
     except Exception as e:
-        logger.warning(f"Error closing Gemini browser service: {e}")
+        logger.warning(f"Error closing browser service: {e}")
     await supervisor.stop_all(timeout=30)
     scheduler.shutdown()
     await close_mongo_connection()

@@ -19,9 +19,7 @@ router = APIRouter()
 
 @router.post("/generate", response_model=GenerateContentResponse)
 async def generate_content(payload: GenerateContentRequest):
-    """
-    Generate social media content from user input using Playwright Chromium + Gemini Web.
-    """
+    
     user_query = payload.user_query.strip()
     if not user_query:
         raise HTTPException(

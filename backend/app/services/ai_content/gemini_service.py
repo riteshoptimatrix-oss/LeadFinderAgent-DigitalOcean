@@ -1,9 +1,3 @@
-"""
-Gemini Web Browser Automation Service using Playwright.
-Provides persistent session management, social media content generation,
-and modification extraction via Gemini Web automation without LLM API keys.
-"""
-
 import os
 import sys
 import asyncio
@@ -232,7 +226,6 @@ class GeminiBrowserService:
             # Set default timeout
             self._page.set_default_timeout(45000)
 
-            # Navigate to Gemini
             logger.info("Navigating to https://gemini.google.com/app...")
             await self._page.goto("https://gemini.google.com/app", wait_until="networkidle", timeout=45000)
             await asyncio.sleep(2)
@@ -447,11 +440,10 @@ class GeminiBrowserService:
         raise TimeoutError("Timed out waiting for Gemini response generation to complete.")
 
     def _clean_gemini_output(self, text: str) -> str:
-        """Cleans UI artifacts and unwanted headers from Gemini's response text."""
+        
         if not text:
             return ""
 
-        # Remove leading "Gemini said\n\n" or "Gemini\n"
         lines = text.splitlines()
         while lines and lines[0].strip().lower() in ["gemini said", "gemini", "model response", ""]:
             lines.pop(0)

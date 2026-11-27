@@ -81,19 +81,19 @@ export default function TimePicker({
 
       {/* Main Time Selector Box */}
       <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-3 shadow-2xs">
-        <div className="flex items-center justify-between gap-3 flex-wrap sm:flex-nowrap">
+        <div className="flex items-center justify-between gap-2.5 flex-wrap">
           {/* Digital Display */}
-          <div className="flex items-center gap-1.5 bg-white border border-slate-200/90 rounded-lg px-3 py-1.5 shadow-2xs">
-            <Clock className="w-4 h-4 text-teal-600 shrink-0" />
+          <div className="flex items-center gap-1.5 bg-white border border-slate-200/90 rounded-lg px-2.5 py-1.5 shadow-2xs shrink-0">
+            <Clock className="w-3.5 h-3.5 text-teal-600 shrink-0" />
             <span className="text-sm font-extrabold text-slate-900 tracking-wider">
               {String(hour12).padStart(2, '0')}:{String(minute).padStart(2, '0')}
             </span>
             <span className="text-xs font-bold text-teal-700 ml-0.5">{period}</span>
-            <span className="text-[10px] font-medium text-slate-400 ml-1">IST</span>
+            <span className="text-[10px] font-medium text-slate-400 ml-0.5">IST</span>
           </div>
 
           {/* Selectors: Hour + Minute + AM/PM */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-wrap">
             {/* Hour select */}
             <div className="flex items-center">
               <select
@@ -129,7 +129,7 @@ export default function TimePicker({
             </div>
 
             {/* AM / PM Segmented Control */}
-            <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs">
+            <div className="flex items-center bg-white border border-slate-200 rounded-lg p-0.5 shadow-2xs shrink-0">
               <button
                 type="button"
                 disabled={disabled}

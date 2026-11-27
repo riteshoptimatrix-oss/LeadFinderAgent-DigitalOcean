@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
 from bson import ObjectId
@@ -98,20 +98,29 @@ async def resolve_effective_smtp_profile(
         sort=[("is_default", -1), ("priority", 1), ("updated_at", -1)]
     )
     if active_profile and active_profile.get("password"):
+        p_from = (active_profile.get("from_name") or "").strip()
+        p_name = (active_profile.get("name") or "").strip()
+        uname = (active_profile.get("username") or "").split("@")[0].replace(".", " ").title() or getattr(current_user, "full_name", "")
+        if not p_from or p_from.lower().startswith("default relay"):
+            active_profile["from_name"] = uname or "Lead Finder"
+        if not p_name or p_name.lower().startswith("default relay"):
+            active_profile["name"] = f"{uname} Relay" if uname else "Outbound Relay"
         return active_profile
 
     # 3. Fallback to User Settings & Users collection via get_user_smtp_config
     cfg = await get_user_smtp_config(db, uid_str, decrypt_pwd=True)
     if cfg and cfg.get("smtp_pass") and not is_masked_or_empty(cfg.get("smtp_pass")):
+        uname = (cfg.get("smtp_user") or getattr(current_user, "email", "")).split("@")[0].replace(".", " ").title()
+        eff_sender = cfg.get("smtp_sender_name") or getattr(current_user, "full_name", "") or uname or "Lead Finder"
         return {
-            "name": cfg.get("smtp_sender_name") or "User Settings SMTP",
+            "name": f"{eff_sender} Relay",
             "host": cfg.get("smtp_host", "smtp.gmail.com"),
             "port": int(cfg.get("smtp_port", 587) or 587),
             "username": cfg.get("smtp_user") or getattr(current_user, "email", ""),
             "password": cfg.get("smtp_pass"),
             "encryption": cfg.get("smtp_encryption", "TLS"),
             "from_email": cfg.get("smtp_from_email") or cfg.get("smtp_user") or getattr(current_user, "email", ""),
-            "from_name": cfg.get("smtp_sender_name", "") or getattr(current_user, "full_name", ""),
+            "from_name": eff_sender,
             "timeout": 15,
             "is_active": True,
         }
@@ -128,22 +137,26 @@ async def resolve_effective_smtp_profile(
     if raw_settings and raw_settings.get("smtp_pass") and not is_masked_or_empty(raw_settings.get("smtp_pass")):
         raw_pwd = decrypt_string(raw_settings["smtp_pass"])
         clean_pwd = clean_app_password(raw_pwd, raw_settings.get("smtp_host", ""))
+        uname = (raw_settings.get("smtp_user") or getattr(current_user, "email", "")).split("@")[0].replace(".", " ").title()
+        eff_sender = raw_settings.get("smtp_sender_name") or getattr(current_user, "full_name", "") or uname or "Lead Finder"
         return {
-            "name": raw_settings.get("smtp_sender_name") or "Settings SMTP",
+            "name": f"{eff_sender} Relay",
             "host": raw_settings.get("smtp_host", "smtp.gmail.com"),
             "port": int(raw_settings.get("smtp_port", 587) or 587),
             "username": raw_settings.get("smtp_user") or getattr(current_user, "email", ""),
             "password": clean_pwd,
             "encryption": raw_settings.get("smtp_encryption", "TLS"),
             "from_email": raw_settings.get("smtp_from_email") or raw_settings.get("smtp_user") or getattr(current_user, "email", ""),
-            "from_name": raw_settings.get("smtp_sender_name", "") or getattr(current_user, "full_name", ""),
+            "from_name": eff_sender,
             "timeout": 15,
             "is_active": True,
         }
 
     # 4. Fallback for admin or system: environment SMTP if configured
     if is_admin and app_settings.smtp_is_configured:
-        return app_settings.smtp_profile_dict(name="System Outbound (Env)")
+        env_dict = app_settings.smtp_profile_dict(name="System Outbound Relay")
+        env_dict["from_name"] = app_settings.SMTP_FROM_NAME or getattr(current_user, "full_name", "") or "Lead Finder Agent"
+        return env_dict
 
     # 5. Fallback for admin: any active SMTP profile in the database
     if is_admin:
@@ -152,6 +165,13 @@ async def resolve_effective_smtp_profile(
             sort=[("is_default", -1), ("updated_at", -1)]
         )
         if any_profile and any_profile.get("password"):
+            p_from = (any_profile.get("from_name") or "").strip()
+            p_name = (any_profile.get("name") or "").strip()
+            uname = (any_profile.get("username") or "").split("@")[0].replace(".", " ").title() or getattr(current_user, "full_name", "")
+            if not p_from or p_from.lower().startswith("default relay"):
+                any_profile["from_name"] = uname or "Lead Finder"
+            if not p_name or p_name.lower().startswith("default relay"):
+                any_profile["name"] = f"{uname} Relay" if uname else "Outbound Relay"
             return any_profile
 
     return None
@@ -234,6 +254,53 @@ async def delete_smtp_profile(
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="SMTP profile not found or permission denied")
     return {"message": "Deleted"}
+
+@router.put("/smtp/{id}", response_model=Dict[Any, Any])
+async def update_smtp_profile(
+    id: str,
+    payload: EmailAISmtpUpdate,
+    current_user: UserInDB = Depends(require_email_automation_access),
+    db=Depends(get_db)
+):
+    """Update SMTP Relay profile including custom relay name, sender display name, and credentials."""
+    try:
+        oid = ObjectId(id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid SMTP profile id")
+
+    filter_q: Dict[str, Any] = {"_id": oid, "is_active": {"$ne": False}}
+    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+        filter_q["$or"] = get_user_match_filter(current_user)
+
+    update_data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    if "password" in update_data:
+        raw_pwd = str(update_data["password"]).strip()
+        from app.services.smtp_service import is_masked_or_empty, clean_app_password
+        if raw_pwd and not is_masked_or_empty(raw_pwd):
+            host = str(update_data.get("host") or "").lower()
+            clean_pwd = clean_app_password(raw_pwd, host)
+            update_data["password"] = encrypt_string(clean_pwd)
+        else:
+            del update_data["password"]
+
+    if update_data.get("is_default"):
+        await db["email_ai_smtp"].update_many(
+            {"user_id": str(current_user.id)},
+            {"$set": {"is_default": False}}
+        )
+
+    update_data["updated_at"] = datetime.now(timezone.utc)
+    res = await db["email_ai_smtp"].find_one_and_update(
+        filter_q,
+        {"$set": update_data},
+        return_document=True
+    )
+    if not res:
+        raise HTTPException(status_code=404, detail="SMTP profile not found or permission denied")
+    return serialize_doc(res)
 
 def _run_smtp_verification_sync(
     host: str,
@@ -627,6 +694,7 @@ class TemplateTestSendRequest(BaseModel):
     body_text: Optional[str] = None
     to_email: str
     smtp_id: Optional[str] = None
+    sender_name: Optional[str] = Field(None, description="Custom sender / relay display name (e.g. 'OptiMatrix Solutions')")
 
 @router.post("/templates/test-send")
 async def send_template_test_email(
@@ -698,6 +766,12 @@ async def send_template_test_email(
             status_code=400,
             detail="No active SMTP configuration found. Please configure your SMTP App Password in Settings > Email Automation or add an SMTP account in Mail Sender."
         )
+
+    # Custom relay / sender display name override
+    if payload.sender_name and payload.sender_name.strip():
+        custom_sender = payload.sender_name.strip()
+        smtp_profile["from_name"] = custom_sender
+        smtp_profile["name"] = custom_sender
 
     # 3. Apply tracking & generate Message-ID
     tracking_id = generate_tracking_id(uid_str, "template_test", to_email, uuid.uuid4().hex)

@@ -622,6 +622,14 @@ class EmailAIQueueWorker:
         timeout = int(smtp_profile.get("timeout", 20) or 20)
         from_email = (smtp_profile.get("from_email") or smtp_profile.get("email") or username).strip()
         from_name = (smtp_profile.get("from_name") or smtp_profile.get("name") or "").strip()
+        # Clean any legacy generic "Default Relay" placeholder so recipients never see "Default Relay"
+        if from_name.lower().startswith("default relay") or from_name.lower() in ["default smtp (env)", "default outbound (env)"]:
+            clean_candidate = (
+                smtp_profile.get("sender_name")
+                or (username.split("@")[0].replace(".", " ").title() if "@" in username else "")
+                or "Lead Finder"
+            )
+            from_name = clean_candidate
 
         # 1. Clean plain-text fallback so spam filters don't penalize missing text part
         if not text and html:

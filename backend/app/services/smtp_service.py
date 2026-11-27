@@ -546,9 +546,22 @@ async def save_user_smtp_config(db, user_id: str, data: Dict[str, Any], verified
             "is_active": {"$ne": False}
         })
 
+    # Build clean custom relay name and sender name
+    custom_relay_name = data.get("name") or data.get("relay_name") or (existing_profile.get("name") if existing_profile else None)
+    if not custom_relay_name or custom_relay_name.startswith("Default Relay") or custom_relay_name == "Default Relay":
+        if from_name:
+            custom_relay_name = f"{from_name} Relay"
+        elif "@" in user:
+            clean_user = user.split("@")[0].replace(".", " ").title()
+            custom_relay_name = f"{clean_user} Relay"
+        else:
+            custom_relay_name = f"SMTP Relay ({host})"
+
+    resolved_from_name = from_name or (custom_relay_name.replace(" Relay", "").strip() if "Relay" in custom_relay_name else custom_relay_name)
+
     profile_payload = {
         "user_id": uid_str,
-        "name": f"Default Relay ({user or host})",
+        "name": custom_relay_name,
         "host": host,
         "port": port,
         "username": user,
@@ -561,7 +574,7 @@ async def save_user_smtp_config(db, user_id: str, data: Dict[str, Any], verified
         "is_active": True,
         "is_default": True,
         "from_email": from_email,
-        "from_name": from_name,
+        "from_name": resolved_from_name,
         "updated_at": now
     }
 

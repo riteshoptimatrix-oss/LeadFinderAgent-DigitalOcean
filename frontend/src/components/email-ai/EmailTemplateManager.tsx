@@ -80,6 +80,7 @@ export default function EmailTemplateManager() {
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
   const [testRecipient, setTestRecipient] = useState('');
   const [selectedSmtpId, setSelectedSmtpId] = useState<string>('');
+  const [customRelayName, setCustomRelayName] = useState<string>('');
   const [isSendingTest, setIsSendingTest] = useState(false);
 
   // Available SMTP accounts for test dispatch
@@ -90,6 +91,24 @@ export default function EmailTemplateManager() {
       return Array.isArray(res.data) ? res.data : [];
     }
   });
+
+  // Automatically prefill custom relay name from selected or active profile
+  useEffect(() => {
+    if (isTestModalOpen) {
+      const active = smtpProfiles.find((p: any) => (p._id || p.id) === selectedSmtpId) 
+        || smtpProfiles.find((p: any) => p.is_default) 
+        || smtpProfiles[0];
+      if (active && (!customRelayName || customRelayName.toLowerCase().startsWith('default relay'))) {
+        const cleanName = active.from_name || active.name;
+        if (cleanName && !cleanName.toLowerCase().startsWith('default relay')) {
+          setCustomRelayName(cleanName);
+        } else if (active.username) {
+          const u = active.username.split('@')[0].replace('.', ' ');
+          setCustomRelayName(u.charAt(0).toUpperCase() + u.slice(1));
+        }
+      }
+    }
+  }, [isTestModalOpen, selectedSmtpId, smtpProfiles]);
 
   const editorRef = useRef<HTMLDivElement>(null);
 
@@ -250,6 +269,7 @@ export default function EmailTemplateManager() {
         body_html: currentHtml,
         to_email: target,
         smtp_id: selectedSmtpId || undefined,
+        sender_name: customRelayName.trim() || undefined,
       });
       toast.success(res.data?.message || `Test email dispatched to ${target}!`);
       setIsTestModalOpen(false);
@@ -879,6 +899,23 @@ export default function EmailTemplateManager() {
             </div>
 
             <form onSubmit={handleSendTestEmail} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                  <span>Sender Relay / Display Name</span>
+                  <span className="text-[10px] text-slate-400 font-normal lowercase">(custom relay name)</span>
+                </label>
+                <input
+                  type="text"
+                  value={customRelayName}
+                  onChange={(e) => setCustomRelayName(e.target.value)}
+                  placeholder="e.g. OptiMatrix Solutions, Nikunj, etc."
+                  className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-xs text-slate-800 font-medium"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Recipient inboxes will see this as the sender name instead of a generic relay name.
+                </p>
+              </div>
+
               {smtpProfiles.length > 0 && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">

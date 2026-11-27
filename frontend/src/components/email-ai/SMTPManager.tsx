@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '@/src/lib/axios';
 import { 
   Server, Lock, Plus, Trash2, Edit2, CheckCircle2, 
-  XCircle, Mail, AlertCircle, RefreshCw, Zap, Shield, Send, X
+  XCircle, Mail, AlertCircle, RefreshCw, Zap, Shield, Send, X, User
 } from 'lucide-react';
 import { cn, getErrorMessage } from '@/src/lib/utils';
 import { toast } from 'sonner';
@@ -13,6 +13,8 @@ import { toast } from 'sonner';
 interface SMTPProfile {
   _id: string;
   name: string;
+  from_name?: string;
+  from_email?: string;
   host: string;
   port: number;
   username: string;
@@ -34,8 +36,19 @@ export default function SMTPManager() {
   const [testRecipientEmail, setTestRecipientEmail] = useState<string>('');
   const [isSendingSample, setIsSendingSample] = useState(false);
   
+  // Custom Relay Name editor modal
+  const [editingProfileModal, setEditingProfileModal] = useState<{
+    id: string;
+    name: string;
+    from_name: string;
+    from_email: string;
+    is_default: boolean;
+  } | null>(null);
+
   const [formData, setFormData] = useState({
     name: '',
+    from_name: '',
+    from_email: '',
     host: '',
     port: 587,
     username: '',
@@ -66,12 +79,27 @@ export default function SMTPManager() {
       setIsAdding(false);
       queryClient.invalidateQueries({ queryKey: ['email-ai-smtp'] });
       setFormData({
-        name: '', host: '', port: 587, username: '', password: '', 
+        name: '', from_name: '', from_email: '', host: '', port: 587, username: '', password: '', 
         encryption: 'TLS', timeout: 15, daily_limit: 500, hourly_limit: 50, 
         priority: 1, is_default: false
       });
     },
-    onError: () => toast.error('Failed to save profile.')
+    onError: (err: any) => toast.error(getErrorMessage(err, 'Failed to save profile.'))
+  });
+
+  const updateProfileMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<SMTPProfile> }) => {
+      const res = await api.put(`/email-ai/smtp/${id}`, data);
+      return res.data;
+    },
+    onSuccess: () => {
+      toast.success('Relay & Sender Name Updated Successfully!');
+      setEditingProfileModal(null);
+      queryClient.invalidateQueries({ queryKey: ['email-ai-smtp'] });
+    },
+    onError: (err: any) => {
+      toast.error(getErrorMessage(err, 'Failed to update relay profile.'));
+    }
   });
 
   const deleteMutation = useMutation({
@@ -250,12 +278,27 @@ export default function SMTPManager() {
           </div>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 max-w-4xl">
-            <div className="space-y-1.5 col-span-full">
-              <label className="text-sm font-semibold text-slate-700">Profile Name (e.g. Gmail Marketing Core)</label>
+            <div className="space-y-1.5">
+              <label className="text-sm font-semibold text-slate-700">Custom Relay Name (Profile Name)</label>
               <input 
                 type="text" 
+                placeholder="e.g. OptiMatrix Primary Relay"
                 value={formData.name}
                 onChange={e => setFormData({...formData, name: e.target.value})}
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-900"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-semibold text-slate-700 flex items-center justify-between">
+                <span>Sender Display Name (From Name)</span>
+                <span className="text-[11px] text-slate-400 font-normal">Shown in recipient inboxes</span>
+              </label>
+              <input 
+                type="text" 
+                placeholder="e.g. Nikunj | OptiMatrix Solutions"
+                value={formData.from_name}
+                onChange={e => setFormData({...formData, from_name: e.target.value})}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-900"
               />
             </div>
@@ -325,12 +368,26 @@ export default function SMTPManager() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-semibold text-slate-700">Username / Email Address</label>
+              <label className="text-sm font-semibold text-slate-700">Username / Authentication Email</label>
               <input 
                 type="text" 
                 value={formData.username}
                 onChange={e => setFormData({...formData, username: e.target.value})}
                 placeholder="your-email@domain.com"
+                className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-900"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-semibold text-slate-700 flex items-center justify-between">
+                <span>From Email Address</span>
+                <span className="text-[11px] text-slate-400 font-normal">Defaults to username if blank</span>
+              </label>
+              <input 
+                type="text" 
+                value={formData.from_email}
+                onChange={e => setFormData({...formData, from_email: e.target.value})}
+                placeholder={formData.username || "sender@domain.com"}
                 className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 font-medium text-slate-900"
               />
             </div>
@@ -469,8 +526,8 @@ export default function SMTPManager() {
                   profile.is_default ? "border-indigo-200 ring-2 ring-indigo-500/10" : "border-slate-200 hover:border-indigo-200"
                 )}>
                   {profile.is_default && (
-                    <div className="absolute top-0 right-0 bg-gradient-to-r from-indigo-500 to-blue-500 text-white text-[10px] font-bold uppercase tracking-widest px-4 py-1.5 rounded-bl-xl shadow-sm">
-                      Default Relay
+                    <div className="absolute top-0 right-0 bg-gradient-to-r from-emerald-500 to-teal-500 text-white text-[10px] font-bold uppercase tracking-widest px-4 py-1.5 rounded-bl-xl shadow-xs">
+                      Primary Relay
                     </div>
                   )}
                   
@@ -483,7 +540,23 @@ export default function SMTPManager() {
                         <Server className="w-6 h-6" />
                       </div>
                       <div>
-                        <h3 className="font-bold text-slate-900 text-lg">{profile.name}</h3>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-bold text-slate-900 text-lg leading-tight truncate max-w-[190px]" title={profile.name}>{profile.name}</h3>
+                          <button
+                            type="button"
+                            onClick={() => setEditingProfileModal({
+                              id: profile._id,
+                              name: profile.name,
+                              from_name: profile.from_name || profile.name,
+                              from_email: profile.from_email || profile.username,
+                              is_default: profile.is_default
+                            })}
+                            className="p-1 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+                            title="Edit Custom Relay Name"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                         <div className="text-xs text-slate-500 font-mono mt-0.5 flex items-center gap-1.5">
                           {profile.host}:{profile.port}
                           <span className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px] font-bold">{profile.encryption}</span>
@@ -493,6 +566,15 @@ export default function SMTPManager() {
                   </div>
                   
                   <div className="bg-slate-50 rounded-2xl p-4 space-y-3 mb-6 flex-1 border border-slate-100">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
+                        <User className="w-4 h-4 text-slate-400" /> Sender Name
+                      </div>
+                      <span className="text-sm font-bold text-indigo-600 truncate max-w-[150px]" title={profile.from_name || profile.name}>
+                        {profile.from_name || profile.name}
+                      </span>
+                    </div>
+
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-600">
                         <Mail className="w-4 h-4 text-slate-400" /> Username
@@ -547,6 +629,20 @@ export default function SMTPManager() {
                       <Send className="w-3.5 h-3.5" /> Send Test
                     </button>
                     
+                    <button
+                      onClick={() => setEditingProfileModal({
+                        id: profile._id,
+                        name: profile.name,
+                        from_name: profile.from_name || profile.name,
+                        from_email: profile.from_email || profile.username,
+                        is_default: profile.is_default
+                      })}
+                      className="p-2 bg-white border border-slate-200 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600 hover:border-indigo-200 rounded-xl transition-all cursor-pointer"
+                      title="Customize Relay Name & Sender Identity"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+
                     {deletingId === profile._id ? (
                       <div className="flex items-center gap-1 bg-red-50 border border-red-200 rounded-xl p-1 animate-in fade-in">
                         <button
@@ -638,6 +734,105 @@ export default function SMTPManager() {
                   <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Dispatching...</>
                 ) : (
                   <><Send className="w-3.5 h-3.5" /> Dispatch Test</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Edit Custom Relay & Sender Name Modal */}
+      {editingProfileModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-xs p-4 animate-in fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                  <Edit2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-900 text-base">Customize Relay Identity</h3>
+                  <p className="text-xs text-slate-500">Configure your custom relay name & sender name</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingProfileModal(null)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-100 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5">
+              <div>
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                  Custom Relay Name (Internal Profile)
+                </label>
+                <input
+                  type="text"
+                  value={editingProfileModal.name}
+                  onChange={(e) => setEditingProfileModal({ ...editingProfileModal, name: e.target.value })}
+                  placeholder="e.g. OptiMatrix Production Relay"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                  Sender Display Name (From Name)
+                </label>
+                <input
+                  type="text"
+                  value={editingProfileModal.from_name}
+                  onChange={(e) => setEditingProfileModal({ ...editingProfileModal, from_name: e.target.value })}
+                  placeholder="e.g. Nikunj | OptiMatrix Solutions"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                />
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Recipients will see this as the sender name in their inbox instead of &quot;Default Relay&quot;.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-slate-700 uppercase tracking-wider block mb-1">
+                  From Email Address
+                </label>
+                <input
+                  type="email"
+                  value={editingProfileModal.from_email}
+                  onChange={(e) => setEditingProfileModal({ ...editingProfileModal, from_email: e.target.value })}
+                  placeholder="e.g. outreach@optimatrix.com"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-semibold text-slate-900 focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+            </div>
+
+            <div className="pt-3 flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => setEditingProfileModal(null)}
+                className="flex-1 py-2.5 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl transition-all cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  updateProfileMutation.mutate({
+                    id: editingProfileModal.id,
+                    data: {
+                      name: editingProfileModal.name.trim(),
+                      from_name: editingProfileModal.from_name.trim(),
+                      from_email: editingProfileModal.from_email.trim(),
+                    }
+                  });
+                }}
+                disabled={updateProfileMutation.isPending || !editingProfileModal.name.trim()}
+                className="flex-1 py-2.5 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition-all shadow-md shadow-indigo-600/20 flex items-center justify-center gap-1.5 disabled:opacity-50 cursor-pointer"
+              >
+                {updateProfileMutation.isPending ? (
+                  <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> Saving...</>
+                ) : (
+                  'Save Relay Name'
                 )}
               </button>
             </div>

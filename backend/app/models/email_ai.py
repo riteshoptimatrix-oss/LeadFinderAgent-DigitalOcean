@@ -14,6 +14,8 @@ class EmailAISmtpBase(BaseModel):
     daily_limit: int = Field(500, description="Max emails per day")
     hourly_limit: int = Field(50, description="Max emails per hour")
     priority: int = Field(1, description="Priority level for rotation")
+    from_name: Optional[str] = Field(None, description="Custom sender display name (e.g. 'Nikunj | OptiMatrix')")
+    from_email: Optional[str] = Field(None, description="Custom sender email address")
     is_active: bool = True
     is_default: bool = False
 
@@ -23,6 +25,8 @@ class EmailAISmtpCreate(EmailAISmtpBase):
 class EmailAISmtpUpdate(BaseModel):
     user_id: Optional[str] = None
     name: Optional[str] = None
+    from_name: Optional[str] = None
+    from_email: Optional[str] = None
     host: Optional[str] = None
     port: Optional[int] = None
     username: Optional[str] = None

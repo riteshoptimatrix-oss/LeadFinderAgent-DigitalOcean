@@ -546,6 +546,7 @@ class AIAnalysisWorker:
                         "type": WSEventType.QUEUE_COMPLETED,
                         "event_type": WSEventType.QUEUE_COMPLETED,
                         "queue_id": str(q_id),
+                        "user_id": str(queue.get("user_id") or ""),
                         "stage": new_status,
                         "progress": 100.0,
                         "message": f"Queue processing completed. {completed_count} successful, {partial_count} partial, {failed_count} failed.",
@@ -759,7 +760,11 @@ class AIAnalysisWorker:
         completed_jobs = queue.get("completed_jobs", 0) if queue else 0
         current_lead_index = completed_jobs + 1
         overall_progress = (completed_jobs / total) * 100 if total > 0 else 0
-        user_id = queue.get("user_id") if queue else "system"
+        user_id = queue.get("user_id") if queue else (job.get("user_id") or "system")
+        effective_user_id = str(job.get("user_id") or user_id or (lead.get("user_id") if lead else "") or "")
+        assigned_to = (lead.get("assigned_to") if lead else None) or (job.get("assigned_to") if job else None)
+        assigned_user_email = (lead.get("assigned_user_email") if lead else None)
+        created_by = (lead.get("created_by") if lead else None)
 
         # Repair orphan lead fields in MongoDB if missing
         if lead:
@@ -804,6 +809,10 @@ class AIAnalysisWorker:
                     "queue_id": queue_id,
                     "job_id": str(job_id),
                     "lead_id": lead_id,
+                    "user_id": effective_user_id,
+                    "assigned_to": assigned_to,
+                    "assigned_user_email": assigned_user_email,
+                    "created_by": created_by,
                     "business_name": business_name,
                     "website": website_url,
                     "queue_position": f"Lead {current_lead_index} of {total}",
@@ -1790,6 +1799,10 @@ class AIAnalysisWorker:
                         "event_type": "analysis_completed",
                         "lead_id": lead_id,
                         "queue_id": str(queue_id),
+                        "user_id": effective_user_id,
+                        "assigned_to": assigned_to,
+                        "assigned_user_email": assigned_user_email,
+                        "created_by": created_by,
                         "status": final_status.value,
                         "stage": "Completed",
                         "progress": 100.0,

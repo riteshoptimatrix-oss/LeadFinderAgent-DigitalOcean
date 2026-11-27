@@ -4,8 +4,67 @@ import React, { useEffect, createContext, useContext } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { getWebSocketUrl } from '@/src/lib/wsUrl';
+import { useAuthStore } from '@/src/features/auth/store';
 
 const GlobalSyncContext = createContext(null);
+
+function isEventTargetedToCurrentUser(payload: any): boolean {
+  try {
+    const current = useAuthStore.getState().user;
+    let myId = String(current?.id || (current as any)?._id || '').trim().toLowerCase();
+    let myEmail = String(current?.email || '').trim().toLowerCase();
+
+    // Fallback: check storage if not hydrated in zustand state yet
+    if ((!myId || !myEmail) && typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('auth-storage') || sessionStorage.getItem('auth-storage');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const u = parsed?.state?.user;
+          if (!myId) myId = String(u?.id || u?._id || '').trim().toLowerCase();
+          if (!myEmail) myEmail = String(u?.email || '').trim().toLowerCase();
+        }
+      } catch {}
+    }
+
+    if (!myId && !myEmail) return false;
+
+    // Extract all candidate user identifiers from the event payload
+    const rawCandidates = [
+      payload.user_id,
+      payload.target_user_id,
+      payload.lead_user_id,
+      payload.created_by,
+      payload.assigned_to,
+      payload.assigned_user_email,
+      payload.data?.user_id,
+      payload.data?.created_by,
+      payload.data?.assigned_to,
+      payload.data?.assigned_user_email,
+      payload.lead?.user_id,
+      payload.lead?.created_by,
+      payload.lead?.assigned_to,
+      payload.lead?.assigned_user_email,
+    ];
+
+    const candidates = rawCandidates
+      .filter((v): v is string => Boolean(v && typeof v === 'string'))
+      .map((v) => v.trim().toLowerCase());
+
+    if (candidates.length > 0) {
+      return candidates.some(
+        (val) => (myId && val === myId) || (myEmail && val === myEmail)
+      );
+    }
+
+    // If an event has no user identifier attached at all, suppress toast popups
+    // so users are not spammed by other users' background activities.
+    return false;
+  } catch (err) {
+    console.error('Error verifying event target user:', err);
+    return false;
+  }
+}
 
 export function GlobalSyncProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
@@ -119,8 +178,11 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
             queryClient.invalidateQueries({ queryKey: ['whatsapp-leads'] });
             queryClient.invalidateQueries({ queryKey: ['email-sync-leads'] });
 
+            // Visual Notifications (Toasts) - Strictly scoped to the initiating or assigned user!
+            const isForMe = isEventTargetedToCurrentUser(payload);
+
             // Note: We don't toast for every SEARCH_PROGRESS as it's too noisy.
-            if (eventType === 'new_lead' || eventType === 'LEAD_SAVED') {
+            if (isForMe && (eventType === 'new_lead' || eventType === 'LEAD_SAVED')) {
               const leadName = payload.data?.name || payload.data?.business_name || payload.lead?.name || 'Business';
               const category = payload.data?.category || payload.lead?.category || 'Category unknown';
 
@@ -130,7 +192,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
               });
             }
 
-            if (eventType === 'SEARCH_COMPLETED') {
+            if (isForMe && eventType === 'SEARCH_COMPLETED') {
               const isPartial = payload?.status === 'PARTIALLY_COMPLETED';
               if (isPartial) {
                 toast.warning('Search Partially Completed', {
@@ -145,7 +207,7 @@ export function GlobalSyncProvider({ children }: { children: React.ReactNode }) 
               }
             }
 
-            if (eventType === 'analysis_completed') {
+            if (isForMe && eventType === 'analysis_completed') {
               toast.success('AI Analysis Completed', {
                 description: 'The AI Website Analysis has finished. Lead data updated.',
                 duration: 5000,

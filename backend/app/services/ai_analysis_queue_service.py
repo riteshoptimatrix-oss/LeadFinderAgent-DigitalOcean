@@ -55,6 +55,7 @@ class AIAnalysisQueueService:
             
             job_id = ObjectId()
             job = AIAnalysisJobCreate(
+                user_id=user_id or "system",
                 queue_id=str(queue_id),
                 lead_id=lead_id_str,
                 website_url=str(lead.get("website")).strip(),
@@ -62,6 +63,7 @@ class AIAnalysisQueueService:
             )
             job_dict = job.model_dump()
             job_dict["_id"] = job_id
+            job_dict["user_id"] = user_id or "system"
             jobs.append(job_dict)
 
         if jobs:

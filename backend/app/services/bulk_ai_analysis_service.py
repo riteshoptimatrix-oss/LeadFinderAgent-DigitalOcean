@@ -561,6 +561,7 @@ async def create_bulk_queue(
     jobs = []
     for spec in job_specs:
         job = AIAnalysisJobCreate(
+            user_id=user_id or "system",
             queue_id=str(queue_id),
             lead_id=spec["lead_id"],
             website_url=spec["website_url"],
@@ -570,6 +571,7 @@ async def create_bulk_queue(
         )
         job_dict = job.model_dump()
         job_dict["_id"] = ObjectId()
+        job_dict["user_id"] = user_id or "system"
         jobs.append(job_dict)
 
     await db["ai_analysis_jobs"].insert_many(jobs)

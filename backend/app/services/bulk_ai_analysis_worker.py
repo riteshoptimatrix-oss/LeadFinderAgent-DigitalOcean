@@ -577,10 +577,12 @@ class BulkAIAnalysisWorker:
             return
 
         try:
+            bulk_user_id = str(queue.get("user_id") or "")
             await manager.broadcast_to_job(qid, {
                 "type": "bulk_completed",
                 "event_type": "bulk_completed",
                 "queue_id": qid,
+                "user_id": bulk_user_id,
                 "stage": "Completed",
                 "status": AIAnalysisState.COMPLETED.value,
                 "progress": 100.0,
@@ -600,6 +602,7 @@ class BulkAIAnalysisWorker:
                 "type": "BULK_QUEUE_COMPLETED",
                 "event_type": "BULK_QUEUE_COMPLETED",
                 "queue_id": qid,
+                "user_id": bulk_user_id,
                 "status": AIAnalysisState.COMPLETED.value,
                 "timestamp": now.isoformat(),
             })

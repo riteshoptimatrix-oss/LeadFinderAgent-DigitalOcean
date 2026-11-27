@@ -1344,7 +1344,11 @@ async def get_campaign_emails(
     if valid_oids:
         leads_cursor = db["leads"].find(
             {"_id": {"$in": valid_oids}},
-            {"business_name": 1, "name": 1, "email": 1, "emails": 1, "phone": 1, "city": 1, "state": 1, "category": 1}
+            {
+                "business_name": 1, "company_name": 1, "name": 1,
+                "email": 1, "emails": 1, "all_emails": 1, "contact_discovery": 1,
+                "phone": 1, "city": 1, "state": 1, "category": 1
+            }
         )
         leads_list = await leads_cursor.to_list(len(valid_oids) + 20)
         lead_doc_map = {str(l["_id"]): l for l in leads_list}
@@ -1413,13 +1417,35 @@ async def get_campaign_emails(
             or (queue_entry.get("logs", [-1])[-1] if queue_entry.get("logs") and norm_status == "Failed" else None)
         )
 
-        # Recipient email
+        # Recipient email (check all lead email fields + queue/tracking fallbacks)
+        cd = lead_doc.get("contact_discovery") or {}
+        cd_emails = cd.get("all_emails") if isinstance(cd.get("all_emails"), list) else []
+        all_emails = lead_doc.get("all_emails") if isinstance(lead_doc.get("all_emails"), list) else []
+        lead_emails = lead_doc.get("emails") if isinstance(lead_doc.get("emails"), list) else []
+
         email_addr = (
             lead_doc.get("email")
-            or (lead_doc.get("emails", [None])[0] if isinstance(lead_doc.get("emails"), list) and lead_doc.get("emails") else None)
+            or (lead_emails[0] if lead_emails else None)
+            or cd.get("primary_email")
+            or (cd_emails[0] if cd_emails else None)
+            or (all_emails[0] if all_emails else None)
             or log_entry.get("email")
+            or queue_entry.get("to_email")
+            or queue_entry.get("email")
+            or queue_entry.get("recipient_email")
+            or (tracked.get("recipient_email") if tracked else None)
             or "No Email Found"
         )
+
+        # Completed/Cancelled/Failed campaigns cannot have genuinely Pending items
+        if norm_status == "Pending" and str(campaign.get("status", "")).upper() in ("COMPLETED", "CANCELLED", "FAILED"):
+            norm_status = "Skipped"
+            if not error_msg:
+                error_msg = (
+                    "Lead was deleted from CRM after campaign creation"
+                    if not lead_doc
+                    else ("Skipped: No valid email address found" if email_addr == "No Email Found" else "Skipped during campaign execution")
+                )
 
         proc_at = (
             log_entry.get("processed_at")
@@ -1430,8 +1456,12 @@ async def get_campaign_emails(
 
         biz_name = (
             lead_doc.get("business_name")
+            or lead_doc.get("company_name")
             or lead_doc.get("name")
-            or "Unknown Business"
+            or queue_entry.get("business_name")
+            or queue_entry.get("lead_name")
+            or (tracked.get("business_name") if tracked else None)
+            or ("Deleted Lead" if not lead_doc else "Unknown Business")
         )
 
         duration = log_entry.get("duration", 0)
@@ -1465,7 +1495,7 @@ async def get_campaign_emails(
         email_records.append(record)
 
     total_count = len(lead_ids_ordered)
-    delivered_count = sum(1 for r in email_records if r["status"] == "Delivered")
+    delivered_count = sum(1 for r in email_records if r["status"] in ("Delivered", "Opened", "Clicked", "Replied"))
     failed_count = sum(1 for r in email_records if r["status"] == "Failed")
     skipped_count = sum(1 for r in email_records if r["status"] == "Skipped")
 

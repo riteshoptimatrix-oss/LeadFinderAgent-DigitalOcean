@@ -194,7 +194,7 @@ export default function ChatPanel({
                 >
                   <div className="flex items-center justify-between gap-3 mb-1 opacity-70 text-[10px]">
                     <span className="font-semibold uppercase tracking-wider">
-                      {isUser ? 'You' : msg.type === 'modify' ? 'Gemini (Modified)' : 'Gemini AI'}
+                      {isUser ? 'You' : msg.type === 'modify' ? 'Opti Matrix (Modified)' : 'Opti Matrix AI'}
                     </span>
                     <span>{msg.timestamp}</span>
                   </div>

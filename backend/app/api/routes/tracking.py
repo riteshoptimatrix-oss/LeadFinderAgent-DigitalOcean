@@ -69,7 +69,36 @@ def _user_match_filter(current_user: UserInDB) -> List[Dict[str, Any]]:
     filters: List[Dict[str, Any]] = [{"user_id": uid}]
     if ObjectId.is_valid(uid):
         filters.append({"user_id": ObjectId(uid)})
+    if getattr(current_user, "email", None):
+        filters.append({"user_id": current_user.email})
     return filters
+
+
+async def _resolve_scoped_user_match(
+    db,
+    current_user: UserInDB,
+    target_user_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    is_admin = str(getattr(current_user, "role", "")).upper() in ("ADMIN", "SUPERADMIN")
+    if target_user_id and target_user_id.strip() and is_admin:
+        tid = target_user_id.strip()
+        if tid != str(current_user.id) and tid != getattr(current_user, "email", ""):
+            filters: List[Dict[str, Any]] = [{"user_id": tid}]
+            if ObjectId.is_valid(tid):
+                filters.append({"user_id": ObjectId(tid)})
+                u = await db["users"].find_one({"_id": ObjectId(tid)}) or await db["admins"].find_one({"_id": ObjectId(tid)})
+            else:
+                u = await db["users"].find_one({"email": tid}) or await db["admins"].find_one({"email": tid})
+            if u:
+                uid_str = str(u["_id"])
+                if {"user_id": uid_str} not in filters:
+                    filters.append({"user_id": uid_str})
+                if ObjectId.is_valid(uid_str) and {"user_id": ObjectId(uid_str)} not in filters:
+                    filters.append({"user_id": ObjectId(uid_str)})
+                if u.get("email") and {"user_id": u["email"]} not in filters:
+                    filters.append({"user_id": u["email"]})
+            return filters
+    return _user_match_filter(current_user)
 
 
 async def _broadcast_tracking_event(payload: Dict[str, Any], campaign_id: Optional[str] = None) -> None:
@@ -478,13 +507,13 @@ async def unsubscribe_confirm(tracking_id: str, request: Request, db=Depends(get
 @router.get("/stats")
 async def get_tracking_stats(
     campaign_id: Optional[str] = Query(None),
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db),
 ):
-    """Return aggregated email tracking statistics scoped to the authenticated user."""
-    query: Dict[str, Any] = {}
-    if str(current_user.role).upper() not in ("ADMIN", "SUPERADMIN"):
-        query["$or"] = _user_match_filter(current_user)
+    """Return aggregated email tracking statistics strictly scoped per user."""
+    user_match = await _resolve_scoped_user_match(db, current_user, target_user_id)
+    query: Dict[str, Any] = {"$or": user_match}
     if campaign_id:
         query["campaign_id"] = campaign_id
 
@@ -535,15 +564,15 @@ async def get_tracking_events(
     search: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
+    target_user_id: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db),
 ):
-    """Return paginated email tracking records enriched with lead, campaign, and event history."""
-    query: Dict[str, Any] = {}
-    if str(current_user.role).upper() not in ("ADMIN", "SUPERADMIN"):
-        query["$or"] = _user_match_filter(current_user)
+    """Return paginated email tracking records strictly scoped per user."""
+    user_match = await _resolve_scoped_user_match(db, current_user, target_user_id)
+    query: Dict[str, Any] = {"$or": user_match}
     if campaign_id:
         query["campaign_id"] = campaign_id
     if status and status.upper() != "ALL":
@@ -663,6 +692,7 @@ async def get_daily_tracking_report(
     campaign_id: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db),
 ):
@@ -684,9 +714,8 @@ async def get_daily_tracking_report(
     start_dt = datetime.combine(start_d, datetime.min.time(), tzinfo=timezone.utc)
     end_dt = datetime.combine(end_d + timedelta(days=1), datetime.min.time(), tzinfo=timezone.utc)
 
-    query: Dict[str, Any] = {"sent_at": {"$gte": start_dt, "$lt": end_dt}}
-    if str(current_user.role).upper() not in ("ADMIN", "SUPERADMIN"):
-        query["$or"] = _user_match_filter(current_user)
+    user_match = await _resolve_scoped_user_match(db, current_user, target_user_id)
+    query: Dict[str, Any] = {"sent_at": {"$gte": start_dt, "$lt": end_dt}, "$or": user_match}
     if campaign_id:
         query["campaign_id"] = campaign_id
 

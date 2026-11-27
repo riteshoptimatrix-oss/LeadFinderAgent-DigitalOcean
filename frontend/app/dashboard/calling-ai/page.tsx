@@ -97,7 +97,7 @@ const PERSONAS: AgentPersona[] = [
     energy: 'Energetic & Consultative',
     avatarBg: 'from-blue-600 to-indigo-600',
     tagline: 'Rapid inbound/outbound qualification with high conversion',
-    greeting: "Hi there! This is Alex from LeadFlow AI. I noticed your team was looking into automated sales intelligence. Do you have two minutes to see if we can save your SDRs 15 hours a week?",
+    greeting: "Hi there! This is Ritesh from LeadFlow AI. I noticed your team was looking into automated sales intelligence. Do you have two minutes to see if we can save your SDRs 15 hours a week?",
     promptGuidance: 'Identify decision maker, budget, timeline, and current lead gen bottlenecks.'
   },
   {

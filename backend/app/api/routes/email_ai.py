@@ -851,14 +851,12 @@ async def send_template_test_email(
 async def get_campaigns(
     status: Optional[str] = None,
     search: Optional[str] = None,
-    all_users: bool = Query(False),
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
-    user_match = get_user_match_filter(current_user)
-    query: Dict[str, Any] = {}
-    if not (all_users and str(current_user.role).upper() in ["ADMIN", "SUPERADMIN"]):
-        query["$or"] = user_match
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
+    query: Dict[str, Any] = {"$or": user_match}
 
     if status:
         query["status"] = status
@@ -989,9 +987,7 @@ async def control_campaign(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid campaign_id")
 
-    filter_q: Dict[str, Any] = {"_id": oid}
-    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
-        filter_q["$or"] = get_user_match_filter(current_user)
+    filter_q: Dict[str, Any] = {"_id": oid, "$or": get_user_match_filter(current_user)}
     
     result = await db["email_ai_campaigns"].update_one(
         filter_q,
@@ -1018,6 +1014,7 @@ async def control_campaign(
 @router.get("/campaigns/{campaign_id}/live-status")
 async def get_campaign_live_status(
     campaign_id: str,
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
@@ -1026,15 +1023,10 @@ async def get_campaign_live_status(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid campaign_id")
 
-    # Try to find campaign with ownership check first, fallback to global lookup for visibility
-    filter_q: Dict[str, Any] = {"_id": oid}
-    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
-        filter_q["$or"] = get_user_match_filter(current_user)
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
+    filter_q: Dict[str, Any] = {"_id": oid, "$or": user_match}
 
     campaign = await db["email_ai_campaigns"].find_one(filter_q)
-    if not campaign:
-        # Fallback: allow viewing if campaign exists (prevents 404 for completed campaigns/ownership edge cases)
-        campaign = await db["email_ai_campaigns"].find_one({"_id": oid})
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
         
@@ -1110,14 +1102,12 @@ async def websocket_endpoint(websocket: WebSocket, campaign_id: str):
 # ==========================================
 @router.get("/analytics")
 async def get_analytics(
-    all_users: bool = Query(False),
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
-    user_match = get_user_match_filter(current_user)
-    query: Dict[str, Any] = {}
-    if not (all_users and str(current_user.role).upper() in ["ADMIN", "SUPERADMIN"]):
-        query = {"$or": user_match}
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
+    query: Dict[str, Any] = {"$or": user_match}
 
     campaigns = await db["email_ai_campaigns"].find(query).to_list(None)
     
@@ -1193,14 +1183,15 @@ async def get_analytics(
 
 @router.get("/analytics/smtp")
 async def get_smtp_analytics(
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
-    user_match = get_user_match_filter(current_user)
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
     query_campaigns = {"$or": user_match}
     query_smtp = {
         "is_active": {"$ne": False},
-        "$or": user_match + [{"user_id": None}, {"user_id": {"$exists": False}}, {"is_default": True}]
+        "$or": user_match
     }
 
     smtps = await db["email_ai_smtp"].find(query_smtp).to_list(100)
@@ -1221,14 +1212,15 @@ async def get_smtp_analytics(
 
 @router.get("/analytics/templates")
 async def get_template_analytics(
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
-    user_match = get_user_match_filter(current_user)
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
     query_campaigns = {"$or": user_match}
     query_templates = {
         "is_active": {"$ne": False},
-        "$or": user_match + [{"user_id": None}, {"user_id": {"$exists": False}}, {"user_id": "system"}]
+        "$or": user_match + [{"user_id": "system"}]
     }
 
     templates = await db["email_ai_templates"].find(query_templates).to_list(100)
@@ -1249,10 +1241,11 @@ async def get_template_analytics(
 
 @router.get("/analytics/errors")
 async def get_errors_center(
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
-    user_match = get_user_match_filter(current_user)
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
     campaigns = await db["email_ai_campaigns"].find({"$or": user_match}).to_list(None)
     error_counts = {}
     
@@ -1273,10 +1266,11 @@ async def get_errors_center(
 
 @router.get("/logs")
 async def get_global_logs(
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
-    user_match = get_user_match_filter(current_user)
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
     campaigns = await db["email_ai_campaigns"].find({"$or": user_match}).sort("created_at", -1).limit(20).to_list(20)
     
     logs_flat = []
@@ -1299,6 +1293,7 @@ async def get_campaign_emails(
     campaign_id: str,
     status: Optional[str] = None,
     search: Optional[str] = None,
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
@@ -1308,13 +1303,10 @@ async def get_campaign_emails(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid campaign_id")
 
-    filter_q: Dict[str, Any] = {"_id": oid}
-    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
-        filter_q["$or"] = get_user_match_filter(current_user)
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
+    filter_q: Dict[str, Any] = {"_id": oid, "$or": user_match}
 
     campaign = await db["email_ai_campaigns"].find_one(filter_q)
-    if not campaign:
-        campaign = await db["email_ai_campaigns"].find_one({"_id": oid})
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
@@ -1494,6 +1486,7 @@ async def get_campaign_emails(
 async def export_campaign(
     campaign_id: str,
     format: str = Query("csv"),
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
@@ -1502,9 +1495,8 @@ async def export_campaign(
     except Exception:
         raise HTTPException(status_code=400, detail="Invalid campaign_id")
 
-    filter_q: Dict[str, Any] = {"_id": oid}
-    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
-        filter_q["$or"] = get_user_match_filter(current_user)
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
+    filter_q: Dict[str, Any] = {"_id": oid, "$or": user_match}
 
     campaign = await db["email_ai_campaigns"].find_one(filter_q)
     if not campaign:
@@ -1550,6 +1542,7 @@ async def get_all_leads_for_email_ai(
     is_auto_lead: Optional[bool] = None,
     area: Optional[str] = None,
     job_id: Optional[str] = None,
+    target_user_id: Optional[str] = Query(None),
     current_user=Depends(require_email_automation_access),
     db=Depends(get_db)
 ):
@@ -1578,16 +1571,35 @@ async def get_all_leads_for_email_ai(
     
     and_conds = [validity_cond]
 
-    if str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
-        user_match_or: List[Dict[str, Any]] = [
-            {"user_id": current_user.id},
-            {"assigned_to": current_user.id},
-            {"assigned_user_email": current_user.email},
-        ]
-        if ObjectId.is_valid(str(current_user.id)):
-            user_match_or.append({"user_id": ObjectId(str(current_user.id))})
-            user_match_or.append({"assigned_to": ObjectId(str(current_user.id))})
-        and_conds.append({"$or": user_match_or})
+    is_admin = str(getattr(current_user, "role", "")).upper() in ["ADMIN", "SUPERADMIN"]
+    scoped_uid = str(current_user.id)
+    scoped_email = getattr(current_user, "email", None)
+    if target_user_id and target_user_id.strip() and is_admin:
+        tid = target_user_id.strip()
+        u = None
+        if ObjectId.is_valid(tid):
+            u = await db["users"].find_one({"_id": ObjectId(tid)}) or await db["admins"].find_one({"_id": ObjectId(tid)})
+        else:
+            u = await db["users"].find_one({"email": tid}) or await db["admins"].find_one({"email": tid})
+        if u:
+            scoped_uid = str(u["_id"])
+            scoped_email = u.get("email")
+        else:
+            scoped_uid = tid
+            scoped_email = tid if "@" in tid else None
+
+    user_match_or: List[Dict[str, Any]] = [
+        {"user_id": scoped_uid},
+        {"assigned_to": scoped_uid},
+    ]
+    if scoped_email:
+        user_match_or.append({"assigned_user_email": scoped_email})
+        user_match_or.append({"assigned_to": scoped_email})
+        user_match_or.append({"user_id": scoped_email})
+    if ObjectId.is_valid(scoped_uid):
+        user_match_or.append({"user_id": ObjectId(scoped_uid)})
+        user_match_or.append({"assigned_to": ObjectId(scoped_uid)})
+    and_conds.append({"$or": user_match_or})
     
     if search:
         and_conds.append({

@@ -4,21 +4,25 @@ import api from '@/src/lib/axios';
 import { Mail, CheckCircle2, XCircle, Clock, Activity, Calendar, Eye, MousePointerClick, MessageSquareReply, PauseCircle, ArrowRight } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 
-export default function EmailAnalyticsDashboard() {
+export default function EmailAnalyticsDashboard({ targetUserId }: { targetUserId?: string }) {
   const queryClient = useQueryClient();
   const { data: analytics, isLoading } = useQuery({
-    queryKey: ['email-ai-analytics'],
+    queryKey: ['email-ai-analytics', targetUserId || 'self'],
     queryFn: async () => {
-      const res = await api.get('/email-ai/analytics');
+      const res = await api.get('/email-ai/analytics', {
+        params: targetUserId ? { target_user_id: targetUserId } : undefined
+      });
       return res.data;
     },
     refetchInterval: 4000 // Update every 4s for real-time live telemetry
   });
 
   const { data: trackingStats } = useQuery({
-    queryKey: ['email-tracking-stats'],
+    queryKey: ['email-tracking-stats', targetUserId || 'self'],
     queryFn: async () => {
-      const res = await api.get('/tracking/stats');
+      const res = await api.get('/tracking/stats', {
+        params: targetUserId ? { target_user_id: targetUserId } : undefined
+      });
       return res.data;
     },
     refetchInterval: 10000

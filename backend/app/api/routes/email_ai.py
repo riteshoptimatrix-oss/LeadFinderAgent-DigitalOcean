@@ -44,7 +44,117 @@ def get_user_match_filter(current_user: UserInDB) -> List[Dict[str, Any]]:
     match_list: List[Dict[str, Any]] = [{"user_id": uid}]
     if ObjectId.is_valid(uid):
         match_list.append({"user_id": ObjectId(uid)})
+    if getattr(current_user, "email", None):
+        match_list.append({"user_id": current_user.email})
     return match_list
+
+
+async def resolve_effective_smtp_profile(
+    db,
+    current_user: UserInDB,
+    smtp_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
+    """
+    Multi-tier SMTP profile resolution:
+    1. If specific smtp_id provided: check email_ai_smtp with access permission.
+    2. Active default or priority profile from email_ai_smtp matching current user (or admin system profile).
+    3. User Settings fallback (db['settings'], db['users.email_settings']) with decrypted password.
+    4. Admin / System env fallback if SMTP_SERVER / SMTP_USERNAME / SMTP_PASSWORD configured.
+    """
+    from app.services.smtp_service import get_user_smtp_config, clean_app_password, is_masked_or_empty
+    from app.core.security_crypto import decrypt_string
+    from app.core.config import settings as app_settings
+
+    uid_str = str(current_user.id)
+    is_admin = str(getattr(current_user, "role", "")).upper() in ["ADMIN", "SUPERADMIN"]
+    user_match = get_user_match_filter(current_user)
+
+    # 1. Targeted profile by ID
+    if smtp_id and ObjectId.is_valid(smtp_id):
+        target_oid = ObjectId(smtp_id)
+        cond: Dict[str, Any] = {"_id": target_oid, "is_active": {"$ne": False}}
+        if not is_admin:
+            cond["$or"] = user_match + [{"is_system": True, "user_id": None}]
+        found = await db["email_ai_smtp"].find_one(cond)
+        if found and found.get("password"):
+            return found
+
+    # 2. User-scoped active profile in email_ai_smtp
+    query_or = list(user_match)
+    if is_admin:
+        query_or.extend([
+            {"user_id": None},
+            {"user_id": {"$exists": False}},
+            {"is_system": True}
+        ])
+    else:
+        query_or.append({"is_system": True, "user_id": None})
+
+    active_profile = await db["email_ai_smtp"].find_one(
+        {
+            "is_active": {"$ne": False},
+            "$or": query_or
+        },
+        sort=[("is_default", -1), ("priority", 1), ("updated_at", -1)]
+    )
+    if active_profile and active_profile.get("password"):
+        return active_profile
+
+    # 3. Fallback to User Settings & Users collection via get_user_smtp_config
+    cfg = await get_user_smtp_config(db, uid_str, decrypt_pwd=True)
+    if cfg and cfg.get("smtp_pass") and not is_masked_or_empty(cfg.get("smtp_pass")):
+        return {
+            "name": cfg.get("smtp_sender_name") or "User Settings SMTP",
+            "host": cfg.get("smtp_host", "smtp.gmail.com"),
+            "port": int(cfg.get("smtp_port", 587) or 587),
+            "username": cfg.get("smtp_user") or getattr(current_user, "email", ""),
+            "password": cfg.get("smtp_pass"),
+            "encryption": cfg.get("smtp_encryption", "TLS"),
+            "from_email": cfg.get("smtp_from_email") or cfg.get("smtp_user") or getattr(current_user, "email", ""),
+            "from_name": cfg.get("smtp_sender_name", "") or getattr(current_user, "full_name", ""),
+            "timeout": 15,
+            "is_active": True,
+        }
+
+    # 3b. Check db["settings"] directly for any format variations
+    query_settings: List[Dict[str, Any]] = [
+        {"user_id": uid_str},
+    ]
+    if getattr(current_user, "email", None):
+        query_settings.append({"user_id": current_user.email})
+    if ObjectId.is_valid(uid_str):
+        query_settings.append({"user_id": ObjectId(uid_str)})
+    raw_settings = await db["settings"].find_one({"$or": query_settings})
+    if raw_settings and raw_settings.get("smtp_pass") and not is_masked_or_empty(raw_settings.get("smtp_pass")):
+        raw_pwd = decrypt_string(raw_settings["smtp_pass"])
+        clean_pwd = clean_app_password(raw_pwd, raw_settings.get("smtp_host", ""))
+        return {
+            "name": raw_settings.get("smtp_sender_name") or "Settings SMTP",
+            "host": raw_settings.get("smtp_host", "smtp.gmail.com"),
+            "port": int(raw_settings.get("smtp_port", 587) or 587),
+            "username": raw_settings.get("smtp_user") or getattr(current_user, "email", ""),
+            "password": clean_pwd,
+            "encryption": raw_settings.get("smtp_encryption", "TLS"),
+            "from_email": raw_settings.get("smtp_from_email") or raw_settings.get("smtp_user") or getattr(current_user, "email", ""),
+            "from_name": raw_settings.get("smtp_sender_name", "") or getattr(current_user, "full_name", ""),
+            "timeout": 15,
+            "is_active": True,
+        }
+
+    # 4. Fallback for admin or system: environment SMTP if configured
+    if is_admin and app_settings.smtp_is_configured:
+        return app_settings.smtp_profile_dict(name="System Outbound (Env)")
+
+    # 5. Fallback for admin: any active SMTP profile in the database
+    if is_admin:
+        any_profile = await db["email_ai_smtp"].find_one(
+            {"is_active": {"$ne": False}, "password": {"$exists": True, "$ne": ""}},
+            sort=[("is_default", -1), ("updated_at", -1)]
+        )
+        if any_profile and any_profile.get("password"):
+            return any_profile
+
+    return None
 
 # ==========================================
 # SMTP Profiles
@@ -67,7 +177,7 @@ async def get_smtp_profiles(
             "$or": user_match + [{"is_system": True, "user_id": None}]
         }
     profiles = await db["email_ai_smtp"].find(query).to_list(100)
-    if not profiles and str(current_user.role).upper() not in ["ADMIN", "SUPERADMIN"]:
+    if not profiles:
         # Fallback: check if user configured SMTP in Settings
         config = await get_user_smtp_config(db, str(current_user.id), decrypt_pwd=False)
         if config and config.get("has_password"):
@@ -580,38 +690,13 @@ async def send_template_test_email(
         if body_text:
             body_text = body_text.replace(f"{{{{{k}}}}}", str(v))
 
-    # 2. Resolve SMTP Profile
-    smtp_profile = None
-    if payload.smtp_id and ObjectId.is_valid(payload.smtp_id):
-        smtp_profile = await db["email_ai_smtp"].find_one({"_id": ObjectId(payload.smtp_id), "is_active": True})
-    
-    if not smtp_profile:
-        smtp_profile = await db["email_ai_smtp"].find_one(
-            {"user_id": uid_str, "is_active": True},
-            sort=[("is_default", -1), ("updated_at", -1)]
-        )
-
-    if not smtp_profile or not smtp_profile.get("password"):
-        from app.services.smtp_service import get_user_smtp_config
-        cfg = await get_user_smtp_config(db, uid_str, decrypt_pwd=False)
-        raw_settings = await db["settings"].find_one({"user_id": uid_str})
-        enc_pwd = raw_settings.get("smtp_pass") if raw_settings else ""
-        if cfg and cfg.get("has_password") and enc_pwd:
-            smtp_profile = {
-                "host": cfg.get("smtp_host", "smtp.gmail.com"),
-                "port": cfg.get("smtp_port", 587),
-                "username": cfg.get("smtp_user"),
-                "password": enc_pwd,
-                "encryption": cfg.get("smtp_encryption", "TLS"),
-                "from_email": cfg.get("smtp_from_email") or cfg.get("smtp_user"),
-                "from_name": cfg.get("smtp_sender_name", ""),
-                "timeout": 15,
-            }
+    # 2. Resolve SMTP Profile with multi-tier fallback (targeted ID -> active/default -> Settings -> Users -> Env)
+    smtp_profile = await resolve_effective_smtp_profile(db, current_user, payload.smtp_id)
 
     if not smtp_profile or not smtp_profile.get("password"):
         raise HTTPException(
             status_code=400,
-            detail="No active SMTP configuration found. Please configure your SMTP App Password in Settings > Email Automation."
+            detail="No active SMTP configuration found. Please configure your SMTP App Password in Settings > Email Automation or add an SMTP account in Mail Sender."
         )
 
     # 3. Apply tracking & generate Message-ID

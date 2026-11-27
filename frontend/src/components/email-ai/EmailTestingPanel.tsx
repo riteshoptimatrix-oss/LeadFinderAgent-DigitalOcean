@@ -17,7 +17,7 @@ import {
   FlaskConical,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/src/lib/utils';
+import { cn, getErrorMessage } from '@/src/lib/utils';
 
 interface TestEmailRecord {
   _id: string;
@@ -100,7 +100,7 @@ export default function EmailTestingPanel() {
       }
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.detail || 'Failed to send test email');
+      toast.error(getErrorMessage(err, 'Failed to send test email'));
     },
   });
 
@@ -117,7 +117,7 @@ export default function EmailTestingPanel() {
       toast.success('Inbox checked for replies.');
     },
     onError: (err: any) => {
-      toast.error(err?.response?.data?.detail || 'Failed to check replies');
+      toast.error(getErrorMessage(err, 'Failed to check replies'));
     },
   });
 

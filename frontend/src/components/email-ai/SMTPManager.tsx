@@ -7,7 +7,7 @@ import {
   Server, Lock, Plus, Trash2, Edit2, CheckCircle2, 
   XCircle, Mail, AlertCircle, RefreshCw, Zap, Shield, Send, X
 } from 'lucide-react';
-import { cn } from '@/src/lib/utils';
+import { cn, getErrorMessage } from '@/src/lib/utils';
 import { toast } from 'sonner';
 
 interface SMTPProfile {
@@ -98,7 +98,7 @@ export default function SMTPManager() {
     },
     onError: (error: any) => {
       setTestingId(null);
-      const msg = error?.response?.data?.detail || error?.message || 'Connection Failed. Check credentials, port, and security settings.';
+      const msg = getErrorMessage(error, 'Connection Failed. Check credentials, port, and security settings.');
       toast.error(msg, {
         icon: <AlertCircle className="w-5 h-5 text-red-500" />
       });
@@ -122,7 +122,7 @@ export default function SMTPManager() {
     },
     onError: (error: any) => {
       setIsSendingSample(false);
-      const msg = error?.response?.data?.detail || error?.message || 'Failed to dispatch test email.';
+      const msg = getErrorMessage(error, 'Failed to dispatch test email.');
       toast.error(msg, {
         icon: <AlertCircle className="w-5 h-5 text-red-500" />,
         duration: 6000
@@ -150,7 +150,7 @@ export default function SMTPManager() {
     },
     onError: (error: any) => {
       setIsSendingSample(false);
-      const msg = error?.response?.data?.detail || error?.message || 'SMTP direct test failed.';
+      const msg = getErrorMessage(error, 'SMTP direct test failed.');
       toast.error(msg, {
         icon: <AlertCircle className="w-5 h-5 text-red-500" />,
         duration: 6000

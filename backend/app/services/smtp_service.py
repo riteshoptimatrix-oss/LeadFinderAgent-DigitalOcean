@@ -339,14 +339,20 @@ async def get_user_smtp_config(db, user_id: str, decrypt_pwd: bool = False) -> D
             "track_opens": True,
             "has_password": False
         }
-    settings_doc = await db["settings"].find_one({"user_id": uid_str})
+    query_user = [{"user_id": uid_str}]
+    if ObjectId.is_valid(uid_str):
+        query_user.append({"user_id": ObjectId(uid_str)})
+    settings_doc = await db["settings"].find_one({"$or": query_user})
     
     # Fallback to email_ai_smtp if settings collection is empty
     if not settings_doc or not settings_doc.get("smtp_host"):
-        ai_smtp = await db["email_ai_smtp"].find_one({
-            "user_id": uid_str,
-            "is_active": {"$ne": False}
-        })
+        ai_smtp = await db["email_ai_smtp"].find_one(
+            {
+                "is_active": {"$ne": False},
+                "$or": query_user
+            },
+            sort=[("is_default", -1), ("priority", 1), ("updated_at", -1)]
+        )
         if ai_smtp:
             settings_doc = {
                 "user_id": uid_str,

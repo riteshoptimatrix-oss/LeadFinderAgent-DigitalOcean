@@ -11,7 +11,7 @@ import {
   Building2, User, Mail, Phone, Globe, Briefcase, MapPin, ArrowRight, Loader2, Send
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/src/lib/utils';
+import { cn, getErrorMessage } from '@/src/lib/utils';
 import { useRouter } from 'next/navigation';
 import EmailMediaModal from './EmailMediaModal';
 
@@ -79,7 +79,17 @@ export default function EmailTemplateManager() {
   const [isMediaModalOpen, setIsMediaModalOpen] = useState(false);
   const [isTestModalOpen, setIsTestModalOpen] = useState(false);
   const [testRecipient, setTestRecipient] = useState('');
+  const [selectedSmtpId, setSelectedSmtpId] = useState<string>('');
   const [isSendingTest, setIsSendingTest] = useState(false);
+
+  // Available SMTP accounts for test dispatch
+  const { data: smtpProfiles = [] } = useQuery({
+    queryKey: ['email-ai-smtp'],
+    queryFn: async () => {
+      const res = await api.get('/email-ai/smtp');
+      return Array.isArray(res.data) ? res.data : [];
+    }
+  });
 
   const editorRef = useRef<HTMLDivElement>(null);
 
@@ -235,15 +245,16 @@ export default function EmailTemplateManager() {
     try {
       const currentHtml = editorRef.current ? editorRef.current.innerHTML : formData.body_html;
       const res = await api.post('/email-ai/templates/test-send', {
-        template_id: activeTemplateId,
+        template_id: activeTemplateId || undefined,
         subject: formData.subject,
         body_html: currentHtml,
         to_email: target,
+        smtp_id: selectedSmtpId || undefined,
       });
       toast.success(res.data?.message || `Test email dispatched to ${target}!`);
       setIsTestModalOpen(false);
     } catch (err: any) {
-      const msg = err.response?.data?.detail || err.message || 'Failed to dispatch test email';
+      const msg = getErrorMessage(err, 'Failed to dispatch test email');
       toast.error(msg);
     } finally {
       setIsSendingTest(false);
@@ -868,6 +879,26 @@ export default function EmailTemplateManager() {
             </div>
 
             <form onSubmit={handleSendTestEmail} className="p-6 space-y-4">
+              {smtpProfiles.length > 0 && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Sender SMTP Account
+                  </label>
+                  <select
+                    value={selectedSmtpId}
+                    onChange={(e) => setSelectedSmtpId(e.target.value)}
+                    className="w-full px-3.5 py-2.5 bg-white border border-slate-200 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-xs"
+                  >
+                    <option value="">Auto-detect Active SMTP (Recommended)</option>
+                    {smtpProfiles.map((p: any) => (
+                      <option key={p._id || p.id} value={p._id || p.id}>
+                        {p.name || p.username} ({p.host}:{p.port}) {p.is_default ? '★ Default' : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
                   Recipient Email Address
@@ -876,7 +907,7 @@ export default function EmailTemplateManager() {
                   type="email"
                   value={testRecipient}
                   onChange={(e) => setTestRecipient(e.target.value)}
-                  placeholder="e.g. happyvyas31@gmail.com"
+                  placeholder="e.g. ritesh.optimatrix@gmail.com"
                   required
                   autoFocus
                   className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-xs"

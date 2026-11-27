@@ -397,32 +397,34 @@ class EmailAIQueueWorker:
                 # Must belong to this user
                 query = {"_id": ObjectId(job["smtp_id"]), "is_active": True}
                 if uid_str:
-                    query["user_id"] = uid_str
+                    query["$or"] = [{"user_id": uid_str}, {"user_id": ObjectId(uid_str)}] if ObjectId.is_valid(uid_str) else [{"user_id": uid_str}]
                 smtp_profile = await self.db["email_ai_smtp"].find_one(query)
             
             if not smtp_profile and uid_str:
-                # Find active profile strictly for this user
-                smtp_profile = await self.db["email_ai_smtp"].find_one({"user_id": uid_str, "is_active": True})
+                # Find active profile for this user (or default/priority)
+                user_conds = [{"user_id": uid_str}]
+                if ObjectId.is_valid(uid_str):
+                    user_conds.append({"user_id": ObjectId(uid_str)})
+                smtp_profile = await self.db["email_ai_smtp"].find_one(
+                    {"$or": user_conds, "is_active": {"$ne": False}},
+                    sort=[("is_default", -1), ("priority", 1), ("updated_at", -1)]
+                )
             
             # Fallback to Settings / Users if email_ai_smtp doesn't have an active password
             if (not smtp_profile or not smtp_profile.get("password")) and uid_str:
                 from app.services.smtp_service import get_user_smtp_config
-                cfg = await get_user_smtp_config(self.db, uid_str, decrypt_pwd=False)
-                if cfg and cfg.get("has_password"):
-                    # cfg has the encrypted password in settings_doc
-                    raw_p = await self.db["settings"].find_one({"user_id": uid_str})
-                    enc_pwd = raw_p.get("smtp_pass") if raw_p else ""
-                    if enc_pwd:
-                        smtp_profile = {
-                            "host": cfg.get("smtp_host", "smtp.gmail.com"),
-                            "port": cfg.get("smtp_port", 587),
-                            "username": cfg.get("smtp_user"),
-                            "password": enc_pwd,
-                            "encryption": cfg.get("smtp_encryption", "TLS"),
-                            "from_email": cfg.get("smtp_from_email") or cfg.get("smtp_user"),
-                            "from_name": cfg.get("smtp_sender_name", ""),
-                            "timeout": 15
-                        }
+                cfg = await get_user_smtp_config(self.db, uid_str, decrypt_pwd=True)
+                if cfg and cfg.get("smtp_pass"):
+                    smtp_profile = {
+                        "host": cfg.get("smtp_host", "smtp.gmail.com"),
+                        "port": int(cfg.get("smtp_port", 587) or 587),
+                        "username": cfg.get("smtp_user"),
+                        "password": cfg.get("smtp_pass"),
+                        "encryption": cfg.get("smtp_encryption", "TLS"),
+                        "from_email": cfg.get("smtp_from_email") or cfg.get("smtp_user"),
+                        "from_name": cfg.get("smtp_sender_name", ""),
+                        "timeout": 15
+                    }
 
             if not smtp_profile or not smtp_profile.get("password"):
                 await self._finalize_job(

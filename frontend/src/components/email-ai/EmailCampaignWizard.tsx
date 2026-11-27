@@ -11,7 +11,7 @@ import {
   CornerDownRight, Send, HelpCircle, X, RotateCcw
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { cn } from '@/src/lib/utils';
+import { cn, getErrorMessage } from '@/src/lib/utils';
 import { useRouter } from 'next/navigation';
 
 
@@ -90,8 +90,7 @@ export default function EmailCampaignWizard() {
     }
   });
 
-  const formatError = (error: any) =>
-    error?.response?.data?.detail || error?.message || 'Request failed';
+  const formatError = (error: any) => getErrorMessage(error, 'Request failed');
 
   const logWizardEvent = (event: string, data?: any) => {
     console.log(`[EmailAI][Wizard] ${event}`, data || '');
@@ -119,7 +118,7 @@ export default function EmailCampaignWizard() {
       window.dispatchEvent(new CustomEvent('change-tab', { detail: 'live' }));
     },
     onError: (error: any) => {
-      const detail = error?.response?.data?.detail || error?.message || 'Failed to create campaign';
+      const detail = getErrorMessage(error, 'Failed to create campaign');
       console.error('[EmailAI][Wizard] create_campaign failed:', error?.response?.status, detail);
       toast.error(detail);
     }

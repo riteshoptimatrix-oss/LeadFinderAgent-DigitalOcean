@@ -244,8 +244,8 @@ export default function BulkAIAnalysisMonitor({
               typeof data.overall_progress === "number"
                 ? data.overall_progress
                 : data.total_jobs
-                ? Math.round((data.completed_jobs / data.total_jobs) * 100)
-                : 0,
+                  ? Math.round((data.completed_jobs / data.total_jobs) * 100)
+                  : 0,
             total_leads: data.total_leads || data.total_jobs || 0,
             leads_analyzed: data.leads_analyzed || 0,
             duplicate_leads: data.duplicate_leads || 0,
@@ -331,8 +331,8 @@ export default function BulkAIAnalysisMonitor({
             typeof data.overall_progress === "number"
               ? data.overall_progress
               : data.total_jobs
-              ? Math.round((data.completed_jobs / data.total_jobs) * 100)
-              : 0,
+                ? Math.round((data.completed_jobs / data.total_jobs) * 100)
+                : 0,
           total_leads: data.total_leads || data.total_jobs || prev.total_leads,
           leads_analyzed: data.leads_analyzed || 0,
           duplicate_leads: data.duplicate_leads || 0,
@@ -414,7 +414,7 @@ export default function BulkAIAnalysisMonitor({
       const token =
         typeof window !== "undefined"
           ? localStorage.getItem("access_token") ||
-            sessionStorage.getItem("access_token")
+          sessionStorage.getItem("access_token")
           : null;
       const url = `${root}/ai-analysis/ws/${queueId}`;
       return token ? `${url}?token=${token}` : url;
@@ -645,10 +645,10 @@ export default function BulkAIAnalysisMonitor({
             activeWs.close();
           } else if (activeWs.readyState === WebSocket.CONNECTING) {
             activeWs.onopen = () => {
-              try { activeWs.close(); } catch {}
+              try { activeWs.close(); } catch { }
             };
           }
-        } catch {}
+        } catch { }
       }
       wsRef.current = null;
     };
@@ -678,7 +678,7 @@ export default function BulkAIAnalysisMonitor({
     if (wsRef.current) {
       try {
         wsRef.current.close();
-      } catch {}
+      } catch { }
     }
     onCloseRef.current();
   };
@@ -774,11 +774,10 @@ export default function BulkAIAnalysisMonitor({
             {/* Progress bar */}
             <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden mb-2">
               <motion.div
-                className={`h-full rounded-full transition-all duration-300 ${
-                  isTerminal
+                className={`h-full rounded-full transition-all duration-300 ${isTerminal
                     ? "bg-emerald-500"
                     : "bg-gradient-to-r from-blue-600 to-indigo-600"
-                }`}
+                  }`}
                 style={{ width: `${pct}%` }}
               />
             </div>
@@ -829,15 +828,14 @@ export default function BulkAIAnalysisMonitor({
                         {queueName || "Bulk AI Website Analysis"}
                       </h2>
                       <span
-                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          isTerminal && summary
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${isTerminal && summary
                             ? "bg-emerald-50 text-emerald-700"
                             : queueStatus === "FAILED"
-                            ? "bg-rose-50 text-rose-700"
-                            : queueStatus === "CANCELLED"
-                            ? "bg-amber-50 text-amber-700"
-                            : "bg-blue-50 text-blue-700"
-                        }`}
+                              ? "bg-rose-50 text-rose-700"
+                              : queueStatus === "CANCELLED"
+                                ? "bg-amber-50 text-amber-700"
+                                : "bg-blue-50 text-blue-700"
+                          }`}
                       >
                         {!isTerminal && isRunning && (
                           <span className="w-1.5 h-1.5 rounded-full bg-blue-600 animate-pulse" />
@@ -1094,15 +1092,14 @@ export default function BulkAIAnalysisMonitor({
                           className="flex items-start gap-2.5 text-slate-600"
                         >
                           <span
-                            className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${
-                              log.level === "error"
+                            className={`w-1.5 h-1.5 rounded-full mt-1.5 shrink-0 ${log.level === "error"
                                 ? "bg-rose-500"
                                 : log.level === "warning"
-                                ? "bg-amber-500"
-                                : log.level === "success"
-                                ? "bg-emerald-500"
-                                : "bg-blue-500"
-                            }`}
+                                  ? "bg-amber-500"
+                                  : log.level === "success"
+                                    ? "bg-emerald-500"
+                                    : "bg-blue-500"
+                              }`}
                           />
                           <span className="text-slate-400 text-[10px] shrink-0">
                             {log.time}
@@ -1150,11 +1147,10 @@ function SummaryCard({
 }) {
   return (
     <div
-      className={`p-3 rounded-xl border text-center ${
-        highlight
+      className={`p-3 rounded-xl border text-center ${highlight
           ? "bg-emerald-50 border-emerald-100 text-emerald-900"
           : "bg-slate-50 border-slate-100 text-slate-900"
-      }`}
+        }`}
     >
       <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-0.5">
         {label}

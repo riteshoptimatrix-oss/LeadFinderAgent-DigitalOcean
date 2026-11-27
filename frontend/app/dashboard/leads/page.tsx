@@ -184,7 +184,7 @@ function LeadsPageContent() {
           entries[id] = analysisStartedAt[id] || Date.now();
         });
         sessionStorage.setItem('optimatrix_analyzing_leads', JSON.stringify(entries));
-      } catch {}
+      } catch { }
     }
   }, [analyzingLeadIds, analysisStartedAt]);
 
@@ -621,7 +621,7 @@ function LeadsPageContent() {
                 });
               }
             }
-          } catch {}
+          } catch { }
         };
 
         ws.onclose = () => {
@@ -1130,11 +1130,10 @@ function LeadsPageContent() {
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-bold text-slate-900">Send to EasyAdServer</h3>
                     {easyAdServerStatus && (
-                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${
-                        easyAdServerStatus.has_token
-                          ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                          : 'bg-amber-50 text-amber-700 border-amber-200'
-                      }`}>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold border ${easyAdServerStatus.has_token
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                        : 'bg-amber-50 text-amber-700 border-amber-200'
+                        }`}>
                         {easyAdServerStatus.has_token ? 'API Connected' : 'Token Required'}
                       </span>
                     )}
@@ -1178,11 +1177,10 @@ function LeadsPageContent() {
                 <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200/80 space-y-3">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-700">Dispatch Summary:</span>
-                    <span className={`text-xs font-extrabold px-2.5 py-0.5 rounded-full border ${
-                      easyAdServerResult.failed_count === 0
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                        : 'bg-amber-50 text-amber-700 border-amber-200'
-                    }`}>
+                    <span className={`text-xs font-extrabold px-2.5 py-0.5 rounded-full border ${easyAdServerResult.failed_count === 0
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : 'bg-amber-50 text-amber-700 border-amber-200'
+                      }`}>
                       {easyAdServerResult.failed_count === 0 ? 'All Dispatched' : 'Completed with Errors'}
                     </span>
                   </div>
@@ -1224,13 +1222,12 @@ function LeadsPageContent() {
                               <span className="text-[11px] text-slate-500 block truncate">{r.message}</span>
                             )}
                           </div>
-                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold shrink-0 border ${
-                            r.status === 'SUCCESS' || r.success
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : r.status === 'SKIPPED'
+                          <span className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold shrink-0 border ${r.status === 'SUCCESS' || r.success
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : r.status === 'SKIPPED'
                               ? 'bg-amber-50 text-amber-700 border-amber-200'
                               : 'bg-rose-50 text-rose-700 border-rose-200'
-                          }`}>
+                            }`}>
                             {r.action ? `${r.action.toUpperCase()}` : (r.status || (r.success ? 'SENT' : 'FAILED'))}
                           </span>
                         </div>
@@ -1289,11 +1286,10 @@ function LeadsPageContent() {
                       <button
                         type="button"
                         onClick={() => setEasyAdServerMode('selected')}
-                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                          easyAdServerMode === 'selected'
-                            ? 'bg-emerald-50/80 border-emerald-300 ring-2 ring-emerald-500/20'
-                            : 'bg-white border-slate-200 hover:bg-slate-50'
-                        }`}
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${easyAdServerMode === 'selected'
+                          ? 'bg-emerald-50/80 border-emerald-300 ring-2 ring-emerald-500/20'
+                          : 'bg-white border-slate-200 hover:bg-slate-50'
+                          }`}
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-bold text-slate-900">Option A: Selected Leads</span>
@@ -1312,11 +1308,10 @@ function LeadsPageContent() {
                       <button
                         type="button"
                         onClick={() => setEasyAdServerMode('all')}
-                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                          easyAdServerMode === 'all'
-                            ? 'bg-emerald-50/80 border-emerald-300 ring-2 ring-emerald-500/20'
-                            : 'bg-white border-slate-200 hover:bg-slate-50'
-                        }`}
+                        className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${easyAdServerMode === 'all'
+                          ? 'bg-emerald-50/80 border-emerald-300 ring-2 ring-emerald-500/20'
+                          : 'bg-white border-slate-200 hover:bg-slate-50'
+                          }`}
                       >
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-xs font-bold text-slate-900">Option B: Send All Leads</span>
@@ -1543,11 +1538,10 @@ function LeadsPageContent() {
                   <button
                     type="button"
                     onClick={() => setIsUserDropdownOpen(!isUserDropdownOpen)}
-                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs ${
-                      filterAssignedTo
-                        ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-2 ring-indigo-500/20'
-                        : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
-                    }`}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer shadow-2xs ${filterAssignedTo
+                      ? 'bg-indigo-50 border-indigo-300 text-indigo-700 ring-2 ring-indigo-500/20'
+                      : 'bg-white hover:bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
                     title="Filter leads by user (Admin only)"
                   >
                     <Users className="w-3.5 h-3.5 text-indigo-600" />
@@ -1611,9 +1605,8 @@ function LeadsPageContent() {
                           setPage(0);
                           setIsUserDropdownOpen(false);
                         }}
-                        className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between cursor-pointer transition-colors ${
-                          !filterAssignedTo ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'
-                        }`}
+                        className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between cursor-pointer transition-colors ${!filterAssignedTo ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'
+                          }`}
                       >
                         <div className="flex items-center gap-2">
                           <Users className="w-3.5 h-3.5 text-slate-400" />
@@ -1636,9 +1629,8 @@ function LeadsPageContent() {
                               setPage(0);
                               setIsUserDropdownOpen(false);
                             }}
-                            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between cursor-pointer transition-colors ${
-                              isSelected ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'
-                            }`}
+                            className={`w-full text-left px-3 py-2 rounded-xl text-xs font-semibold flex items-center justify-between cursor-pointer transition-colors ${isSelected ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-700'
+                              }`}
                           >
                             <div className="truncate pr-2">
                               <div className="font-bold truncate text-slate-800">{u?.full_name || u?.email}</div>
@@ -1683,11 +1675,10 @@ function LeadsPageContent() {
             <button
               type="button"
               onClick={() => setShowAutoSendEASModal(true)}
-              className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs hover:shadow-sm cursor-pointer active:scale-95 border ${
-                easScheduleData?.has_schedule && easScheduleData?.is_active
-                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
-                  : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
-              }`}
+              className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs hover:shadow-sm cursor-pointer active:scale-95 border ${easScheduleData?.has_schedule && easScheduleData?.is_active
+                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
+                }`}
               title="Configure automated scheduled sending to EasyAdServer"
             >
               <Clock className={`w-3.5 h-3.5 ${easScheduleData?.has_schedule && easScheduleData?.is_active ? 'text-emerald-600' : 'text-slate-500'}`} />
@@ -2473,11 +2464,10 @@ function LeadsPageContent() {
                                 handleSendToEasyAdServer(lead);
                               }}
                               title={lead.easyadserver_sent ? "Sent to EasyAdServer (Click to re-send)" : "Send this lead to EasyAdServer (Option A)"}
-                              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-                                lead.easyadserver_sent
-                                  ? 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
-                                  : 'text-slate-400 bg-white border-slate-200 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50/50'
-                              }`}
+                              className={`p-1.5 rounded-lg border transition-all cursor-pointer ${lead.easyadserver_sent
+                                ? 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+                                : 'text-slate-400 bg-white border-slate-200 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50/50'
+                                }`}
                             >
                               <Send className="w-3.5 h-3.5" />
                             </button>
@@ -2654,11 +2644,10 @@ function LeadsPageContent() {
                           e.stopPropagation();
                           handleSendToEasyAdServer(lead);
                         }}
-                        className={`p-2 border rounded-xl transition-all cursor-pointer ${
-                          lead.easyadserver_sent
-                            ? 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
-                            : 'text-slate-500 bg-white border-slate-200 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50/50'
-                        }`}
+                        className={`p-2 border rounded-xl transition-all cursor-pointer ${lead.easyadserver_sent
+                          ? 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100'
+                          : 'text-slate-500 bg-white border-slate-200 hover:text-emerald-600 hover:border-emerald-200 hover:bg-emerald-50/50'
+                          }`}
                         title={lead.easyadserver_sent ? "Sent to EasyAdServer (Click to re-send)" : "Send to EasyAdServer (Option A)"}
                       >
                         <Send className="w-3.5 h-3.5" />
@@ -2806,11 +2795,10 @@ function LeadsPageContent() {
                   <button
                     type="button"
                     onClick={() => setAssignTargetVisibility('visible')}
-                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${
-                      assignTargetVisibility === 'visible'
-                        ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-bold'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${assignTargetVisibility === 'visible'
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-800 font-bold'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
                   >
                     <Eye className="w-3.5 h-3.5 text-emerald-600" />
                     <span>Visible to User</span>
@@ -2818,11 +2806,10 @@ function LeadsPageContent() {
                   <button
                     type="button"
                     onClick={() => setAssignTargetVisibility('hidden')}
-                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${
-                      assignTargetVisibility === 'hidden'
-                        ? 'bg-amber-50 border-amber-300 text-amber-800 font-bold'
-                        : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
-                    }`}
+                    className={`flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-semibold cursor-pointer ${assignTargetVisibility === 'hidden'
+                      ? 'bg-amber-50 border-amber-300 text-amber-800 font-bold'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                      }`}
                   >
                     <EyeOff className="w-3.5 h-3.5 text-amber-600" />
                     <span>Hidden (Admin Only)</span>

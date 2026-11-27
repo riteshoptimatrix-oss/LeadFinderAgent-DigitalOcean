@@ -168,7 +168,7 @@ function parseReplyText(rawSnippet?: string | null): { replyText: string; quoted
   return { replyText: trimmed };
 }
 
-export default function EmailTrackingDashboard() {
+export default function EmailTrackingDashboard({ targetUserId }: { targetUserId?: string }) {
   const queryClient = useQueryClient();
   const [viewMode, setViewMode] = useState<'events' | 'daily'>('events');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
@@ -180,10 +180,13 @@ export default function EmailTrackingDashboard() {
   const [wsConnected, setWsConnected] = useState(false);
 
   const { data: stats, isLoading: statsLoading } = useQuery<TrackingStats>({
-    queryKey: ['email-tracking-stats', campaignFilter],
+    queryKey: ['email-tracking-stats', campaignFilter, targetUserId || 'self'],
     queryFn: async () => {
-      const params = campaignFilter ? `?campaign_id=${encodeURIComponent(campaignFilter)}` : '';
-      const res = await api.get(`/tracking/stats${params}`);
+      const params = new URLSearchParams();
+      if (campaignFilter) params.set('campaign_id', campaignFilter);
+      if (targetUserId) params.set('target_user_id', targetUserId);
+      const qs = params.toString();
+      const res = await api.get(`/tracking/stats${qs ? `?${qs}` : ''}`);
       return res.data;
     },
     refetchInterval: 15000,
@@ -193,7 +196,7 @@ export default function EmailTrackingDashboard() {
     data: TrackingEventItem[];
     total: number;
   }>({
-    queryKey: ['email-tracking-events', campaignFilter, statusFilter, searchTerm, dateFrom, dateTo],
+    queryKey: ['email-tracking-events', campaignFilter, statusFilter, searchTerm, dateFrom, dateTo, targetUserId || 'self'],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (campaignFilter) params.set('campaign_id', campaignFilter);
@@ -201,6 +204,7 @@ export default function EmailTrackingDashboard() {
       if (searchTerm.trim()) params.set('search', searchTerm.trim());
       if (dateFrom) params.set('date_from', dateFrom);
       if (dateTo) params.set('date_to', dateTo);
+      if (targetUserId) params.set('target_user_id', targetUserId);
       params.set('limit', '100');
       const res = await api.get(`/tracking/events?${params.toString()}`);
       return res.data;
@@ -209,12 +213,13 @@ export default function EmailTrackingDashboard() {
   });
 
   const { data: dailyReport, isLoading: dailyLoading } = useQuery<DailyReportResponse>({
-    queryKey: ['email-tracking-daily-report', campaignFilter, dateFrom, dateTo],
+    queryKey: ['email-tracking-daily-report', campaignFilter, dateFrom, dateTo, targetUserId || 'self'],
     queryFn: async () => {
       const params = new URLSearchParams();
       if (campaignFilter) params.set('campaign_id', campaignFilter);
       if (dateFrom) params.set('date_from', dateFrom);
       if (dateTo) params.set('date_to', dateTo);
+      if (targetUserId) params.set('target_user_id', targetUserId);
       const res = await api.get(`/tracking/daily-report?${params.toString()}`);
       return res.data;
     },
@@ -223,10 +228,12 @@ export default function EmailTrackingDashboard() {
   });
 
   const { data: campaignsList = [] } = useQuery<any[]>({
-    queryKey: ['email-ai-campaigns-for-tracking'],
+    queryKey: ['email-ai-campaigns-for-tracking', targetUserId || 'self'],
     queryFn: async () => {
       try {
-        const res = await api.get('/email-ai/campaigns');
+        const res = await api.get('/email-ai/campaigns', {
+          params: targetUserId ? { target_user_id: targetUserId } : undefined
+        });
         return Array.isArray(res.data) ? res.data : [];
       } catch {
         return [];

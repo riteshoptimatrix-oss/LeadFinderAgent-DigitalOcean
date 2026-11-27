@@ -777,7 +777,7 @@ function AllSourcesMultiSelect({
   );
 }
 
-export default function EmailLeadsSelection() {
+export default function EmailLeadsSelection({ targetUserId }: { targetUserId?: string }) {
   const router = useRouter();
   const [isMounted, setIsMounted] = useState(false);
 
@@ -925,7 +925,7 @@ export default function EmailLeadsSelection() {
 
   // Fetch Data using Global Leads API
   const { data, isLoading, error } = useQuery({
-    queryKey: ['email-ai-global-leads', page, debouncedSearch, filters, sort],
+    queryKey: ['email-ai-global-leads', page, debouncedSearch, filters, sort, targetUserId || 'self'],
     queryFn: async () => {
       const res = await api.get('/leads', {
         params: {
@@ -942,6 +942,7 @@ export default function EmailLeadsSelection() {
           is_auto_lead: isAutoLeadParam,
           area: (filters.search_campaign === 'auto' || filters.search_campaign === 'ALL') && filters.selected_areas.length > 0 ? filters.selected_areas.join(',') : undefined,
           job_id: (filters.search_campaign === 'normal' || filters.search_campaign === 'ALL') && filters.selected_job_ids.length > 0 ? filters.selected_job_ids.join(',') : undefined,
+          assigned_to: targetUserId || undefined,
           sort_by: sort.sort_by,
           sort_order: sort.sort_order
         }
@@ -1031,7 +1032,8 @@ export default function EmailLeadsSelection() {
           status: filters.status !== 'ALL' ? filters.status : undefined,
           is_auto_lead: isAutoLeadParam,
           area: (filters.search_campaign === 'auto' || filters.search_campaign === 'ALL') && filters.selected_areas.length > 0 ? filters.selected_areas.join(',') : undefined,
-          job_id: (filters.search_campaign === 'normal' || filters.search_campaign === 'ALL') && filters.selected_job_ids.length > 0 ? filters.selected_job_ids.join(',') : undefined
+          job_id: (filters.search_campaign === 'normal' || filters.search_campaign === 'ALL') && filters.selected_job_ids.length > 0 ? filters.selected_job_ids.join(',') : undefined,
+          target_user_id: targetUserId || undefined
         }
       });
       const allIds = res.data.ids || [];

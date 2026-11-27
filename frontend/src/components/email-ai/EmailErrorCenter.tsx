@@ -4,11 +4,13 @@ import { ShieldCheck, AlertTriangle, XCircle, FileWarning } from 'lucide-react';
 import { cn } from '@/src/lib/utils';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
-export default function EmailErrorCenter() {
+export default function EmailErrorCenter({ targetUserId }: { targetUserId?: string }) {
   const { data: errors = [], isLoading } = useQuery({
-    queryKey: ['email-ai-errors'],
+    queryKey: ['email-ai-errors', targetUserId || 'self'],
     queryFn: async () => {
-      const res = await api.get('/email-ai/analytics/errors');
+      const res = await api.get('/email-ai/analytics/errors', {
+        params: targetUserId ? { target_user_id: targetUserId } : undefined
+      });
       return res.data;
     },
     refetchInterval: 30000

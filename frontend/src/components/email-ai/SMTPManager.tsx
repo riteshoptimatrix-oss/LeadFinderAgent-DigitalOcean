@@ -27,7 +27,7 @@ interface SMTPProfile {
   is_default: boolean;
 }
 
-export default function SMTPManager() {
+export default function SMTPManager({ targetUserId }: { targetUserId?: string }) {
   const queryClient = useQueryClient();
   const [isAdding, setIsAdding] = useState(false);
   const [testingId, setTestingId] = useState<string | null>(null);
@@ -62,9 +62,11 @@ export default function SMTPManager() {
   });
 
   const { data: profiles = [], isLoading } = useQuery<SMTPProfile[]>({
-    queryKey: ['email-ai-smtp'],
+    queryKey: ['email-ai-smtp', targetUserId || 'self'],
     queryFn: async () => {
-      const res = await api.get('/email-ai/smtp');
+      const res = await api.get('/email-ai/smtp', {
+        params: targetUserId ? { target_user_id: targetUserId } : undefined
+      });
       return res.data;
     }
   });

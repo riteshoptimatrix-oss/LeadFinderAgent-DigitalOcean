@@ -56,9 +56,11 @@ interface CampaignEmailsResponse {
 // Modal Component for Viewing Sent/Failed Emails in a Campaign
 function CampaignEmailsModal({
   campaign,
+  targetUserId,
   onClose
 }: {
   campaign: any;
+  targetUserId?: string;
   onClose: () => void;
 }) {
   const [searchTerm, setSearchTerm] = useState('');
@@ -66,9 +68,11 @@ function CampaignEmailsModal({
   const [copiedEmail, setCopiedEmail] = useState<string | null>(null);
 
   const { data, isLoading, isError, refetch } = useQuery<CampaignEmailsResponse>({
-    queryKey: ['email-campaign-emails', campaign._id],
+    queryKey: ['email-campaign-emails', campaign._id, targetUserId || 'self'],
     queryFn: async () => {
-      const res = await api.get(`/email-ai/campaigns/${campaign._id}/emails`);
+      const res = await api.get(`/email-ai/campaigns/${campaign._id}/emails`, {
+        params: targetUserId ? { target_user_id: targetUserId } : undefined
+      });
       return res.data;
     }
   });
@@ -444,15 +448,15 @@ function CampaignEmailsModal({
   );
 }
 
-export default function EmailCampaignHistory() {
+export default function EmailCampaignHistory({ targetUserId }: { targetUserId?: string }) {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [selectedCampaign, setSelectedCampaign] = useState<any | null>(null);
 
   const { data, isLoading } = useQuery({
-    queryKey: ['email-campaign-history', statusFilter],
+    queryKey: ['email-campaign-history', statusFilter, targetUserId || 'self'],
     queryFn: async () => {
-      const res = await api.get(`/email-ai/history?limit=50${statusFilter ? `&status=${statusFilter}` : ''}`);
+      const res = await api.get(`/email-ai/history?limit=50${statusFilter ? `&status=${statusFilter}` : ''}${targetUserId ? `&target_user_id=${encodeURIComponent(targetUserId)}` : ''}`);
       return res.data;
     }
   });
@@ -622,6 +626,7 @@ export default function EmailCampaignHistory() {
       {selectedCampaign && (
         <CampaignEmailsModal
           campaign={selectedCampaign}
+          targetUserId={targetUserId}
           onClose={() => setSelectedCampaign(null)}
         />
       )}

@@ -13,7 +13,7 @@ import { toast } from 'sonner';
 import { cn } from '@/src/lib/utils';
 import { useRouter } from 'next/navigation';
 
-export default function EmailLiveDashboard() {
+export default function EmailLiveDashboard({ targetUserId }: { targetUserId?: string }) {
   const queryClient = useQueryClient();
   const [isMounted, setIsMounted] = useState(false);
   
@@ -54,13 +54,14 @@ export default function EmailLiveDashboard() {
     // In a real app this might come from router params. We use localStorage or fetch the latest RUNNING campaign.
     const fetchLatestCampaign = async () => {
       try {
-        const storedActiveId = localStorage.getItem('email_active_campaign');
-        const res = await api.get('/email-ai/campaigns?status=RUNNING');
+        const storedActiveId = targetUserId ? null : localStorage.getItem('email_active_campaign');
+        const params = targetUserId ? { target_user_id: targetUserId } : undefined;
+        const res = await api.get('/email-ai/campaigns?status=RUNNING', { params });
         if (res.data && res.data.length > 0) {
           setActiveCampaignId(res.data[0]._id);
           return;
         }
-        const res2 = await api.get('/email-ai/campaigns?status=QUEUED');
+        const res2 = await api.get('/email-ai/campaigns?status=QUEUED', { params });
         if (res2.data && res2.data.length > 0) {
           setActiveCampaignId(res2.data[0]._id);
           return;
@@ -69,18 +70,21 @@ export default function EmailLiveDashboard() {
           setActiveCampaignId(storedActiveId);
           return;
         }
+        setActiveCampaignId(null);
       } catch (e) {
         console.error('Failed to fetch campaign for dashboard', e);
       }
     };
     fetchLatestCampaign();
-  }, []);
+  }, [targetUserId]);
 
   // Fetch Initial Status
   const fetchLiveStatus = useCallback(async () => {
     if (!activeCampaignId) return;
     try {
-      const res = await api.get(`/email-ai/campaigns/${activeCampaignId}/live-status`);
+      const res = await api.get(`/email-ai/campaigns/${activeCampaignId}/live-status`, {
+        params: targetUserId ? { target_user_id: targetUserId } : undefined
+      });
       setCampaignData({ status: res.data.status, total: res.data.total, name: `Campaign ${activeCampaignId.substring(0, 8)}` }); // Ideally name comes from API
       
       const newStats = {

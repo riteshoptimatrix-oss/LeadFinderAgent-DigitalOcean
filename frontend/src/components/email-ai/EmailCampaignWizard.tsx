@@ -25,7 +25,7 @@ const WIZARD_STEPS = [
   { id: 6, title: 'Review', icon: <CheckCircle2 className="w-4 h-4" /> },
 ];
 
-export default function EmailCampaignWizard() {
+export default function EmailCampaignWizard({ targetUserId }: { targetUserId?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [isMounted, setIsMounted] = useState(false);
@@ -75,17 +75,21 @@ export default function EmailCampaignWizard() {
 
   // Queries
   const { data: smtpProfiles = [], isLoading: isLoadingSmtp, error: smtpError, refetch: refetchSmtp } = useQuery({
-    queryKey: ['email-ai-smtp'],
+    queryKey: ['email-ai-smtp', targetUserId || 'self'],
     queryFn: async () => {
-      const res = await api.get('/email-ai/smtp');
+      const res = await api.get('/email-ai/smtp', {
+        params: targetUserId ? { target_user_id: targetUserId } : undefined
+      });
       return res.data;
     }
   });
 
   const { data: templates = [] } = useQuery({
-    queryKey: ['email-ai-templates'],
+    queryKey: ['email-ai-templates', targetUserId || 'self'],
     queryFn: async () => {
-      const res = await api.get('/email-ai/templates');
+      const res = await api.get('/email-ai/templates', {
+        params: targetUserId ? { target_user_id: targetUserId } : undefined
+      });
       return res.data;
     }
   });

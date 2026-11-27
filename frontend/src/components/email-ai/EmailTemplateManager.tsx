@@ -51,7 +51,7 @@ const VARIABLES = [
 
 
 
-export default function EmailTemplateManager() {
+export default function EmailTemplateManager({ targetUserId }: { targetUserId?: string }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const [isMounted, setIsMounted] = useState(false);
@@ -85,9 +85,11 @@ export default function EmailTemplateManager() {
 
   // Available SMTP accounts for test dispatch
   const { data: smtpProfiles = [] } = useQuery({
-    queryKey: ['email-ai-smtp'],
+    queryKey: ['email-ai-smtp', targetUserId || 'self'],
     queryFn: async () => {
-      const res = await api.get('/email-ai/smtp');
+      const res = await api.get('/email-ai/smtp', {
+        params: targetUserId ? { target_user_id: targetUserId } : undefined
+      });
       return Array.isArray(res.data) ? res.data : [];
     }
   });
@@ -189,9 +191,11 @@ export default function EmailTemplateManager() {
 
   // Fetch Templates
   const { data: templates = [], isLoading } = useQuery<Template[]>({
-    queryKey: ['email-ai-templates'],
+    queryKey: ['email-ai-templates', targetUserId || 'self'],
     queryFn: async () => {
-      const res = await api.get('/email-ai/templates');
+      const res = await api.get('/email-ai/templates', {
+        params: targetUserId ? { target_user_id: targetUserId } : undefined
+      });
       return res.data;
     }
   });

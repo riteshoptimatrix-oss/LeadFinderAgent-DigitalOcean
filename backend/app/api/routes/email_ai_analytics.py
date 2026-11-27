@@ -14,18 +14,49 @@ def get_user_match_filter(current_user: UserInDB) -> List[Dict[str, Any]]:
     match_list: List[Dict[str, Any]] = [{"user_id": uid}]
     if ObjectId.is_valid(uid):
         match_list.append({"user_id": ObjectId(uid)})
+    if getattr(current_user, "email", None):
+        match_list.append({"user_id": current_user.email})
     return match_list
+
+
+async def resolve_scoped_user_match(
+    db,
+    current_user: UserInDB,
+    target_user_id: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    is_admin = str(getattr(current_user, "role", "")).upper() in ["ADMIN", "SUPERADMIN"]
+    if target_user_id and target_user_id.strip() and is_admin:
+        tid = target_user_id.strip()
+        if tid != str(current_user.id) and tid != getattr(current_user, "email", ""):
+            match_list: List[Dict[str, Any]] = [{"user_id": tid}]
+            if ObjectId.is_valid(tid):
+                match_list.append({"user_id": ObjectId(tid)})
+                u = await db["users"].find_one({"_id": ObjectId(tid)}) or await db["admins"].find_one({"_id": ObjectId(tid)})
+            else:
+                u = await db["users"].find_one({"email": tid}) or await db["admins"].find_one({"email": tid})
+            if u:
+                uid_str = str(u["_id"])
+                if {"user_id": uid_str} not in match_list:
+                    match_list.append({"user_id": uid_str})
+                if ObjectId.is_valid(uid_str) and {"user_id": ObjectId(uid_str)} not in match_list:
+                    match_list.append({"user_id": ObjectId(uid_str)})
+                if u.get("email") and {"user_id": u["email"]} not in match_list:
+                    match_list.append({"user_id": u["email"]})
+            return match_list
+    return get_user_match_filter(current_user)
+
 
 @router.get("/history")
 async def get_campaign_history(
     skip: int = 0,
     limit: int = 20,
     status: Optional[str] = None,
+    target_user_id: Optional[str] = Query(None),
     current_user: UserInDB = Depends(get_current_user),
     db=Depends(get_db)
 ):
     """Fetch completed, cancelled, or failed campaigns for history view scoped to user."""
-    user_match = get_user_match_filter(current_user)
+    user_match = await resolve_scoped_user_match(db, current_user, target_user_id)
     query: Dict[str, Any] = {
         "status": {"$in": ["COMPLETED", "CANCELLED", "FAILED"]},
         "$or": user_match

@@ -30,7 +30,7 @@ import EmailTrackingDashboard from '@/src/components/email-ai/EmailTrackingDashb
 import EmailTestingPanel from '@/src/components/email-ai/EmailTestingPanel';
 import { PageHeader } from '@/src/components/common/PageHeader';
 import { cn } from '@/src/lib/utils';
-import { Eye, FlaskConical } from 'lucide-react';
+import { Eye, FlaskConical, Users } from 'lucide-react';
 
 export type Tab =
   | 'dashboard'
@@ -203,12 +203,33 @@ export default function EmailAIPage() {
   const hasAccess = isAdmin || userProfile?.email_automation_access === true;
   const canAccessEmailTesting = (userProfile?.email || '').trim().toLowerCase() === 'khushi.optimatrix@gmail.com';
 
-  // Fetch SMTP profiles for the status pill
-  const { data: smtpProfiles = [] } = useQuery({
-    queryKey: ['email-ai-smtp'],
+  // User-wise selector for Admin (strictly single-user view, never combined/global)
+  const [selectedUserId, setSelectedUserId] = useState<string>('');
+  const { data: usersList = [] } = useQuery({
+    queryKey: ['email-ai-users-list'],
     queryFn: async () => {
       try {
-        const res = await api.get('/email-ai/smtp');
+        const res = await api.get('/users/');
+        const raw = Array.isArray(res.data) ? res.data : (res.data?.users || res.data?.data || []);
+        return Array.isArray(raw) ? raw : [];
+      } catch {
+        return [];
+      }
+    },
+    enabled: Boolean(isAdmin),
+    staleTime: 60000,
+  });
+
+  const effectiveTargetUserId = isAdmin && selectedUserId ? selectedUserId : undefined;
+
+  // Fetch SMTP profiles for the status pill
+  const { data: smtpProfiles = [] } = useQuery({
+    queryKey: ['email-ai-smtp', effectiveTargetUserId || 'self'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/email-ai/smtp', {
+          params: effectiveTargetUserId ? { target_user_id: effectiveTargetUserId } : undefined
+        });
         return Array.isArray(res.data) ? res.data : [];
       } catch {
         return [];
@@ -372,27 +393,60 @@ export default function EmailAIPage() {
             })}
           </div>
 
-          {/* Status Pill */}
-          <button
-            onClick={() => setActiveTab('smtp')}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors duration-150 shrink-0 cursor-pointer',
-              hasActiveSender
-                ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
-                : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
+          {/* Status Pill & Admin User-Wise Selector */}
+          <div className="flex items-center gap-2 shrink-0">
+            {isAdmin && (
+              <div className="flex items-center gap-1.5 bg-white border border-slate-200 rounded-full px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs">
+                <Users className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                <select
+                  value={selectedUserId}
+                  onChange={(e) => setSelectedUserId(e.target.value)}
+                  className="bg-transparent text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer pr-1 max-w-[180px]"
+                  title="View Mail Sender user-wise (no combined admin stats)"
+                >
+                  <option value="">
+                    {userProfile?.email ? `${userProfile.email} (My Account)` : 'My Account'}
+                  </option>
+                  {usersList
+                    .filter((u: any) => {
+                      const uid = String(u._id || u.id || '');
+                      const myId = String(userProfile?.id || userProfile?._id || '');
+                      return uid && uid !== myId;
+                    })
+                    .map((u: any) => {
+                      const uid = String(u._id || u.id);
+                      const label = u.full_name ? `${u.full_name} (${u.email})` : u.email;
+                      return (
+                        <option key={uid} value={uid}>
+                          {label}
+                        </option>
+                      );
+                    })}
+                </select>
+              </div>
             )}
-            title="Manage SMTP senders"
-          >
-            <span
+
+            <button
+              onClick={() => setActiveTab('smtp')}
               className={cn(
-                'w-1.5 h-1.5 rounded-full',
-                hasActiveSender ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors duration-150 shrink-0 cursor-pointer',
+                hasActiveSender
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100'
+                  : 'bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100'
               )}
-            />
-            {hasActiveSender
-              ? `${activeSenders.length} Active Sender${activeSenders.length > 1 ? 's' : ''}`
-              : 'Setup Required'}
-          </button>
+              title="Manage SMTP senders"
+            >
+              <span
+                className={cn(
+                  'w-1.5 h-1.5 rounded-full',
+                  hasActiveSender ? 'bg-emerald-500 animate-pulse' : 'bg-amber-400'
+                )}
+              />
+              {hasActiveSender
+                ? `${activeSenders.length} Active Sender${activeSenders.length > 1 ? 's' : ''}`
+                : 'Setup Required'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -487,16 +541,16 @@ export default function EmailAIPage() {
       {/* ── Main Content Area ── */}
       <div className="flex-1 animate-in fade-in duration-150">
         <EmailErrorBoundary>
-          {activeTab === 'dashboard' && <EmailAnalyticsDashboard />}
-          {activeTab === 'live' && <EmailLiveDashboard />}
-          {activeTab === 'tracking' && <EmailTrackingDashboard />}
+          {activeTab === 'dashboard' && <EmailAnalyticsDashboard targetUserId={effectiveTargetUserId} />}
+          {activeTab === 'live' && <EmailLiveDashboard targetUserId={effectiveTargetUserId} />}
+          {activeTab === 'tracking' && <EmailTrackingDashboard targetUserId={effectiveTargetUserId} />}
           {activeTab === 'testing' && canAccessEmailTesting && <EmailTestingPanel />}
-          {activeTab === 'leads' && <EmailLeadsSelection />}
-          {activeTab === 'templates' && <EmailTemplateManager />}
-          {activeTab === 'campaigns' && <EmailCampaignWizard />}
-          {activeTab === 'history' && <EmailCampaignHistory />}
-          {activeTab === 'smtp' && <SMTPManager />}
-          {activeTab === 'errors' && <EmailErrorCenter />}
+          {activeTab === 'leads' && <EmailLeadsSelection targetUserId={effectiveTargetUserId} />}
+          {activeTab === 'templates' && <EmailTemplateManager targetUserId={effectiveTargetUserId} />}
+          {activeTab === 'campaigns' && <EmailCampaignWizard targetUserId={effectiveTargetUserId} />}
+          {activeTab === 'history' && <EmailCampaignHistory targetUserId={effectiveTargetUserId} />}
+          {activeTab === 'smtp' && <SMTPManager targetUserId={effectiveTargetUserId} />}
+          {activeTab === 'errors' && <EmailErrorCenter targetUserId={effectiveTargetUserId} />}
         </EmailErrorBoundary>
       </div>
     </div>

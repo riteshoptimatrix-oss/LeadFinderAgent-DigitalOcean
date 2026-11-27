@@ -49,6 +49,11 @@ def get_user_match_filter(current_user: UserInDB) -> List[Dict[str, Any]]:
     return match_list
 
 
+def _is_admin_user(current_user: UserInDB) -> bool:
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else current_user.role
+    return bool(getattr(current_user, "is_superuser", False)) or str(role_val or "").upper() in ("ADMIN", "SUPERADMIN")
+
+
 async def resolve_scoped_user_match(
     db,
     current_user: UserInDB,
@@ -59,7 +64,7 @@ async def resolve_scoped_user_match(
     If an ADMIN supplies target_user_id, scope strictly to that single user (never combined/global).
     Otherwise, scope strictly to current_user.
     """
-    is_admin = str(getattr(current_user, "role", "")).upper() in ["ADMIN", "SUPERADMIN"]
+    is_admin = _is_admin_user(current_user)
     if target_user_id and target_user_id.strip() and is_admin:
         tid = target_user_id.strip()
         if tid != str(current_user.id) and tid != getattr(current_user, "email", ""):
@@ -98,7 +103,7 @@ async def resolve_effective_smtp_profile(
     from app.core.config import settings as app_settings
 
     uid_str = str(current_user.id)
-    is_admin = str(getattr(current_user, "role", "")).upper() in ["ADMIN", "SUPERADMIN"]
+    is_admin = _is_admin_user(current_user)
     user_match = get_user_match_filter(current_user)
 
     # 1. Targeted profile by ID (strictly user-scoped)
@@ -1601,7 +1606,7 @@ async def get_all_leads_for_email_ai(
     
     and_conds = [validity_cond]
 
-    is_admin = str(getattr(current_user, "role", "")).upper() in ["ADMIN", "SUPERADMIN"]
+    is_admin = _is_admin_user(current_user)
     scoped_uid = str(current_user.id)
     scoped_email = getattr(current_user, "email", None)
     if target_user_id and target_user_id.strip() and is_admin:

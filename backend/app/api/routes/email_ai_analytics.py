@@ -24,7 +24,8 @@ async def resolve_scoped_user_match(
     current_user: UserInDB,
     target_user_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    is_admin = str(getattr(current_user, "role", "")).upper() in ["ADMIN", "SUPERADMIN"]
+    role_val = current_user.role.value if hasattr(current_user.role, "value") else current_user.role
+    is_admin = bool(getattr(current_user, "is_superuser", False)) or str(role_val or "").upper() in ("ADMIN", "SUPERADMIN")
     if target_user_id and target_user_id.strip() and is_admin:
         tid = target_user_id.strip()
         if tid != str(current_user.id) and tid != getattr(current_user, "email", ""):

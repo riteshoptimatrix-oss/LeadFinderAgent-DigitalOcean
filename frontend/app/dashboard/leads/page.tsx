@@ -40,7 +40,6 @@ import {
   UserPlus,
   Users,
   Check,
-  Clock,
   RotateCcw
 } from 'lucide-react';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -57,7 +56,6 @@ const LeadAnalysisDrawer = dynamic(() => import('@/src/components/leads/LeadAnal
 const BulkAIAnalysisMonitor = dynamic(() => import('@/src/components/ai-analysis/BulkAIAnalysisMonitor'), { ssr: false });
 const BulkAnalysisModal = dynamic(() => import('@/src/components/ai-analysis/BulkAnalysisModal'), { ssr: false });
 const SearchSessionsModal = dynamic(() => import('@/src/components/search-sessions/SearchSessionsModal'), { ssr: false });
-const AutoSendEASModal = dynamic(() => import('@/src/components/leads/AutoSendEASModal'), { ssr: false });
 
 function loadTrackedAnalysisStarts(): Record<string, number> {
   if (typeof window === 'undefined') return {};
@@ -235,7 +233,6 @@ function LeadsPageContent() {
   // Send to EasyAdServer state (Dynamic for all authorized users)
   const authUser = useAuthStore((state) => state.user);
   const [showEasyAdServerModal, setShowEasyAdServerModal] = useState(false);
-  const [showAutoSendEASModal, setShowAutoSendEASModal] = useState(false);
   const [isSendingToEasyAdServer, setIsSendingToEasyAdServer] = useState(false);
   const [easyAdServerMode, setEasyAdServerMode] = useState<'selected' | 'all'>('selected');
   const [skipAlreadySent, setSkipAlreadySent] = useState(true);
@@ -415,19 +412,6 @@ function LeadsPageContent() {
       }
     },
     enabled: isEasyAdServerEnabled && showEasyAdServerModal,
-  });
-
-  const { data: easScheduleData, refetch: refetchEASSchedule } = useQuery({
-    queryKey: ['eas-schedule'],
-    queryFn: async () => {
-      try {
-        const res = await api.get('/easyadserver/schedule');
-        return res.data;
-      } catch {
-        return null;
-      }
-    },
-    enabled: isEasyAdServerEnabled,
   });
 
   const handleSendToEasyAdServer = (singleLead?: any) => {
@@ -1108,15 +1092,6 @@ function LeadsPageContent() {
         }}
       />
 
-      {/* Auto Send to EasyAdServer Modal */}
-      <AutoSendEASModal
-        isOpen={showAutoSendEASModal}
-        onClose={() => setShowAutoSendEASModal(false)}
-        onScheduleUpdated={() => {
-          refetchEASSchedule();
-        }}
-      />
-
       {/* EasyAdServer Live Integration Modal (Dynamic for all authorized users) */}
       {showEasyAdServerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs animate-in fade-in">
@@ -1666,27 +1641,6 @@ function LeadsPageContent() {
               {selectedIds.size > 0 && (
                 <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/25 text-white font-black ml-0.5">
                   {selectedIds.size}
-                </span>
-              )}
-            </button>
-          )}
-
-          {/* Auto Send to EAS Button (with clock icon & active status badge) */}
-          {isEasyAdServerEnabled && (
-            <button
-              type="button"
-              onClick={() => setShowAutoSendEASModal(true)}
-              className={`inline-flex items-center gap-1.5 px-3 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs hover:shadow-sm cursor-pointer active:scale-95 border ${easScheduleData?.has_schedule && easScheduleData?.is_active
-                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
-                : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200'
-                }`}
-              title="Configure automated scheduled sending to EasyAdServer"
-            >
-              <Clock className={`w-3.5 h-3.5 ${easScheduleData?.has_schedule && easScheduleData?.is_active ? 'text-emerald-600' : 'text-slate-500'}`} />
-              <span>Auto Send to EAS</span>
-              {easScheduleData?.has_schedule && easScheduleData?.is_active && easScheduleData.schedule_time && (
-                <span className="px-1.5 py-0.5 rounded-md text-[10px] bg-emerald-600 text-white font-extrabold ml-0.5 shadow-2xs">
-                  {easScheduleData.schedule_time}
                 </span>
               )}
             </button>

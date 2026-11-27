@@ -161,7 +161,8 @@ export default function AutoLeadFinderPage() {
   const [stateCode, setStateCode] = useState<string>('');
   const [city, setCity] = useState<string>('');
   const [scheduleTime, setScheduleTime] = useState<string>('00:00');
-  const [autoSendEAS, setAutoSendEAS] = useState<boolean>(false);
+  const [autoSendEASMode, setAutoSendEASMode] = useState<'disabled' | 'after_completion' | 'custom_time'>('disabled');
+  const [autoSendEASTime, setAutoSendEASTime] = useState<string>('18:00');
   const [discoveredAreas, setDiscoveredAreas] = useState<any[]>([]);
   const [discoveredPincodes, setDiscoveredPincodes] = useState<string[]>([]);
   const [currentAreaIndex, setCurrentAreaIndex] = useState<number>(0);
@@ -186,7 +187,13 @@ export default function AutoLeadFinderPage() {
       setStateCode(settingsResponse.state_code || (isKutchUser ? 'GJ' : ''));
       setCity(settingsResponse.city || (isKutchUser ? 'Kutch district' : ''));
       setScheduleTime(settingsResponse.schedule_time || '00:00');
-      setAutoSendEAS(settingsResponse.auto_send_eas ?? false);
+      const easMode = settingsResponse.auto_send_eas_mode as ('disabled' | 'after_completion' | 'custom_time' | undefined);
+      if (easMode && ['disabled', 'after_completion', 'custom_time'].includes(easMode)) {
+        setAutoSendEASMode(easMode);
+      } else {
+        setAutoSendEASMode(settingsResponse.auto_send_eas ? 'after_completion' : 'disabled');
+      }
+      setAutoSendEASTime(settingsResponse.auto_send_eas_time || '18:00');
       setDiscoveredAreas(settingsResponse.discovered_areas || []);
       setDiscoveredPincodes(settingsResponse.discovered_pincodes || []);
       setCurrentAreaIndex(settingsResponse.current_area_index || 0);
@@ -196,7 +203,8 @@ export default function AutoLeadFinderPage() {
       setState('');
       setStateCode('');
       setScheduleTime('00:00');
-      setAutoSendEAS(false);
+      setAutoSendEASMode('disabled');
+      setAutoSendEASTime('18:00');
       setDiscoveredAreas([]);
       setDiscoveredPincodes([]);
     }
@@ -296,7 +304,9 @@ export default function AutoLeadFinderPage() {
         city: (city || '').trim(),
         district: (city || '').trim(),
         schedule_time: scheduleTime || '00:00',
-        auto_send_eas: autoSendEAS,
+        auto_send_eas: autoSendEASMode === 'after_completion',
+        auto_send_eas_mode: autoSendEASMode,
+        auto_send_eas_time: autoSendEASTime || '18:00',
         discovered_areas: discoveredAreas,
         discovered_pincodes: discoveredPincodes,
         current_area_index: currentAreaIndex,
@@ -307,7 +317,7 @@ export default function AutoLeadFinderPage() {
         params: { user_email: effectiveEmail }
       });
       toast.success(`Auto LeadFinder configuration saved & scheduled for ${effectiveEmail}!`);
-      
+
       // Invalidate both settings and live schedule monitor so upcoming schedules show immediately
       await queryClient.invalidateQueries({ queryKey: ['auto-leadfinder-settings', effectiveEmail] });
       await queryClient.invalidateQueries({ queryKey: ['scheduled-tasks-live-monitor', effectiveEmail] });
@@ -495,9 +505,8 @@ export default function AutoLeadFinderPage() {
           <button
             onClick={handleTriggerManualRun}
             disabled={isTriggeringRun || isRunning}
-            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition-all cursor-pointer active:scale-95 ${
-              isRunning ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700 disabled:opacity-50'
-            }`}
+            className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold text-white shadow-xs transition-all cursor-pointer active:scale-95 ${isRunning ? 'bg-amber-600 hover:bg-amber-700' : 'bg-teal-600 hover:bg-teal-700 disabled:opacity-50'
+              }`}
           >
             {isTriggeringRun || isRunning ? (
               <>
@@ -539,14 +548,12 @@ export default function AutoLeadFinderPage() {
               <button
                 type="button"
                 onClick={() => handleToggleAutomation(!isActive)}
-                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
-                  isActive ? 'bg-teal-600' : 'bg-slate-300'
-                }`}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${isActive ? 'bg-teal-600' : 'bg-slate-300'
+                  }`}
               >
                 <span
-                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                    isActive ? 'translate-x-4' : 'translate-x-0'
-                  }`}
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${isActive ? 'translate-x-4' : 'translate-x-0'
+                    }`}
                 />
               </button>
               <span className={`text-[11px] font-bold ${isActive ? 'text-teal-700' : 'text-slate-400'}`}>
@@ -556,8 +563,8 @@ export default function AutoLeadFinderPage() {
           </div>
         </div>
 
-        {/* 3-Part Preferences Form: 3 Vertical Columns Side-by-Side */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-stretch pt-1">
+        {/* 4-Part Preferences Form: 4 Vertical Columns Side-by-Side */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 items-stretch pt-1">
           {/* ─────────────────────────────────────────────────────────── */}
           {/* COLUMN 1 / PART 1: Location Selector                        */}
           {/* ─────────────────────────────────────────────────────────── */}
@@ -642,11 +649,10 @@ export default function AutoLeadFinderPage() {
                   value={isKeywordFixed ? 'Travel Agency' : keywordInput}
                   onChange={(e) => setKeywordInput(e.target.value)}
                   placeholder="e.g. Bakery &amp; Cake Shops, Doctors..."
-                  className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all ${
-                    isKeywordFixed
-                      ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
-                      : 'border-slate-200 bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500'
-                  }`}
+                  className={`w-full px-3 py-2.5 rounded-xl border text-xs font-semibold transition-all ${isKeywordFixed
+                    ? 'border-slate-200 bg-slate-100 text-slate-500 cursor-not-allowed'
+                    : 'border-slate-200 bg-white text-slate-900 focus:outline-hidden focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500'
+                    }`}
                 />
               </div>
 
@@ -679,11 +685,10 @@ export default function AutoLeadFinderPage() {
                         key={p}
                         type="button"
                         onClick={() => setKeywordInput(p)}
-                        className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer ${
-                          keywordInput === p
-                            ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold shadow-2xs'
-                            : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
-                        }`}
+                        className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border transition-all cursor-pointer ${keywordInput === p
+                          ? 'bg-teal-50 border-teal-300 text-teal-700 font-bold shadow-2xs'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-100'
+                          }`}
                       >
                         {p}
                       </button>
@@ -723,26 +728,100 @@ export default function AutoLeadFinderPage() {
               />
             </div>
 
-            {/* EAS Option + Save Button */}
-            <div className="space-y-3 pt-2 border-t border-slate-200/70">
-              <label className="flex items-start gap-2.5 p-3 rounded-xl bg-white border border-slate-200 cursor-pointer hover:border-slate-300 transition-colors shadow-2xs">
-                <input
-                  type="checkbox"
-                  checked={autoSendEAS}
-                  onChange={(e) => setAutoSendEAS(e.target.checked)}
-                  className="mt-0.5 rounded text-teal-600 focus:ring-teal-500 w-4 h-4 cursor-pointer"
-                />
-                <div className="text-[11px] leading-snug text-slate-700">
-                  <span className="font-bold text-slate-900 flex items-center gap-1.5">
-                    <span>Send to EasyAdServer Automatically</span>
-                    <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-extrabold">EAS</span>
-                  </span>
-                  <span className="text-slate-500 text-[10px]">
-                    Automatically dispatch freshly scraped leads to EasyAdServer after this run completes.
-                  </span>
-                </div>
-              </label>
+            {/* Schedule Notice */}
+            <div className="pt-2 border-t border-slate-200/70">
+              <div className="text-[10px] text-slate-500 bg-white px-3 py-2 rounded-xl border border-slate-200/80 leading-relaxed">
+                Runs automatically every day at the selected <strong className="text-slate-800">IST</strong> time in the background.
+              </div>
+            </div>
+          </div>
 
+          {/* ─────────────────────────────────────────────────────────── */}
+          {/* COLUMN 4 / PART 4: Auto Send to EAS                         */}
+          {/* ─────────────────────────────────────────────────────────── */}
+          <div className="p-4 bg-slate-50/80 rounded-2xl border border-slate-200/90 flex flex-col justify-between shadow-2xs space-y-4">
+            <div className="space-y-3">
+              <div className="flex items-center justify-between flex-wrap gap-1.5 border-b border-slate-200/70 pb-2.5">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold flex items-center justify-center shadow-2xs">4</span>
+                  <span className="text-sm font-extrabold text-slate-900">Auto Send to EAS</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setAutoSendEASMode(autoSendEASMode === 'disabled' ? 'after_completion' : 'disabled')}
+                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md border transition-colors cursor-pointer ${autoSendEASMode !== 'disabled'
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                    : 'bg-white text-slate-500 border-slate-200 hover:bg-slate-100'
+                    }`}
+                >
+                  {autoSendEASMode !== 'disabled' ? 'Enabled' : 'Disabled'}
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {/* Option 1: After Auto LeadFinder Completion */}
+                <label
+                  className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all shadow-2xs ${autoSendEASMode === 'after_completion'
+                    ? 'bg-teal-50/60 border-teal-300 ring-1 ring-teal-500/20'
+                    : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                >
+                  <input
+                    type="radio"
+                    name="autoSendEASMode"
+                    checked={autoSendEASMode === 'after_completion'}
+                    onChange={() => setAutoSendEASMode('after_completion')}
+                    className="mt-0.5 text-teal-600 focus:ring-teal-500 w-4 h-4 cursor-pointer"
+                  />
+                  <div className="text-[11px] leading-snug">
+                    <span className="font-bold text-slate-900 block">
+                      After Auto LeadFinder Completion
+                    </span>
+                    <span className="text-slate-500 text-[10px] block mt-0.5">
+                      Automatically send eligible leads to EAS once Auto LeadFinder finishes.
+                    </span>
+                  </div>
+                </label>
+
+                {/* Option 2: Custom Timing */}
+                <label
+                  className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition-all shadow-2xs ${autoSendEASMode === 'custom_time'
+                    ? 'bg-teal-50/60 border-teal-300 ring-1 ring-teal-500/20'
+                    : 'bg-white border-slate-200 hover:border-slate-300'
+                    }`}
+                >
+                  <input
+                    type="radio"
+                    name="autoSendEASMode"
+                    checked={autoSendEASMode === 'custom_time'}
+                    onChange={() => setAutoSendEASMode('custom_time')}
+                    className="mt-0.5 text-teal-600 focus:ring-teal-500 w-4 h-4 cursor-pointer"
+                  />
+                  <div className="text-[11px] leading-snug">
+                    <span className="font-bold text-slate-900 block">
+                      Custom Timing
+                    </span>
+                    <span className="text-slate-500 text-[10px] block mt-0.5">
+                      Schedule a daily custom time to send eligible leads to EAS.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              {autoSendEASMode === 'custom_time' && (
+                <div className="pt-1">
+                  <TimePicker
+                    value={autoSendEASTime}
+                    onChange={(t) => setAutoSendEASTime(t)}
+                    label="EAS Dispatch Time"
+                    showPresets={false}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* Save Button */}
+            <div className="pt-2 border-t border-slate-200/70">
               <button
                 type="button"
                 onClick={handleSaveSettings}
@@ -843,11 +922,10 @@ export default function AutoLeadFinderPage() {
         <button
           type="button"
           onClick={() => setActiveTab('overview')}
-          className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'overview'
-              ? 'bg-slate-900 text-white shadow-xs'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
+          className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'overview'
+            ? 'bg-slate-900 text-white shadow-xs'
+            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
         >
           <Compass className="w-3.5 h-3.5 text-teal-400" />
           <span>Scraping Activity &amp; Discovered Areas</span>
@@ -856,11 +934,10 @@ export default function AutoLeadFinderPage() {
         <button
           type="button"
           onClick={() => setActiveTab('tasks')}
-          className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-            activeTab === 'tasks'
-              ? 'bg-slate-900 text-white shadow-xs'
-              : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-          }`}
+          className={`inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'tasks'
+            ? 'bg-slate-900 text-white shadow-xs'
+            : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+            }`}
         >
           <Timer className="w-3.5 h-3.5 text-teal-600" />
           <span>Scheduled Tasks &amp; Execution Monitor</span>
@@ -941,11 +1018,10 @@ export default function AutoLeadFinderPage() {
                   return (
                     <div
                       key={idx}
-                      className={`p-2 rounded-xl border text-[11px] flex items-center justify-between gap-1.5 ${
-                        isCurrent
-                          ? 'bg-teal-50 border-teal-300 ring-1 ring-teal-500/20'
-                          : 'bg-slate-50/50 border-slate-200/70'
-                      }`}
+                      className={`p-2 rounded-xl border text-[11px] flex items-center justify-between gap-1.5 ${isCurrent
+                        ? 'bg-teal-50 border-teal-300 ring-1 ring-teal-500/20'
+                        : 'bg-slate-50/50 border-slate-200/70'
+                        }`}
                     >
                       <span className="font-semibold text-slate-800 truncate" title={area.name}>
                         {area.name}
@@ -974,9 +1050,8 @@ export default function AutoLeadFinderPage() {
                   return (
                     <div
                       key={idx}
-                      className={`p-2 rounded-xl border text-[11px] flex items-center justify-between gap-1.5 ${
-                        isCurrent ? 'bg-teal-50 border-teal-300 ring-1 ring-teal-500/20' : 'bg-slate-50/50 border-slate-200/70'
-                      }`}
+                      className={`p-2 rounded-xl border text-[11px] flex items-center justify-between gap-1.5 ${isCurrent ? 'bg-teal-50 border-teal-300 ring-1 ring-teal-500/20' : 'bg-slate-50/50 border-slate-200/70'
+                        }`}
                     >
                       <span className="font-semibold text-slate-800 truncate" title={`${loc.locality}, ${loc.city}`}>
                         {loc.locality}
@@ -1066,22 +1141,20 @@ export default function AutoLeadFinderPage() {
                             {startedAt}
                           </td>
                           <td className="py-2.5 px-3.5">
-                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              run.trigger_type === 'SCHEDULED'
-                                ? 'bg-purple-50 text-purple-700 border border-purple-200'
-                                : 'bg-blue-50 text-blue-700 border border-blue-200'
-                            }`}>
+                            <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold ${run.trigger_type === 'SCHEDULED'
+                              ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                              : 'bg-blue-50 text-blue-700 border border-blue-200'
+                              }`}>
                               {run.trigger_type === 'SCHEDULED' ? 'Scheduled' : 'Manual'}
                             </span>
                           </td>
                           <td className="py-2.5 px-3.5">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              isSuccess
-                                ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
-                                : isRunActive
-                                  ? 'bg-amber-50 text-amber-700 border border-amber-200 animate-pulse'
-                                  : 'bg-rose-50 text-rose-700 border border-rose-200'
-                            }`}>
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold ${isSuccess
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                              : isRunActive
+                                ? 'bg-amber-50 text-amber-700 border border-amber-200 animate-pulse'
+                                : 'bg-rose-50 text-rose-700 border border-rose-200'
+                              }`}>
                               {isSuccess && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
                               {isRunActive && <Loader2 className="w-3 h-3 animate-spin text-amber-600" />}
                               <span>{run.status}</span>

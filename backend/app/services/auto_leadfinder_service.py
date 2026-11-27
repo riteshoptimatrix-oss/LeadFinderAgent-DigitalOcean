@@ -331,8 +331,19 @@ async def update_settings(payload: Dict[str, Any], user_email: Optional[str] = N
 
     if "schedule_time" in payload and payload["schedule_time"]:
         update_data["schedule_time"] = str(payload["schedule_time"]).strip()
-    if "auto_send_eas" in payload and payload["auto_send_eas"] is not None:
-        update_data["auto_send_eas"] = bool(payload["auto_send_eas"])
+    if "auto_send_eas_mode" in payload and payload["auto_send_eas_mode"] is not None:
+        mode = str(payload["auto_send_eas_mode"]).strip().lower()
+        if mode not in ("disabled", "after_completion", "custom_time"):
+            mode = "disabled"
+        update_data["auto_send_eas_mode"] = mode
+        update_data["auto_send_eas"] = (mode == "after_completion")
+    elif "auto_send_eas" in payload and payload["auto_send_eas"] is not None:
+        enabled = bool(payload["auto_send_eas"])
+        update_data["auto_send_eas"] = enabled
+        update_data["auto_send_eas_mode"] = "after_completion" if enabled else "disabled"
+
+    if "auto_send_eas_time" in payload and payload["auto_send_eas_time"]:
+        update_data["auto_send_eas_time"] = str(payload["auto_send_eas_time"]).strip()
 
     if "country" in payload and payload["country"]:
         update_data["country"] = str(payload["country"]).strip()
@@ -442,6 +453,15 @@ async def delete_user_schedules(user_email: str, db = None) -> Dict[str, Any]:
             "updated_at": datetime.now(timezone.utc)
         }}
     )
+
+    if user_id:
+        await db["eas_schedules"].delete_one({"user_id": user_id})
+        try:
+            from app.main import scheduler
+            from app.api.routes.easyadserver import remove_eas_jobs
+            remove_eas_jobs(scheduler, user_id=user_id)
+        except Exception as eas_rm_err:
+            logger.warning(f"[AUTO_LEADFINDER] Failed removing EAS jobs for {clean_email}: {eas_rm_err}")
 
     logger.info(f"[AUTO_LEADFINDER] Deleted {del_result.deleted_count} schedules/runs for user {clean_email}")
     return {
@@ -559,12 +579,27 @@ async def get_kpi_stats(user_email: Optional[str] = None, db = None) -> Dict[str
 
     effective_is_active = bool(settings.get("is_active", True)) and user_access
 
+    eas_mode = settings.get("auto_send_eas_mode")
+    eas_time = settings.get("auto_send_eas_time") or "18:00"
+    if not eas_mode:
+        if user_id:
+            eas_doc = await db["eas_schedules"].find_one({"user_id": user_id})
+            if eas_doc and eas_doc.get("is_active") and eas_doc.get("schedule_time"):
+                eas_mode = "custom_time"
+                eas_time = eas_doc["schedule_time"]
+        if not eas_mode:
+            eas_mode = "after_completion" if settings.get("auto_send_eas") else "disabled"
+
     return {
         "user_email": clean_email,
         "user_name": user_display_name,
         "is_configured": is_configured,
         "is_active": effective_is_active,
         "daily_limit": settings.get("daily_limit", 500 if is_kutch_target else 100),
+        "schedule_time": settings.get("schedule_time", "00:00"),
+        "auto_send_eas": bool(settings.get("auto_send_eas", False)),
+        "auto_send_eas_mode": eas_mode,
+        "auto_send_eas_time": eas_time,
         "priority_region": settings.get("priority_region") or ("Kutch City & District" if is_kutch_target else ""),
         "country": settings.get("country", "India" if is_kutch_target else ""),
         "country_code": settings.get("country_code", "IN" if is_kutch_target else ""),
@@ -1273,8 +1308,9 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
             {"$set": {"is_running": False, "active_run_id": None}}
         )
 
-        # Rule 1.2: If user enabled automatic dispatch to EasyAdServer upon run completion
-        if settings.get("auto_send_eas") and user_id:
+        # Option 1: If user enabled automatic dispatch to EasyAdServer upon run completion
+        eas_mode = settings.get("auto_send_eas_mode") or ("after_completion" if settings.get("auto_send_eas") else "disabled")
+        if eas_mode == "after_completion" and user_id:
             try:
                 from app.services.easyadserver_service import dispatch_user_leads_to_easyadserver
                 eas_res = await dispatch_user_leads_to_easyadserver(
@@ -1282,6 +1318,13 @@ async def _run_single_user_pipeline(clean_email: str, trigger_type: str = "SCHED
                     user_id=user_id,
                     user_email=clean_email,
                     skip_already_sent=True
+                )
+                await db["auto_leadfinder_runs"].update_one(
+                    {"_id": run_id},
+                    {"$set": {
+                        "eas_dispatched_at": datetime.now(timezone.utc),
+                        "eas_dispatch_result": eas_res.get("message") or ("Success" if eas_res.get("success") else "Failed")
+                    }}
                 )
                 logger.info(f"[AUTO_LEADFINDER] [{clean_email}] Auto EAS dispatch after scraping run {run_id}: {eas_res.get('message')}")
             except Exception as eas_err:

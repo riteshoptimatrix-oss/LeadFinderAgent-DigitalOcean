@@ -87,6 +87,8 @@ class SettingsUpdateRequest(BaseModel):
     default_visibility: Optional[str] = None
     schedule_time: Optional[str] = None
     auto_send_eas: Optional[bool] = None
+    auto_send_eas_mode: Optional[str] = None
+    auto_send_eas_time: Optional[str] = None
 
 
 class DiscoverAreasRequest(BaseModel):
@@ -220,6 +222,16 @@ async def update_settings_endpoint(
     """
     try:
         target_email = resolve_target_user_email(current_user, user_email or payload.assigned_user_email)
+
+        if payload.auto_send_eas_mode == "custom_time":
+            raw_eas_time = (payload.auto_send_eas_time or "").strip()
+            match = re.match(r"^([0-1]?[0-9]|2[0-3]):([0-5][0-9])$", raw_eas_time)
+            if not match:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid auto_send_eas_time format. Please use HH:MM in 24-hour format."
+                )
+
         await update_settings(payload.model_dump(exclude_unset=True), user_email=target_email)
         stats = await get_kpi_stats(user_email=target_email)
 
@@ -230,6 +242,45 @@ async def update_settings_endpoint(
             sched_time = payload.schedule_time or (stats.get("schedule_time") if stats else "00:00")
             is_act = payload.is_active if payload.is_active is not None else (stats.get("is_active", True) if stats else True)
             schedule_auto_leadfinder_job(scheduler, user_email=target_email, schedule_time=sched_time, is_active=is_act)
+
+            # Synchronize Auto Send to EAS custom-time schedule if configured
+            if payload.auto_send_eas_mode is not None or payload.auto_send_eas is not None:
+                eas_mode = stats.get("auto_send_eas_mode", "disabled")
+                eas_time = stats.get("auto_send_eas_time", "18:00")
+                target_uid = stats.get("assigned_user_id")
+                if target_uid:
+                    from app.api.routes.easyadserver import (
+                        schedule_eas_jobs,
+                        remove_eas_jobs,
+                        calculate_bulk_analysis_time,
+                    )
+                    raw_db = db_instance.db if db_instance.db is not None else get_db()
+                    if hasattr(raw_db, "_db"):
+                        raw_db = raw_db._db
+                    now_utc = datetime.now(timezone.utc)
+                    if eas_mode == "custom_time" and eas_time:
+                        parts = eas_time.strip().split(":")
+                        formatted_eas_time = f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+                        await raw_db["eas_schedules"].update_one(
+                            {"user_id": target_uid},
+                            {
+                                "$set": {
+                                    "user_id": target_uid,
+                                    "user_email": target_email,
+                                    "schedule_time": formatted_eas_time,
+                                    "bulk_analysis_time": calculate_bulk_analysis_time(formatted_eas_time),
+                                    "is_active": True,
+                                    "timezone": "Asia/Kolkata",
+                                    "updated_at": now_utc,
+                                },
+                                "$setOnInsert": {"created_at": now_utc},
+                            },
+                            upsert=True,
+                        )
+                        schedule_eas_jobs(scheduler, user_id=target_uid, user_email=target_email, schedule_time=formatted_eas_time)
+                    else:
+                        await raw_db["eas_schedules"].delete_one({"user_id": target_uid})
+                        remove_eas_jobs(scheduler, user_id=target_uid)
         except Exception as sched_err:
             logger.warning(f"[AUTO_LEADFINDER_API] Failed to update live APScheduler job for {target_email}: {sched_err}")
 

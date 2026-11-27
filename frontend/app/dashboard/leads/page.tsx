@@ -152,11 +152,16 @@ function LeadsPageContent() {
   const [sortBy, setSortBy] = useState(() => urlSortBy);
   const [sortOrder, setSortOrder] = useState(() => urlSortOrder);
 
-  // Keep searchQuery state synchronized when URL search params change (e.g. from header search bar)
+  // Keep search & filter states synchronized when URL search params change
   useEffect(() => {
     const currentUrlSearch = searchParams.get('keyword') || searchParams.get('search') || '';
     if (currentUrlSearch !== searchQuery) {
       setSearchQuery(currentUrlSearch);
+      setPage(0);
+    }
+    const currentUrlAssignedTo = searchParams.get('assigned_to') || '';
+    if (currentUrlAssignedTo !== filterAssignedTo) {
+      setFilterAssignedTo(currentUrlAssignedTo);
       setPage(0);
     }
   }, [searchParams]);
@@ -328,6 +333,15 @@ function LeadsPageContent() {
   const selectedUserDisplayName = String(
     selectedUserObj?.full_name || selectedUserObj?.email || filterAssignedTo || ''
   );
+
+  const currentAssignedFilterValue = useMemo(() => {
+    if (!filterAssignedTo) return '';
+    if (filterAssignedTo.toLowerCase() === 'unassigned') return 'unassigned';
+    if (selectedUserObj) {
+      return selectedUserObj.email || selectedUserObj.id || filterAssignedTo;
+    }
+    return filterAssignedTo;
+  }, [filterAssignedTo, selectedUserObj]);
 
   // Admin Assignment modal state
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
@@ -1890,8 +1904,8 @@ function LeadsPageContent() {
             )}
             {isAdmin && filterAssignedTo && (
               <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-50/80 text-indigo-700 border border-indigo-200/60 rounded-lg text-xs font-semibold">
-                User: {(Array.isArray(assignableUsersData) ? assignableUsersData : []).find(u => u && (u.id === filterAssignedTo || u.email === filterAssignedTo))?.full_name || filterAssignedTo}
-                <button onClick={() => setFilterAssignedTo('')} className="hover:text-indigo-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
+                User: {selectedUserDisplayName || filterAssignedTo}
+                <button onClick={() => { setFilterAssignedTo(''); setPage(0); }} className="hover:text-indigo-900 p-0.5 cursor-pointer"><X className="w-3 h-3" /></button>
               </span>
             )}
             {isAdmin && filterIsAutoLead !== 'all' && (
@@ -2010,17 +2024,20 @@ function LeadsPageContent() {
                   <div className="flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-slate-500 uppercase">Assigned User</label>
                     <select
-                      value={filterAssignedTo}
+                      value={currentAssignedFilterValue}
                       onChange={(e) => { setFilterAssignedTo(e.target.value); setPage(0); }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:ring-2 focus:ring-blue-500 focus:bg-white outline-none cursor-pointer"
                     >
                       <option value="">All Users</option>
                       <option value="unassigned">Unassigned Leads Only</option>
-                      {(Array.isArray(assignableUsersData) ? assignableUsersData : []).map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.full_name ? `${u.full_name} (${u.email})` : u.email}
-                        </option>
-                      ))}
+                      {(Array.isArray(allUsersList) ? allUsersList : []).map((u) => {
+                        const optVal = u.email || u.id;
+                        return (
+                          <option key={u.id || u.email} value={optVal}>
+                            {u.full_name ? `${u.full_name} (${u.email})` : u.email}
+                          </option>
+                        );
+                      })}
                     </select>
                   </div>
 

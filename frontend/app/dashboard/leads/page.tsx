@@ -1628,7 +1628,7 @@ function LeadsPageContent() {
         </div>
 
         <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
-          {/* Send to EasyAdServer Button (Dynamic for all authorized users) - Commented out
+          {/* Send to EasyAdServer Button (Dynamic for all authorized users) */}
           {isEasyAdServerEnabled && (
             <button
               type="button"
@@ -1645,7 +1645,6 @@ function LeadsPageContent() {
               )}
             </button>
           )}
-          */}
 
           {/* Bulk AI Analysis Button: Shows live processing state when a bulk job is active */}
           {activeBulkQueue ? (

@@ -161,7 +161,7 @@ def map_lead_to_easyadserver_payload(lead: Dict[str, Any]) -> Dict[str, Any]:
         google_location = f"https://maps.google.com/?q={lat_str},{lng_str}"
 
     return {
-        "name": name,
+        "name": '',
         "country_code": country_code,
         "number": number,
         "mobile": mobile,
